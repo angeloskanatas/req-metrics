@@ -69,7 +69,7 @@ rq.compute_pairs(layers, k=1)                        # information imbalance bet
 rq.compute_pairs(layers, metric="neighborhood_overlap")
 
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
-rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the proxy-ranked layer shortlist of Kanatas et al. (2026)
+rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
 p = rq.protocols.get("kanatas2026")                 # metric variants and parameters of a published protocol
 rq.compute(layers, p.names("pooled"), params=p.params("pooled"), n=p.n_items)
 ```
@@ -159,14 +159,13 @@ and `Records.to_atlas_json` writes new records in its format.
 
 ## Related tools
 
-DADApy and scikit-dimension implement intrinsic-dimension estimators; reptrix
-RankMe, alpha-ReQ and LiDAR for PyTorch models; stable-pretraining Lightning
-callbacks for RankMe and LiDAR on a queue of training batches; lightly a single
-collapse indicator; the harness of Skean et al. (2025) layer-wise entropy,
-curvature and InfoNCE for language models; synesis (Plachouras et al., 2025)
-probe-based informativeness, equivariance, invariance and disentanglement. The
-comparative study of Arputharaj, Jönsson and Eilertsen (TMLR 2026) evaluates seven
-label-free metrics on 260 vision models.
+- DADApy and scikit-dimension: intrinsic-dimension estimators.
+- reptrix: RankMe, alpha-ReQ and LiDAR for PyTorch models.
+- stable-pretraining: Lightning callbacks for RankMe and LiDAR on a queue of training batches.
+- lightly: a single collapse indicator.
+- The analysis code of Skean et al. (2025): layer-wise entropy, curvature and InfoNCE for language models.
+- synesis (Plachouras et al., 2025): probe-based informativeness, equivariance, invariance and disentanglement.
+- Arputharaj, Jönsson and Eilertsen (TMLR 2026): a comparative study of seven label-free metrics on 260 vision models.
 
 req-metrics collects these families in one registry with recorded protocol and
 provenance, shares the singular spectrum and the neighbor table across
