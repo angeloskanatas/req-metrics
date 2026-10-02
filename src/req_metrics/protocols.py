@@ -47,11 +47,11 @@ KANATAS2026 = Protocol(
     paper="Kanatas et al., What Makes a Good Layer? Assessing the Layer-Wise Intrinsic Properties of Music "
     "Foundation Models, ISMIR 2026, arXiv:2608.14819",
     pooled=(
-        ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # the ID row of the correlation analysis
-        ("intrinsic_dimension", {}),  # TwoNN, named in the methods
+        ("intrinsic_dimension", {}),  # TwoNN, the paper's estimator
+        ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # the scale-dependent extension, also computed
         ("effective_rank", {"spectrum": "singular", "center": True}),
         ("anisotropy", {"center": True, "l2": True}),
-        ("alpha_req", {}),  # computed, dropped from the text
+        ("alpha_req", {}),  # computed; not among the reported metrics
     ),
     frames=(
         (
@@ -71,13 +71,11 @@ KANATAS2026 = Protocol(
     ),
     n_items=10000,
     notes=(
-        "Section 3.2: 10,000 15-second clips, one per track; pooled vectors are time means for encoders and the "
-        "final token for autoregressive decoders.",
-        "Frame-level curvature runs used 1,000 to 5,000 clips per model, not 10,000.",
-        "The InfoNCE temperature and the LiDAR view count were not recorded in the result files; the values here "
-        "come from the run configuration and the paper text.",
-        "The PTE row of the correlation analysis selects, per model, the configuration among {linear, mlp} x "
-        "{phase, cpsd} with the largest |rho|; 'pte' reproduces the canonical linear/phase score of the text.",
+        "Section 3.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "
+        "for encoders and the final token for autoregressive decoders; frame-level metrics use the full "
+        "token sequences.",
+        "PTE: a linear and an MLP probe per layer on 20,000 clips (70/15/15 split) with all 11 shifts; the "
+        "better variant is reported.",
     ),
 )
 

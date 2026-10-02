@@ -37,12 +37,11 @@ def lidar(
     q = 50. Computed in float64 with symmetric eigendecompositions; the
     epsilon the paper adds inside the logarithm is omitted, zero eigenvalues
     contributing nothing. The paper does not print delta; 1e-4 is the value
-    of the reference implementation of Skean et al. (2025). Protocol of Kanatas et al. (2026):
-    10,000 clips, 10 views, biased denominators, delta 1e-6, a shared
-    augmentation chain across models with task-defining augmentations
-    removed per task family, whereas the original work uses each method's
-    own training augmentations. On autoregressive decoders the layer-wise
-    correlation with downstream accuracy reverses sign in Kanatas et al. (2026).
+    of the reference implementation of Skean et al. (2025). Kanatas et al. (2026)
+    use 10 views per clip on 10,000 clips with one augmentation chain shared
+    across models, excluding the augmentation that alters each task family's
+    defining attribute, whereas the original work uses each method's own
+    training augmentations.
 
     Args:
         views: Augmented representations, shape (q, N, D), q >= 2.
@@ -115,14 +114,14 @@ def infonce(views: Tensor, *, temperature: float = 0.1, center: bool = True, l2:
     cross-entropy of identifying each clip's second view among all N second
     views, with logits the scaled similarities. Rows are centered and
     L2-normalized so logits are cosines over the temperature, the
-    preprocessing of the Skean et al. (2025, ICML) reference implementation and of every
-    stored result file of Kanatas et al. (2026). Lower loss means the layer is more invariant
+    preprocessing of the Skean et al. (2025, ICML) reference implementation and of the
+    protocol of Kanatas et al. (2026). Lower loss means the layer is more invariant
     to the augmentations relative to clip identity. The bound of van den Oord et al.,
     I >= log N - L is reported in nats and as the fraction 1 - L / log N;
     for unrelated views the loss exceeds log N by about half the variance of
     the scaled similarities, so the bound can be negative. The temperature
     is a protocol constant that must be recorded: the
-    reference implementation uses 0.1, the runs of Kanatas et al. (2026) 0.3. The shared
+    reference implementation uses 0.1, the protocol of Kanatas et al. (2026) 0.3. The shared
     augmentation chain contained a pitch shift, which confounds this metric
     on tonal tasks unless that augmentation is removed.
 
@@ -186,13 +185,11 @@ def dime(
     information between the views and is zero when they are unrelated. The
     paper uses Gaussian kernels with alpha = 1.01; the Skean et al. (2025)
     layer-wise reference implementation uses the linear Gram of the states. Both
-    that implementation and the analysis code of Kanatas et al. (2026) replaced the N x N Gram
-    matrices by D x D
-    covariances whenever N > D; the Hadamard product does not commute with
+    that implementation replaces the N x N Gram matrices by D x D covariances
+    whenever N > D; the Hadamard product does not commute with
     that swap, so those values are not the published quantity. This
     implementation follows the definition and therefore costs an N x N
     eigendecomposition per permutation; subsample to a few thousand clips.
-    Excluded from the headline set of Kanatas et al. (2026) for low sign consistency.
 
     Args:
         views: Two views, shape (2, N, D).
@@ -257,5 +254,4 @@ register_metric(
     max_items=3000,
     citation=("skean2023dime",),
     arxiv="2301.08164",
-    tags=("computed-not-in-paper",),
 )(dime)

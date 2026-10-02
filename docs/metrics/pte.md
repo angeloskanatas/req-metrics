@@ -24,7 +24,7 @@ chordal distance between the unit-normalized cross-power and its target
 (score="phase", the definition of Kanatas et al. (2026)), or by the distance of the
 raw cross-power including its magnitude (score="cpsd"). PTE = 1 - d/2 in
 [0, 1]: 1 means transposition-equivariant tonal content is linearly
-decodable, about 0.29 means random phase. Protocol of Kanatas et al. (2026): 10,000
+decodable, about 0.29 means random phase. Protocol of Kanatas et al. (2026): 20,000
 clips split 70/15/15 by clip before shifting, 11 nonzero shifts, Adam at
 1e-3 with weight decay 1e-3, batches of 256 (clip, shift) pairs with
 mixed shifts, up to 200 epochs with early stopping on the validation loss
@@ -36,16 +36,14 @@ caveat that the objective's convexity does not transfer to network
 weights).
 
 Read PTE together with mean_abs_cpsd: a probe whose cross-power magnitude
-stays near zero never trained, and its layer variation then correlates
-with any well-layered task; a working threshold of 0.3 separates trained from
-untrained probes on music encoders. The metric measures transport along the pitch
+stays near zero never left the uniform softmax, and its phase error is then
+noise rather than a measurement. The metric measures transport along the pitch
 axis, not tonal content per se. Kanatas et al. (2026) train a linear and
 an MLP probe per layer and report the better variant: `pte` is the linear
 probe and `pte/mlp` the MLP probe. The phase distance of their definition
 and the distance of the raw cross-power (the STONE loss, magnitude
 included) are both in the extras of every run; `score` chooses which one
-is the value. About 2,000 clips are not enough at
-omega = 7; 10,000 to 20,000 are.
+is the value.
 
 Args:
     z: Unshifted representations, shape (N, D).

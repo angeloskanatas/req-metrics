@@ -23,8 +23,9 @@ to range_max, which traces the dimension as a function of the
 neighborhood size. This follows dadapy's reference implementation: the
 same ratio filter, bisection on the likelihood derivative, and
 Fisher-information standard error. The returned value is the estimate
-whose outer rank n2 equals scale; the correlation analysis of Kanatas et al. (2026) used scale 8,
-the ratio of the 8th to the 4th neighbor distance. Larger range_max
+whose outer rank n2 equals scale. Kanatas et al. (2026) report GRIDE profiles
+qualitatively consistent with TwoNN; their protocol entry uses scale 8, the
+ratio of the 8th to the 4th neighbor distance. Larger range_max
 needs a Neighbors table with that many neighbors per point.
 
 Args:

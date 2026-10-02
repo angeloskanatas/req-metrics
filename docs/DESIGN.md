@@ -24,9 +24,8 @@ views and pitch-shifted copies are inputs the caller builds with their own
 encoder and augmentation callables; `ViewSpec` and `ShiftSpec` are stored with
 every result because the score is only interpretable together with how the
 views were made. Every record carries the preprocessing, the parameters, the
-sample size, the seed, the pooling label and the library version; the result
-files of Kanatas et al. (2026) recorded none of the number of views, the
-InfoNCE temperature or the LiDAR ridge, and such scores cannot be compared.
+sample size, the seed, the pooling label and the library version, because a
+score without them cannot be compared.
 
 ## 2b. Readouts and layouts
 

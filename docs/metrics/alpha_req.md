@@ -4,7 +4,7 @@ Power-law decay exponent of the covariance eigenspectrum (alpha-ReQ).
 
 - Input: `points`
 - Canonical preprocessing: `center`
-- Tags: computed-not-in-paper
+- Tags: none
 - Shared cache: spectrum
 - Cite: `DBLP:conf/nips/AgrawalMGR22` ($\alpha$-ReQ: Assessing Representation
                   Quality in Self-Supervised Learning by measuring eigenspectrum decay (2022)); `stringer2019highdim` (High-dimensional geometry of population responses in visual cortex (2019))

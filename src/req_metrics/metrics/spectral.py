@@ -538,7 +538,6 @@ register_metric(
     inputs=_P,
     preprocess=Preprocess(center=True),
     citation=("DBLP:conf/nips/AgrawalMGR22", "stringer2019highdim"),
-    tags=("computed-not-in-paper",),
 )(alpha_req)
 register_metric(
     "anisotropy",
@@ -559,7 +558,6 @@ register_metric(
     inputs=_P,
     preprocess=Preprocess(),
     citation=("ethayarajh2019contextual", "DBLP:conf/eacl/GodeyCS24", "timkey2021rogue"),
-    tags=("unpublished-variant",),
 )(anisotropy_cosine)
 register_metric(
     "participation_ratio",

@@ -46,8 +46,7 @@ def information_imbalance(
     with a large Delta(B -> A) means A contains the information in B and more.
     The k-neighbor generalization averages the ranks of the k nearest
     A-neighbors, as in DADApy's implementation (Glielmo et al., 2022,
-    Patterns), which the cross-layer and cross-model analysis of Kanatas et al. (2026)
-    used with k = 1 and full neighbor tables. Ranks are exact and computed by
+    Patterns); k = 1 is the original definition. Ranks are exact and computed by
     counting, so no N x N index table is stored; DADApy instead looks neighbors
     up in a truncated table and draws a random rank for items beyond it.
 
@@ -138,5 +137,4 @@ register_metric(
     preprocess=Preprocess(),
     citation=("glielmo2022imbalance", "glielmo2022dadapy"),
     arxiv="2104.15079",
-    tags=("paper-canonical",),
 )(information_imbalance)

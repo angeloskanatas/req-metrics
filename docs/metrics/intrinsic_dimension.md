@@ -4,7 +4,7 @@ TwoNN intrinsic dimension (Facco et al.).
 
 - Input: `points`
 - Canonical preprocessing: `none`
-- Tags: methods-stated
+- Tags: paper-canonical
 - Shared cache: none
 - Origin: https://arxiv.org/abs/1803.06992
 - Cite: `DBLP:journals/corr/abs-1803-06992` (Estimating the intrinsic dimension of datasets by a minimal neighborhood
@@ -26,8 +26,7 @@ infinite ratio, and its neighbors a ratio of 1). The choice matters: on a
 corpus with 13 duplicate clips among 990 the estimate differs by about 20
 percent between the two conventions. extras["n_used"] records the count
 after removal.
-Kanatas et al. (2026) name this estimator in their methods; their
-correlation analysis used GRIDE at the scale of the 8th neighbor (see gride).
+The intrinsic-dimension estimator of Kanatas et al. (2026).
 
 Args:
     x: Points (N, D).

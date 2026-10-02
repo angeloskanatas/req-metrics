@@ -49,8 +49,7 @@ def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> Me
     corpus with 13 duplicate clips among 990 the estimate differs by about 20
     percent between the two conventions. extras["n_used"] records the count
     after removal.
-    Kanatas et al. (2026) name this estimator in their methods; their
-    correlation analysis used GRIDE at the scale of the 8th neighbor (see gride).
+    The intrinsic-dimension estimator of Kanatas et al. (2026).
 
     Args:
         x: Points (N, D).
@@ -132,8 +131,9 @@ def gride(
     neighborhood size. This follows dadapy's reference implementation: the
     same ratio filter, bisection on the likelihood derivative, and
     Fisher-information standard error. The returned value is the estimate
-    whose outer rank n2 equals scale; the correlation analysis of Kanatas et al. (2026) used scale 8,
-    the ratio of the 8th to the 4th neighbor distance. Larger range_max
+    whose outer rank n2 equals scale. Kanatas et al. (2026) report GRIDE profiles
+    qualitatively consistent with TwoNN; their protocol entry uses scale 8, the
+    ratio of the 8th to the 4th neighbor distance. Larger range_max
     needs a Neighbors table with that many neighbors per point.
 
     Args:
@@ -288,7 +288,7 @@ register_metric(
     preprocess=Preprocess(),
     citation=("DBLP:journals/corr/abs-1803-06992", "glielmo2022dadapy"),
     arxiv="1803.06992",
-    tags=("methods-stated",),
+    tags=("paper-canonical",),
     description="TwoNN intrinsic dimension (Facco et al.).",
 )(twonn)
 register_metric(

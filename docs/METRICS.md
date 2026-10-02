@@ -47,11 +47,9 @@ metrics.
 - Citations name author, year and venue; arXiv ids are given once per metric.
   "Published protocol" means the configuration behind the reported numbers of
   Kanatas et al. (2026).
-- Tags mark provenance with respect to that paper and are carried into every
-  record: `paper-canonical` (the variant and parameters behind its headline
-  correlation analysis), `methods-stated` (the variant its methods text names), `computed-not-in-paper`
-  (computed in that analysis, not reported), `unpublished-variant`; `relational`
-  and `collapse-indicator` are family markers.
+- Tags are carried into every record: `paper-canonical` marks the metrics and
+  parameters of that paper's protocol; `relational` and `collapse-indicator` are
+  family markers.
 
 ## 2. Families, in the vocabulary of Arputharaj et al. (2026)
 
@@ -125,10 +123,10 @@ kind. The canonical set:
 
 | metric | estimator / variant | preprocessing | population | views |
 |---|---|---|---|---|
-| intrinsic_dimension | GRIDE at the 8th-neighbor scale (correlation analysis); TwoNN (methods text) | none | pooled | 1 |
+| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale also computed | none | pooled | 1 |
 | effective_rank | singular spectrum | center | pooled | 1 |
 | anisotropy | spectral | center + L2 | pooled | 1 |
-| trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames, 1,000 to 5,000 clips | 1 |
+| trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames | 1 |
 | lidar | effective-rank readout, delta 1e-6, biased denominators | none (LDA centers) | pooled | 10 |
 | infonce | temperature 0.3 | center + L2 | pooled | 2 |
 | pte, pte/mlp | linear and MLP probes, the better reported; omega 7; phase distance | none | pooled | 1 + 11 shifts |
@@ -136,19 +134,12 @@ kind. The canonical set:
 10,000 clips of 15 seconds, one per track; pooled vectors are time means for
 encoders and the final-token state for autoregressive decoders.
 
-What the published result files recorded and what this toolkit records: the
-files carry centering, L2 normalization, the estimator method, the subset
-size and the seed, but not the number of views for LiDAR and InfoNCE, the
-InfoNCE temperature, the LiDAR ridge, the curvature gap, the ID estimator's
-neighbor rank, or the pooling rule. Every record written here therefore
-carries metric and variant, estimator parameters, preprocessing, population
-and pooling label, number of views, number of items, seed, representation
-width and the library version. Anisotropy was stored in two spectral variants
-(with and without row normalization); the published one is centered + L2.
-Frame-level curvature was computed on 1,000 to 5,000 clips per model, not
-10,000. PTE is trained with a linear and an MLP probe per layer and the
-better variant is reported; the cross-power distance that includes the
-magnitude is in the extras of every run next to the phase distance.
+Every record written here carries metric and variant, estimator parameters,
+preprocessing, population and pooling label, number of views, number of items,
+seed, representation width and the library version. PTE is trained with a
+linear and an MLP probe per layer on 20,000 clips and the better variant is
+reported; the cross-power distance that includes the magnitude is in the extras
+of every run next to the phase distance.
 
 ## 5. Intrinsic dimension: caveats
 

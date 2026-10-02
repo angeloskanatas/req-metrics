@@ -31,8 +31,7 @@ values and correlation signs are not comparable across conventions.
 normalize="path_length" divides each
 angle by the sum of the two displacement lengths (RECURVE, Shin et al.,
 2024, NeurIPS, Definition 3.2), the turning rate per unit length used for
-boundary detection; it is no longer scale-free and in Kanatas et al. (2026)
-it removed the cross-layer signal. All three readings come from the same
+boundary detection; it is no longer scale-free. All three readings come from the same
 angles and are in the extras of every call; convention and normalize only
 choose the value. The extras also report the mean cosine itself, the
 "straightness" maximized by Niu et al. (2024, NeurIPS) and Wang et al.

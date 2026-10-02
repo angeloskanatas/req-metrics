@@ -25,12 +25,11 @@ width because rank(S_b) <= n, and finds q = 10 within one percent of
 q = 50. Computed in float64 with symmetric eigendecompositions; the
 epsilon the paper adds inside the logarithm is omitted, zero eigenvalues
 contributing nothing. The paper does not print delta; 1e-4 is the value
-of the reference implementation of Skean et al. (2025). Protocol of Kanatas et al. (2026):
-10,000 clips, 10 views, biased denominators, delta 1e-6, a shared
-augmentation chain across models with task-defining augmentations
-removed per task family, whereas the original work uses each method's
-own training augmentations. On autoregressive decoders the layer-wise
-correlation with downstream accuracy reverses sign in Kanatas et al. (2026).
+of the reference implementation of Skean et al. (2025). Kanatas et al. (2026)
+use 10 views per clip on 10,000 clips with one augmentation chain shared
+across models, excluding the augmentation that alters each task family's
+defining attribute, whereas the original work uses each method's own
+training augmentations.
 
 Args:
     views: Augmented representations, shape (q, N, D), q >= 2.

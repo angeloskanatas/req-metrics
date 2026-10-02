@@ -26,13 +26,13 @@ stored, and the stack is formed with `stack_views(view_0, view_1, ...)`. The
 protocol of Kanatas et al. (2026, Section 3.2) used pitch shifting
 by up to four semitones, time stretching by a factor between 0.85 and 1.15,
 additive Gaussian noise, gain changes, time shifts and low-pass filtering,
-with 10 views per clip for LiDAR and 2 for InfoNCE and DiME on 10,000 clips,
+with 10 views per clip for LiDAR and 2 for InfoNCE on 10,000 clips,
 and it removed the augmentation that alters the task-defining attribute per
 task family: pitch shifts for tonal tasks, time stretching for rhythm tasks.
-`ViewSpec(source="shared", excluded=("PitchShift",), ...)` records this. The
-paper acknowledges that this departs from LiDAR's original use with each
-method's own augmentations, and that cross-model comparison then measures
-invariance to a chosen chain rather than to what each model was trained on.
+`ViewSpec(source="shared", excluded=("PitchShift",), ...)` records this. It
+departs from LiDAR's original use with each method's own augmentations:
+cross-model comparison then measures invariance to a chosen chain rather than
+to what each model was trained on.
 
 ## What each metric does with the views
 
@@ -47,6 +47,5 @@ invariance to a chosen chain rather than to what each model was trained on.
 
 source, augmentations with parameters, excluded augmentations, q, seed, plus
 the metric's own parameters (LiDAR delta and denominators, InfoNCE
-temperature, DiME alpha, kernel and permutation count). The stored
-result files of Kanatas et al. (2026) recorded none of q, temperature or delta, which is
-why these fields are mandatory here.
+temperature, DiME alpha, kernel and permutation count). These fields are
+mandatory because a view-based score cannot be compared without them.
