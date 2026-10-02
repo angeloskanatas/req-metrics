@@ -9,7 +9,9 @@ pipeline, not to the estimators.
 __version__ = "0.0.1"
 
 
+from req_metrics import protocols
 from req_metrics._types import InputKind, MetricResult, Preprocess
+from req_metrics.layouts import frame_tokens_to_pooled, grid_to_pooled, grid_to_tokens, grid_to_trajectory, stack_clips, strip_prefix_tokens
 from req_metrics.metrics.compare import information_imbalance, neighborhood_overlap
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.equivariance import pte
@@ -21,9 +23,13 @@ from req_metrics.metrics.tokens import cls_patch_cosine, token_cosine, token_gra
 from req_metrics.metrics.trajectory import trajectory_curvature
 from req_metrics.metrics.views import alignment, dime, infonce, lidar
 from req_metrics.neighbors import Neighbors
+from req_metrics.pipeline import choose_indices, compute, compute_pairs
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
+from req_metrics.records import Record, Records
 from req_metrics.registry import MetricSpec, get_metric, list_metrics, register_metric
+from req_metrics.selection import rank_runs, top_layers, value_at
 from req_metrics.spectrum import Spectrum
+from req_metrics.stability import Convergence, convergence
 from req_metrics.view_construction import ShiftSpec, ViewSpec, make_shifted, make_views, stack_views
 
 __all__ = [
@@ -73,9 +79,26 @@ __all__ = [
     "cls_patch_cosine",
     "token_gram_drift",
     "embedding_norm",
+    "Record",
+    "Records",
+    "compute",
+    "compute_pairs",
+    "choose_indices",
+    "protocols",
+    "grid_to_trajectory",
+    "grid_to_tokens",
+    "grid_to_pooled",
+    "frame_tokens_to_pooled",
+    "strip_prefix_tokens",
+    "stack_clips",
     "alignment",
     "normalized_std",
     "self_clustering",
     "uniformity",
+    "convergence",
+    "Convergence",
     "neighborhood_overlap",
+    "rank_runs",
+    "top_layers",
+    "value_at",
 ]
