@@ -10,11 +10,14 @@ __version__ = "0.0.1"
 
 
 from req_metrics._types import InputKind, MetricResult, Preprocess
+from req_metrics.metrics.compare import information_imbalance, neighborhood_overlap
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.equivariance import pte
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
+from req_metrics.metrics.norms import embedding_norm
 from req_metrics.metrics.relational import normalized_std, self_clustering, uniformity
 from req_metrics.metrics.spectral import alpha_req, anisotropy_cosine, anisotropy_spectral, effective_rank, eigenvalue_early_enrichment, gaussianity, matrix_entropy, participation_ratio, sparsity, spectral_entropy
+from req_metrics.metrics.tokens import cls_patch_cosine, token_cosine, token_gram_drift, token_norm_outliers
 from req_metrics.metrics.trajectory import trajectory_curvature
 from req_metrics.metrics.views import alignment, dime, infonce, lidar
 from req_metrics.neighbors import Neighbors
@@ -54,6 +57,7 @@ __all__ = [
     "mst_dimension",
     "neighborhood_curvature",
     "local_rectifiability",
+    "information_imbalance",
     "trajectory_curvature",
     "lidar",
     "infonce",
@@ -64,8 +68,14 @@ __all__ = [
     "ShiftSpec",
     "make_shifted",
     "pte",
+    "token_norm_outliers",
+    "token_cosine",
+    "cls_patch_cosine",
+    "token_gram_drift",
+    "embedding_norm",
     "alignment",
     "normalized_std",
     "self_clustering",
     "uniformity",
+    "neighborhood_overlap",
 ]
