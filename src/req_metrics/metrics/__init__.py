@@ -5,4 +5,5 @@ from req_metrics.metrics import (  # noqa: F401
     local_geometry,
     spectral,
     trajectory,
+    views,
 )

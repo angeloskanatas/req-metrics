@@ -14,10 +14,12 @@ from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
 from req_metrics.metrics.spectral import alpha_req, anisotropy_cosine, anisotropy_spectral, effective_rank, eigenvalue_early_enrichment, gaussianity, matrix_entropy, participation_ratio, sparsity, spectral_entropy
 from req_metrics.metrics.trajectory import trajectory_curvature
+from req_metrics.metrics.views import alignment, dime, infonce, lidar
 from req_metrics.neighbors import Neighbors
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
 from req_metrics.registry import MetricSpec, get_metric, list_metrics, register_metric
 from req_metrics.spectrum import Spectrum
+from req_metrics.view_construction import ShiftSpec, ViewSpec, make_shifted, make_views, stack_views
 
 __all__ = [
     "InputKind",
@@ -51,4 +53,13 @@ __all__ = [
     "neighborhood_curvature",
     "local_rectifiability",
     "trajectory_curvature",
+    "lidar",
+    "infonce",
+    "dime",
+    "ViewSpec",
+    "make_views",
+    "stack_views",
+    "ShiftSpec",
+    "make_shifted",
+    "alignment",
 ]
