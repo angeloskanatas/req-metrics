@@ -4,7 +4,7 @@ Pairwise-relation statistics of the L2-normalized point cloud, all label-free an
 parameter-free: the self-clustering score of Tsitsulin et al. (2023), the
 uniformity of Wang and Isola (2020) and the normalized-output standard deviation
 of Chen and He (2021). They describe how points are spread on the unit sphere and
-are the cheap complete-collapse and concentration alarms of the registry.
+are the registry's indicators of complete collapse and of concentration.
 """
 
 from __future__ import annotations

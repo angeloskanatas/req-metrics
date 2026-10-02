@@ -1,7 +1,6 @@
 # Design notes
 
-The decisions behind the library, so that a reader can tell a choice from an
-accident. The per-metric facts are in `METRICS.md` and the cards; this
+The decisions behind the library. The per-metric facts are in `METRICS.md` and the cards; this
 document is about the whole.
 
 ## 1. Inclusion rule: published metrics only
@@ -11,7 +10,7 @@ representation measure, loss statistic or estimator, and it is registered
 with its input contract, canonical preprocessing and citation keys.
 Instruments without a published definition are not registered. Where a
 reference implementation deviates from the published definition, the
-docstring says so and the published definition wins; the deviation is kept
+docstring says so and the published definition takes precedence; the deviation is kept
 only when it is itself published and then as a named variant.
 
 ## 2. Pure estimators, declared inputs, recorded protocol
@@ -87,7 +86,7 @@ hand.
 the current weights at every sweep, so a change between two sweeps is due to
 the model and the curves are comparable with post-hoc runs on checkpoints.
 This costs `n_items` forward passes per sweep, times `1 + q` with view
-metrics. `OnlineBuffer` is the cheap alternative, a ring buffer of the most
+metrics. `OnlineBuffer` is the alternative without extra forward passes, a ring buffer of the most
 recent training-batch outputs of every hooked layer: no extra passes, but it
 measures the training-time representation (augmented inputs, train-mode
 layers, weights that moved while the buffer filled), so its records are tagged

@@ -108,8 +108,8 @@ docstring says so.
 - View group. LiDAR reproduces the analysis code of Kanatas et al. (2026) to
   2e-14 with their biased denominators and delta 1e-6; the default follows
   Thilak et al.'s unbiased estimates and the delta 1e-4 of the Skean et al.
-  (2025) harness. InfoNCE matches to 1e-9. DiME's joint entropy matches
-  repitl to 1e-15; unlike the Skean harness, it never swaps the N x N Gram
+  (2025) analysis code. InfoNCE matches to 1e-9. DiME's joint entropy matches
+  repitl to 1e-15; unlike that analysis code, it never swaps the N x N Gram
   Hadamard product for D x D covariances when N > D, since the two differ
   (single-matrix entropies agree, Hadamard products do not).
 - Equivariance. PTE reproduces the published training loop (mixed-shift

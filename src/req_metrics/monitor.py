@@ -163,7 +163,7 @@ def metric_key_prefix(record: Record) -> tuple[str, str]:
 class OnlineBuffer:
     """Ring buffers of pooled block outputs captured from the ordinary training forward passes.
 
-    The cheap monitoring mode: no extra forward passes. Hooks on the layer modules copy
+    The monitoring mode without extra forward passes. Hooks on the layer modules copy
     the pooled output of every training-mode forward into a per-layer ring buffer that
     keeps the most recent n_items rows, and compute() runs point metrics on the buffers.
     What is measured is the training-time representation: augmented inputs, train-mode
