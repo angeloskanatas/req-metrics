@@ -1,0 +1,26 @@
+req-metrics
+Copyright 2026 Angelos-Nikolaos Kanatas
+
+This product includes software derived from DADApy
+(https://github.com/sissa-data-science/DADApy),
+Copyright 2021-2023 The DADApy Authors, licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+
+The GRIDE likelihood solver and the TwoNN fitting procedure in
+src/req_metrics/metrics/dimension.py are ports of DADApy's
+_utils/utils.py (_filter_mus, _neg_dloglik_did, _argmax_loglik,
+_fisher_info_scaling) and id_estimation.py (_compute_id_2NN,
+return_id_scaling_gride). Changes: rewritten on torch tensors, neighbor
+distances taken from a shared precomputed table instead of recomputed per
+call, scales exposed by their outer neighbor rank, results returned as
+MetricResult. Numerical parity with DADApy is checked in tests/test_dadapy_parity.py.
+
+Method references for every metric are listed in docs/references.bib; the
+toolkit asks users to cite the original paper of each metric they report.
+
+The bias-corrected participation-ratio formulas in req_metrics/metrics/spectral.py
+(participation_ratio with correction="row" or "both") follow the estimators of
+Chun, Canatar, Chung and Lee (ICLR 2026) and their reference implementation
+https://github.com/badooki/dimensionality (MIT License, Copyright (c) 2026 Chan Woo
+Chun). The quartic index sums are computed here in closed form from the Gram matrix
+and column moments and are checked against that implementation.

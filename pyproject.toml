@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "req-metrics"
+version = "0.0.1"
+description = "Representation-quality metrics for layer-wise analysis of pretrained encoders"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "Angelos-Nikolaos Kanatas"}]
+keywords = ["representation learning", "self-supervised learning", "intrinsic dimension", "effective rank", "layer-wise analysis", "training monitoring"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+]
+dependencies = ["numpy>=1.24", "torch>=2.1", "scipy>=1.10"]
+
+[project.urls]
+Repository = "https://github.com/angeloskanatas/req-metrics"
+"Companion site" = "https://angeloskanatas.github.io/music-fms-layer-eval/"
+
+[project.optional-dependencies]
+lightning = ["lightning>=2.2"]
+plot = ["matplotlib>=3.7"]
+dev = ["pytest>=7", "ruff>=0.16", "mypy>=1.8", "lightning>=2.2", "tensorboard>=2.14", "pandas>=2.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+req_metrics = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "E731", "E741", "B008", "UP007", "UP035", "UP006"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["req_metrics"]
