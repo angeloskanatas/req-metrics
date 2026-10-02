@@ -22,6 +22,7 @@ from req_metrics.metrics.spectral import alpha_req, anisotropy_cosine, anisotrop
 from req_metrics.metrics.tokens import cls_patch_cosine, token_cosine, token_gram_drift, token_norm_outliers
 from req_metrics.metrics.trajectory import trajectory_curvature
 from req_metrics.metrics.views import alignment, dime, infonce, lidar
+from req_metrics.monitor import LayerMonitor, OnlineBuffer, csv_sink, json_sink, make_pooler, metric_key_prefix, monitor_loader, resolve_layers, tensorboard_sink, wandb_sink
 from req_metrics.neighbors import Neighbors
 from req_metrics.pipeline import choose_indices, compute, compute_pairs
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
@@ -85,6 +86,16 @@ __all__ = [
     "compute_pairs",
     "choose_indices",
     "protocols",
+    "LayerMonitor",
+    "OnlineBuffer",
+    "metric_key_prefix",
+    "csv_sink",
+    "json_sink",
+    "tensorboard_sink",
+    "wandb_sink",
+    "resolve_layers",
+    "make_pooler",
+    "monitor_loader",
     "grid_to_trajectory",
     "grid_to_tokens",
     "grid_to_pooled",

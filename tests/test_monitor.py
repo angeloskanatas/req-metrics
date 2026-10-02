@@ -1,0 +1,317 @@
+"""LayerMonitor on a toy stack of blocks: pooled and frames populations, views, sinks, Lightning adapter."""
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+
+import req_metrics as rq
+
+
+class Toy(nn.Module):
+    """Three residual blocks over (B, T, D) token sequences."""
+
+    def __init__(self, d=16, t=12):
+        super().__init__()
+        self.blocks = nn.ModuleList([nn.Sequential(nn.Linear(d, d), nn.GELU()) for _ in range(3)])
+        self.t = t
+
+    def forward(self, x):  # x: (B, D) waveform stand-in -> (B, T, D) tokens
+        h = x.unsqueeze(1).repeat(1, self.t, 1) + 0.1 * torch.arange(self.t).view(1, -1, 1)
+        for b in self.blocks:
+            h = h + b(h)
+        return h
+
+
+def loader(n=120, d=16, batch=40, seed=0):
+    g = torch.Generator().manual_seed(seed)
+    data = torch.randn(n, d, generator=g)
+    return [(data[i : i + batch], torch.zeros(batch)) for i in range(0, n, batch)]
+
+
+class MonitorTests(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(0)
+        self.model = Toy().eval()
+
+    def test_pooled_sweep_matches_compute(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks,
+            pool=lambda out: out.mean(dim=1),
+            metrics=["effective_rank", "anisotropy"],
+            n_items=100,
+            model="toy",
+            pooling="time-mean",
+        )
+        rec = mon.sweep(self.model, loader(), step=0)
+        self.assertEqual(len(rec), 6)
+        self.assertEqual(rec[0].extras["step"], 0)
+        self.assertEqual(rec[0].n_items, 100)
+        layers = mon.collect(self.model, loader())
+        direct = rq.compute(layers, ["effective_rank"], n=100)
+        self.assertAlmostEqual(
+            rec.where(metric="effective_rank", layer=2)[0].value, direct.where(layer=2)[0].value, places=9
+        )
+        mon.sweep(self.model, loader(), step=1)
+        self.assertEqual(sorted(mon.profiles("effective_rank")), [0, 1])
+
+    def test_frames_population_and_trajectory_metric(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks, pool=lambda out: out, metrics=["trajectory_curvature"], n_items=60, population="frames"
+        )
+        rec = mon.sweep(self.model, loader(), step=3)
+        self.assertEqual(rec[0].population, "frames")
+        self.assertEqual(rec[0].extras["n_items"], 60)
+
+    def test_views_from_augment_callable(self):
+        aug = lambda x, gen: x + 0.3 * torch.randn(x.shape, generator=gen)
+        mon = rq.LayerMonitor(
+            self.model.blocks,
+            pool=lambda out: out.mean(dim=1),
+            metrics=["effective_rank"],
+            n_items=100,
+            view_metrics=["lidar", "infonce"],
+            augment=aug,
+            q=2,
+            view_spec=rq.ViewSpec(source="objective", augmentations=("gaussian noise 0.3",), q=2),
+        )
+        rec = mon.sweep(self.model, loader(), step=0)
+        self.assertEqual(len(rec.where(metric="lidar")), 3)
+        self.assertEqual(rec.where(metric="lidar")[0].n_views, 2)
+        self.assertIn("gaussian noise", rec.where(metric="infonce")[0].views)
+
+    def test_sinks(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks, pool=lambda out: out.mean(dim=1), metrics=["effective_rank"], n_items=80
+        )
+        with tempfile.TemporaryDirectory() as d:
+            calls = []
+            defined = []
+            fake = type(
+                "W",
+                (),
+                {
+                    "log": lambda self, log: calls.append((log["monitor/step"], sorted(log))),
+                    "define_metric": lambda self, name, step_metric=None: defined.append((name, step_metric)),
+                },
+            )()
+            import sys
+            import types
+
+            stub = types.ModuleType("wandb")
+            stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+            sys.modules["wandb"] = stub
+            try:
+                mon.sweep(
+                    self.model,
+                    loader(),
+                    step=5,
+                    sinks=[rq.csv_sink(Path(d) / "m.csv"), rq.json_sink(Path(d) / "j"), rq.wandb_sink(fake)],
+                )
+                mon.sweep(self.model, loader(), step=6, sinks=[rq.csv_sink(Path(d) / "m.csv")])
+            finally:
+                del sys.modules["wandb"]
+            lines = (Path(d) / "m.csv").read_text().strip().splitlines()
+            self.assertEqual(len(lines), 1 + 3 + 3)
+            self.assertTrue((Path(d) / "j" / "step_5.json").exists())
+            self.assertEqual(json.loads((Path(d) / "j" / "step_5.json").read_text())[0]["metric"], "effective_rank")
+            self.assertEqual(calls[0][0], 5)
+            self.assertEqual(
+                defined[:3],
+                [("monitor/step", None), ("layer_metrics/*", "monitor/step"), ("profiles/*", "monitor/step")],
+            )
+            self.assertEqual(len(defined), 5)
+            self.assertIn("layer_metrics/effective_rank_layer_0", calls[0][1])
+            self.assertIn("profiles/effective_rank", calls[0][1])
+
+    def test_tensorboard_sink(self):
+        try:
+            from torch.utils.tensorboard import SummaryWriter  # noqa: F401
+        except ImportError:
+            self.skipTest("tensorboard not installed")
+        mon = rq.LayerMonitor(self.model.blocks, pool="mean", metrics=["effective_rank"], n_items=80)
+        with tempfile.TemporaryDirectory() as d:
+            mon.sweep(self.model, loader(), step=2, sinks=[rq.tensorboard_sink(d)])
+            self.assertTrue(any(f.startswith("events.out.tfevents") for f in Path(d).iterdir() for f in [f.name]))
+
+    def test_online_buffer_captures_train_mode_only_and_wraps(self):
+        buf = rq.OnlineBuffer(self.model.blocks, pool="mean", n_items=50)
+        buf.attach()
+        self.model.train()
+        for x, _ in loader(n=120, batch=40):  # 3 batches of 40 -> ring of 50 wraps
+            self.model(x)
+        self.model.eval()
+        self.model(torch.randn(40, 16))  # eval-mode forward must be ignored
+        buf.detach()
+        self.assertEqual(buf.seen[0], 120)
+        self.assertEqual(buf.layers()[2].shape, (50, 16))
+        self.assertEqual(buf.pointer[0], 120 % 50)
+        self.model.train()
+        self.model(torch.randn(40, 16))
+        self.assertEqual(buf.seen[0], 120)  # detached: no capture
+        rec = buf.compute(["effective_rank"], step=7, pooling="mean")
+        self.assertEqual(len(rec), 3)
+        self.assertEqual(rec[0].n_items, 50)
+        self.assertEqual(rec[0].extras["source"], "training-batches")
+        self.assertEqual(rec[0].extras["step"], 7)
+        self.assertEqual(rq.metric_key_prefix(rec[0]), ("online_metrics", "online_profiles"))
+        self.assertEqual(buf.history[0][0], 7)
+
+    def test_online_buffer_reads_at_common_count_when_a_block_is_skipped(self):
+        """Stochastic depth: a block that fires less often must not shorten the others' index range."""
+        blocks = nn.ModuleList([nn.Linear(4, 4), nn.Linear(4, 4)])
+        buf = rq.OnlineBuffer(list(blocks), pool=lambda out: out, n_items=50)
+        buf.attach()
+        try:
+            blocks.train()
+            for step in range(6):
+                x = torch.randn(8, 4)
+                blocks[0](x)
+                if step % 3:  # block 1 skipped every third step
+                    blocks[1](x)
+        finally:
+            buf.detach()
+        layers = buf.layers()
+        self.assertEqual({tuple(v.shape) for v in layers.values()}, {(32, 4)})
+        rec = buf.compute(["effective_rank"], step=1)
+        self.assertEqual({r.n_items for r in rec}, {32})
+
+    def test_compute_rejects_layers_of_unequal_length(self):
+        with self.assertRaises(ValueError):
+            rq.compute({0: torch.randn(40, 4), 1: torch.randn(30, 4)}, ["effective_rank"])
+
+    def test_online_buffer_large_batch_keeps_last_rows(self):
+        buf = rq.OnlineBuffer(self.model.blocks, pool="mean", n_items=10)
+        buf.attach()
+        self.model.train()
+        self.model(torch.randn(25, 16))
+        buf.detach()
+        self.assertEqual(buf.layers()[0].shape, (10, 16))
+        self.assertEqual(buf.pointer[0], 0)
+        self.assertEqual(buf.seen[0], 25)
+
+    def test_lightning_adapter_skips_non_zero_rank(self):
+        try:
+            from req_metrics.integrations.lightning import LayerMonitorCallback
+        except ImportError:
+            self.skipTest("lightning not installed")
+        cb = LayerMonitorCallback(
+            ["effective_rank"],
+            layers="blocks",
+            pool="mean",
+            n_items=80,
+            loader=lambda trainer, module: loader(),
+            log=False,
+            online=True,
+        )
+        trainer = type("T", (), {"current_epoch": 0, "logger": None, "global_step": 0, "is_global_zero": False})()
+        cb.on_train_start(trainer, self.model)
+        cb.on_train_epoch_end(trainer, self.model)
+        self.assertIsNone(cb.monitor)
+        self.assertIsNone(cb.online)
+
+    def test_lightning_adapter_logs_to_every_logger(self):
+        try:
+            from req_metrics.integrations.lightning import LayerMonitorCallback
+        except ImportError:
+            self.skipTest("lightning not installed")
+        calls: list[tuple[int, dict]] = []
+
+        class FakeLogger:
+            def __init__(self, idx):
+                self.idx = idx
+
+            def log_metrics(self, metrics, step=None):
+                calls.append((self.idx, metrics))
+
+        loggers = [FakeLogger(0), FakeLogger(1)]
+        trainer = type("T", (), {"current_epoch": 0, "logger": loggers[0], "loggers": loggers, "global_step": 3})()
+        cb = LayerMonitorCallback(
+            ["effective_rank"], layers="blocks", pool="mean", n_items=80, loader=lambda t, m: loader()
+        )
+        cb.on_train_start(trainer, self.model)
+        self.assertEqual(sorted(i for i, _ in calls), [0, 1])
+        self.assertIn("layer_metrics/effective_rank_layer_0", calls[0][1])
+
+    def test_lightning_adapter_with_explicit_loader(self):
+        try:
+            from req_metrics.integrations.lightning import LayerMonitorCallback
+        except ImportError:
+            self.skipTest("lightning not installed")
+        cb = LayerMonitorCallback(
+            ["effective_rank"],
+            layers="blocks",
+            pool="mean",
+            n_items=80,
+            every_n_epochs=2,
+            loader=lambda trainer, module: loader(),
+            log=False,
+        )
+        trainer = type("T", (), {"current_epoch": 0, "logger": None, "global_step": 0})()
+        cb.on_train_start(trainer, self.model)
+        trainer.current_epoch = 1
+        cb.on_train_epoch_end(trainer, self.model)  # epoch 2 -> sweep
+        trainer.current_epoch = 2
+        cb.on_train_epoch_end(trainer, self.model)  # epoch 3 -> skip
+        self.assertEqual([s for s, _ in cb.monitor.history], [0, 2])
+
+
+class GridPoolerTests(unittest.TestCase):
+    """make_pooler's grid readouts equal the per-clip layouts functions, for both token orders."""
+
+    def setUp(self):
+        torch.manual_seed(0)
+        self.b, self.f, self.t, self.d = 3, 4, 5, 6
+        self.grid = torch.randn(self.b, self.f, self.t, self.d)  # (B, F, T, D)
+
+    def _tokens(self, time_axis, n_prefix=0):
+        g = self.grid if time_axis == 1 else self.grid.transpose(1, 2)  # token index f*T+t or t*F+f
+        toks = g.reshape(self.b, self.f * self.t, self.d)
+        return torch.cat([torch.randn(self.b, n_prefix, self.d), toks], dim=1) if n_prefix else toks
+
+    def test_grid_readouts_match_layouts(self):
+        from req_metrics.monitor import make_pooler
+
+        for time_axis in (1, 0):
+            toks = self._tokens(time_axis, n_prefix=1)
+            kw = dict(grid=(self.f, self.t), time_axis=time_axis, n_prefix=1)
+            for mode, ref in [
+                ("gap", lambda g: rq.grid_to_pooled(g, mode="gap")),
+                ("freq_concat_mean", lambda g: rq.grid_to_pooled(g, mode="freq_concat_mean")),
+                ("partitioned", lambda g: rq.grid_to_pooled(g, mode="partitioned", freq_chunks=2, time_chunks=2)),
+                ("freq_concat", lambda g: rq.grid_to_trajectory(g, mode="freq_concat")),
+                ("freq_mean", lambda g: rq.grid_to_trajectory(g, mode="freq_mean")),
+            ]:
+                got = make_pooler(mode, freq_chunks=2, time_chunks=2, **kw)(toks)
+                want = torch.stack([ref(self.grid[i]) for i in range(self.b)])
+                self.assertTrue(torch.allclose(got, want, atol=1e-6), (mode, time_axis))
+
+    def test_grid_readout_needs_grid_and_checks_token_count(self):
+        from req_metrics.monitor import make_pooler
+
+        with self.assertRaises(ValueError):
+            make_pooler("freq_concat_mean")
+        with self.assertRaises(ValueError):
+            make_pooler("gap", grid=(4, 5))(torch.randn(2, 19, 6))
+
+    def test_buffer_and_callback_accept_pool_kwargs(self):
+        from req_metrics.monitor import OnlineBuffer
+
+        blocks = nn.ModuleList([nn.Linear(6, 6)])
+        buf = OnlineBuffer(list(blocks), pool="freq_concat_mean", n_items=8, pool_kwargs={"grid": (4, 5)})
+        self.assertEqual(tuple(buf.pool(torch.randn(2, 20, 6)).shape), (2, 24))
+        try:
+            from req_metrics.integrations.lightning import LayerMonitorCallback
+        except ImportError:
+            self.skipTest("lightning not installed")
+        cb = LayerMonitorCallback(
+            ["effective_rank"], layers=list(blocks), pool="freq_concat_mean", pool_kwargs={"grid": (4, 5)}
+        )
+        self.assertEqual(cb.pool_kwargs, {"grid": (4, 5)})
+
+
+if __name__ == "__main__":
+    unittest.main()
