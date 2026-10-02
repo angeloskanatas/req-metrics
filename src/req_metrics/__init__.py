@@ -1,4 +1,4 @@
-"""Representation-quality metrics for layer-wise analysis of pretrained encoders.
+"""Label-free representation-quality metrics for layer-wise analysis of pretrained models and for monitoring during training.
 
 Estimators are pure functions on tensors that return a MetricResult. The
 registry records, for each metric, its input contract, canonical preprocessing
@@ -6,23 +6,51 @@ and source citation. Populations (pooled, frames, tokens) and I/O belong to the
 pipeline, not to the estimators.
 """
 
-__version__ = "0.0.1"
-
+__version__ = "0.1.0"
 
 from req_metrics import protocols
 from req_metrics._types import InputKind, MetricResult, Preprocess
-from req_metrics.layouts import frame_tokens_to_pooled, grid_to_pooled, grid_to_tokens, grid_to_trajectory, stack_clips, strip_prefix_tokens
+from req_metrics.layouts import (
+    frame_tokens_to_pooled,
+    grid_to_pooled,
+    grid_to_tokens,
+    grid_to_trajectory,
+    stack_clips,
+    strip_prefix_tokens,
+)
 from req_metrics.metrics.compare import information_imbalance, neighborhood_overlap
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.equivariance import pte
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
 from req_metrics.metrics.norms import embedding_norm
 from req_metrics.metrics.relational import normalized_std, self_clustering, uniformity
-from req_metrics.metrics.spectral import alpha_req, anisotropy_cosine, anisotropy_spectral, effective_rank, eigenvalue_early_enrichment, gaussianity, matrix_entropy, participation_ratio, sparsity, spectral_entropy
+from req_metrics.metrics.spectral import (
+    alpha_req,
+    anisotropy_cosine,
+    anisotropy_spectral,
+    effective_rank,
+    eigenvalue_early_enrichment,
+    gaussianity,
+    matrix_entropy,
+    participation_ratio,
+    sparsity,
+    spectral_entropy,
+)
 from req_metrics.metrics.tokens import cls_patch_cosine, token_cosine, token_gram_drift, token_norm_outliers
 from req_metrics.metrics.trajectory import trajectory_curvature
 from req_metrics.metrics.views import alignment, dime, infonce, lidar
-from req_metrics.monitor import LayerMonitor, OnlineBuffer, csv_sink, json_sink, make_pooler, metric_key_prefix, monitor_loader, resolve_layers, tensorboard_sink, wandb_sink
+from req_metrics.monitor import (
+    LayerMonitor,
+    OnlineBuffer,
+    csv_sink,
+    json_sink,
+    make_pooler,
+    metric_key_prefix,
+    monitor_loader,
+    resolve_layers,
+    tensorboard_sink,
+    wandb_sink,
+)
 from req_metrics.neighbors import Neighbors
 from req_metrics.pipeline import choose_indices, compute, compute_pairs
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
