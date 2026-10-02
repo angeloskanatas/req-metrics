@@ -160,20 +160,23 @@ companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
 
 ## Related tools
 
-- DADApy and scikit-dimension: intrinsic-dimension estimators.
-- reptrix: RankMe, alpha-ReQ and LiDAR for PyTorch models.
-- stable-pretraining: Lightning callbacks for RankMe and LiDAR on a queue of training batches.
-- lightly: a single collapse indicator.
-- The analysis code of Skean et al. (2025): layer-wise entropy, curvature and InfoNCE for language models.
-- synesis (Plachouras et al., 2025): probe-based informativeness, equivariance, invariance and disentanglement.
-- Arputharaj, Jönsson and Eilertsen (TMLR 2026): a comparative study of seven label-free metrics on 260 vision models.
+- [DADApy](https://github.com/sissa-data-science/DADApy) and
+  [scikit-dimension](https://github.com/scikit-learn-contrib/scikit-dimension): intrinsic-dimension estimators.
+- [reptrix](https://github.com/BARL-SSL/reptrix): RankMe, alpha-ReQ and LiDAR for PyTorch models.
+- [stable-pretraining](https://github.com/galilai-group/stable-pretraining): Lightning callbacks for RankMe
+  and LiDAR on a queue of training batches.
+- [lightly](https://github.com/lightly-ai/lightly): a collapse indicator for self-supervised training.
+- [information_flow](https://github.com/OFSkean/information_flow) (Skean et al., ICML 2025,
+  arXiv:2502.02013): layer-wise entropy, curvature and InfoNCE for language models.
+- [synesis](https://github.com/chrispla/synesis) (Plachouras et al., IJCNN 2025, arXiv:2505.06224):
+  probe-based informativeness, equivariance, invariance and disentanglement.
+- Arputharaj, Jönsson and Eilertsen (TMLR 2026, arXiv:2608.23182): a comparative study of seven
+  label-free metrics on 260 vision models.
 
 req-metrics collects these families in one registry with recorded protocol and
 provenance, shares the singular spectrum and the neighbor table across
 estimators, separates the population a metric sees from the estimator, and
-produces the same records during training and post hoc, for every layer. Any
-extractor can supply the embeddings; Essentia's `TensorflowPredictMAEST`, for
-example, exposes intermediate layers through its `output` parameter.
+produces the same records during training and post hoc, for every layer.
 
 ## Development
 
