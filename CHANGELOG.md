@@ -8,10 +8,10 @@ Keep a Changelog; versions follow Semantic Versioning.
 First public release.
 
 - 41 label-free representation-quality metrics in ten groups: spectral (effective rank,
-  spectral and matrix entropy, alpha-ReQ, anisotropy, participation ratio with the
-  bias correction of Chun et al., eigenvalue early enrichment, Gaussianity, sparsity),
-  intrinsic dimension (TwoNN and GRIDE as ports of DADApy, Levina-Bickel MLE, mLID,
-  MST dimension), local geometry (kNN curvature, local rectifiability), relational
+  spectral and matrix entropy, alpha-ReQ, anisotropy, participation ratio with a
+  finite-sample bias correction, eigenvalue early enrichment, Gaussianity, sparsity),
+  intrinsic dimension (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST dimension), local
+  geometry (kNN curvature, local rectifiability), relational
   (self-clustering, uniformity, normalized standard deviation), trajectory curvature
   (signed, absolute, RECURVE), view metrics (LiDAR, InfoNCE, DiME, alignment),
   pitch-transposition equivariance, layer-pair metrics (information imbalance,
