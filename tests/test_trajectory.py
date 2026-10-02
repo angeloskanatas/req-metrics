@@ -50,10 +50,10 @@ class TrajectoryCurvatureTests(unittest.TestCase):
     def test_registry_variants(self):
         torch.manual_seed(2)
         z = torch.randn(500, 8)
+        r = rq.trajectory_curvature(z)
+        self.assertAlmostEqual(r.extras["abs"], rq.trajectory_curvature(z, convention="abs").value, places=12)
         self.assertAlmostEqual(
-            rq.get_metric("trajectory_curvature/abs").fn(z).value,
-            rq.trajectory_curvature(z, convention="abs").value,
-            places=12,
+            r.extras["path_length_normalized"], rq.trajectory_curvature(z, normalize="path_length").value, places=12
         )
         self.assertEqual(rq.get_metric("trajectory_curvature").inputs, rq.InputKind.TRAJECTORY)
 

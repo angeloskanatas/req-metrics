@@ -54,8 +54,10 @@ KANATAS2026 = Protocol(
         ("alpha_req", {}),  # computed, dropped from the text
     ),
     frames=(
-        ("trajectory_curvature", {"k": 1, "convention": "signed"}),  # the methods definition
-        ("trajectory_curvature/abs", {"k": 1}),  # the correlation analysis (loaded negated)
+        (
+            "trajectory_curvature",
+            {"k": 1, "convention": "signed"},
+        ),  # the methods definition; the correlation analysis read extras["abs"], negated
     ),
     views=(
         ("lidar", {"delta": 1e-6, "unbiased": False}),  # 10 views per clip
@@ -65,7 +67,7 @@ KANATAS2026 = Protocol(
         ),  # 2 views; temperature from the run configuration
     ),
     shifted=(
-        ("pte", {"method": "shared", "probe": "linear", "score": "phase"}),  # 11 nonzero shifts
+        ("pte", {"probe": "linear", "score": "phase"}),  # 11 nonzero shifts; cpsd_rmse in the extras
     ),
     n_items=10000,
     notes=(

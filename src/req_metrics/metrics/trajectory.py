@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from functools import partial
 
 import torch
 from torch import Tensor
@@ -33,7 +32,9 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
     angle by the sum of the two displacement lengths (RECURVE, Shin et al.,
     2024, NeurIPS, Definition 3.2), the turning rate per unit length used for
     boundary detection; it is no longer scale-free and in Kanatas et al. (2026)
-    it removed the cross-layer signal. The extras report the mean cosine itself, the
+    it removed the cross-layer signal. All three readings come from the same
+    angles and are in the extras of every call; convention and normalize only
+    choose the value. The extras also report the mean cosine itself, the
     "straightness" maximized by Niu et al. (2024, NeurIPS) and Wang et al.
     (2026, ICML).
 
@@ -45,7 +46,8 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
 
     Returns:
         value: mean curvature in radians (or radians per unit length).
-        extras: degrees (value in degrees for normalize="none"), mean_cos, n_angles, n_zero_steps.
+        extras: signed and abs (both conventions, radians) with signed_degrees and abs_degrees,
+            path_length_normalized (the RECURVE reading), mean_cos, n_angles, n_zero_steps.
     """
     if z.ndim != 2:
         raise ValueError(f"expected (T, D), got shape {tuple(z.shape)}")
@@ -62,23 +64,25 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
         raise ValueError("every displacement pair has a zero-length step")
     dots = (a[valid] * b[valid]).sum(dim=1)
     cos = (dots / (na[valid] * nb[valid])).clamp(-1.0, 1.0)
-    if convention == "abs":
-        angles = torch.arccos(cos.abs())
-    elif convention == "signed":
-        angles = torch.arccos(cos)
-    else:
+    if convention not in ("signed", "abs"):
         raise ValueError(f"unknown convention {convention!r}")
-    if normalize == "path_length":
-        value = float((angles / (na[valid] + nb[valid])).mean())
-        extras = {}
-    elif normalize == "none":
-        value = float(angles.mean())
-        extras = {"degrees": math.degrees(value)}
-    else:
+    if normalize not in ("none", "path_length"):
         raise ValueError(f"unknown normalize {normalize!r}")
-    extras.update(
-        {"mean_cos": float(cos.mean()), "n_angles": float(valid.sum()), "n_zero_steps": float((~valid).sum())}
-    )
+    signed, folded, lengths = torch.arccos(cos), torch.arccos(cos.abs()), na[valid] + nb[valid]
+    angles = signed if convention == "signed" else folded
+    value = float((angles / lengths).mean()) if normalize == "path_length" else float(angles.mean())
+    extras = {
+        "signed": float(signed.mean()),
+        "abs": float(folded.mean()),
+        "signed_degrees": math.degrees(float(signed.mean())),
+        "abs_degrees": math.degrees(float(folded.mean())),
+        "path_length_normalized": float((angles / lengths).mean()),
+        "mean_cos": float(cos.mean()),
+        "n_angles": float(valid.sum()),
+        "n_zero_steps": float((~valid).sum()),
+    }
+    if normalize == "none":
+        extras["degrees"] = math.degrees(value)
     return MetricResult(value, extras)
 
 
@@ -91,19 +95,3 @@ register_metric(
     tags=("paper-canonical",),
     description="Mean turning angle of a frame trajectory, oriented angle in [0, pi].",
 )(trajectory_curvature)
-register_metric(
-    "trajectory_curvature/abs",
-    inputs=_T,
-    preprocess=Preprocess(),
-    citation=("DBLP:conf/icml/SkeanAZPNLS25", "henaff2019perceptual"),
-    arxiv="2502.02013",
-    tags=("heldout-canonical",),
-    description="Turning angle folded to [0, pi/2] by the absolute cosine (Skean implementation).",
-)(partial(trajectory_curvature, convention="abs"))
-register_metric(
-    "trajectory_curvature/recurve",
-    inputs=_T,
-    preprocess=Preprocess(),
-    citation=("shin2024recurve",),
-    description="Turning angle per unit path length (RECURVE Definition 3.2).",
-)(partial(trajectory_curvature, normalize="path_length"))

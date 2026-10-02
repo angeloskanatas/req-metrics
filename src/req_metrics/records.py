@@ -100,23 +100,37 @@ _ATLAS_NAMES = {
     "alpha_req": ("alpha", "default"),
     "infonce": ("infonce", "default"),
     "lidar": ("lidar", "default"),
-    "trajectory_curvature/abs": ("curvature", "default"),
     "trajectory_curvature": ("curvature", "signed"),
     "pte": ("pte", "lin_phase"),
     "pte/mlp": ("pte", "mlp_phase"),
-    "pte/cpsd": ("pte", "lin_cpsd"),
 }
 
 
-def atlas_name(r: Record) -> tuple[str, str]:
-    """(metric, variant) in the companion site's vocabulary for one record."""
+def atlas_rows(r: Record) -> list[tuple[str, str, float]]:
+    """(metric, variant, value) triples in the companion site's vocabulary for one record.
+
+    Conventions the site stores as separate variants are read from the extras of
+    one record: the folded curvature next to the signed one, and the cpsd distance
+    of a PTE probe next to its phase distance.
+    """
     if r.metric == "intrinsic_dimension/gride":
-        return "id", f"gride_k{int(r.params.get('scale', 8))}"
-    if r.metric == "pte" and r.params.get("probe") == "mlp":
-        return "pte", "mlp_cpsd" if r.params.get("score") == "cpsd" else "mlp_phase"
-    if r.metric == "pte" and r.params.get("score") == "cpsd":
-        return "pte", "lin_cpsd"
-    return _ATLAS_NAMES.get(r.metric, (r.metric.replace("/", "_"), "default"))
+        return [("id", f"gride_k{int(r.params.get('scale', 8))}", r.value)]
+    if r.metric == "trajectory_curvature" and "signed" in r.extras and "abs" in r.extras:
+        return [("curvature", "signed", float(r.extras["signed"])), ("curvature", "default", float(r.extras["abs"]))]
+    if r.metric in ("pte", "pte/mlp") and "phase_rmse" in r.extras and "cpsd_rmse" in r.extras:
+        probe = "mlp" if r.metric == "pte/mlp" or r.params.get("probe") == "mlp" else "lin"
+        return [
+            ("pte", f"{probe}_phase", 1.0 - float(r.extras["phase_rmse"]) / 2.0),
+            ("pte", f"{probe}_cpsd", 1.0 - float(r.extras["cpsd_rmse"]) / 2.0),
+        ]
+    metric, variant = _ATLAS_NAMES.get(r.metric, (r.metric.replace("/", "_"), "default"))
+    return [(metric, variant, r.value)]
+
+
+def atlas_name(r: Record) -> tuple[str, str]:
+    """(metric, variant) of the first site row of a record."""
+    metric, variant, _ = atlas_rows(r)[0]
+    return metric, variant
 
 
 class Records:
@@ -194,23 +208,24 @@ class Records:
         onto that vocabulary; unmapped metrics keep their registry name with "/"
         replaced by "_" and variant "default".
         """
-        groups: dict[tuple[str, str], list[Record]] = {}
+        groups: dict[tuple[str, str], list[tuple[Record, float]]] = {}
         for r in self.rows:
             if r.layer_b is not None:
                 continue
-            groups.setdefault(atlas_name(r), []).append(r)
+            for metric, variant, value in atlas_rows(r):
+                groups.setdefault((metric, variant), []).append((r, value))
         records = []
         for (metric, variant), rows in sorted(groups.items()):
-            rows = sorted(rows, key=lambda r: r.layer if r.layer is not None else -1)
+            rows = sorted(rows, key=lambda rv: rv[0].layer if rv[0].layer is not None else -1)
             records.append(
                 {
                     "metric": metric,
                     "variant": variant,
-                    "layers": [r.value for r in rows],
+                    "layers": [value for _, value in rows],
                     "n_layers": len(rows),
-                    "tags": sorted({t for r in rows for t in r.tags}),
-                    "corpus": corpus if corpus is not None else rows[0].corpus,
-                    "source": f"req-metrics {rows[0].version}",
+                    "tags": sorted({t for r, _ in rows for t in r.tags}),
+                    "corpus": corpus if corpus is not None else rows[0][0].corpus,
+                    "source": f"req-metrics {rows[0][0].version}",
                 }
             )
         payload = {

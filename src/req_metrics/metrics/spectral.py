@@ -64,7 +64,8 @@ def effective_rank(x: Tensor | Spectrum, *, spectrum: str = "singular", center: 
     that the effective rank ignores. Skean et al. (2025, ICML) and the reptrix
     library normalize the eigenvalues of the covariance instead (s_k^2),
     which weights the leading directions more heavily; pass
-    spectrum="variance" for that convention.
+    spectrum="variance" for that convention. Both conventions come from the
+    same spectrum, so the other one is always in the extras.
 
     The matrix is mean-centered before the SVD. RankMe as published does
     not center; the reptrix reference implementation does, through PCA.
@@ -82,10 +83,12 @@ def effective_rank(x: Tensor | Spectrum, *, spectrum: str = "singular", center: 
     Returns:
         value: effective rank in [1, min(N, D)].
         extras: entropy, normalized_entropy (over log min(N, D)), normalized_rank = value / D
-            (RankMe* of Tsitsulin et al., 2023, the fraction of the width in use).
+            (RankMe* of Tsitsulin et al., 2023, the fraction of the width in use), and the
+            effective rank under the other spectrum convention.
     """
     s = _spectrum(x, Preprocess(center=center))
     h = _renyi_entropy(s.normalized(spectrum), 1.0)
+    h_other = _renyi_entropy(s.normalized("variance" if spectrum == "singular" else "singular"), 1.0)
     h_max = math.log(min(s.n, s.d))
     return MetricResult(
         math.exp(h),
@@ -93,6 +96,7 @@ def effective_rank(x: Tensor | Spectrum, *, spectrum: str = "singular", center: 
             "entropy": h,
             "normalized_entropy": h / h_max if h_max > 0 else float("nan"),
             "normalized_rank": math.exp(h) / s.d,
+            ("variance_convention" if spectrum == "singular" else "singular_convention"): math.exp(h_other),
         },
     )
 
@@ -512,15 +516,6 @@ register_metric(
     arxiv="2210.02885",
     tags=("paper-canonical",),
 )(effective_rank)
-register_metric(
-    "effective_rank/variance",
-    cache="spectrum",
-    inputs=_P,
-    preprocess=Preprocess(center=True),
-    citation=("DBLP:conf/icml/SkeanAZPNLS25", "DBLP:conf/icml/GarridoBNL23"),
-    arxiv="2502.02013",
-    description="Effective rank of the covariance eigenvalues (Skean, reptrix convention).",
-)(partial(effective_rank, spectrum="variance"))
 register_metric(
     "spectral_entropy",
     cache="spectrum",

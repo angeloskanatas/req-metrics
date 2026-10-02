@@ -54,20 +54,18 @@ def _head(input_dim: int, hidden_units: Sequence[int]) -> nn.Sequential:
 class _Probe(nn.Module):
     """Probe from embeddings to a 12-bin softmax key profile, projected on the circle of fifths.
 
-    shared: the same head maps the clip and its transposition; the cross-power
+    The same head maps the clip and its transposition; the cross-power
     Z(y) Z(y')^* of the two projections is compared with exp(-2 pi i omega k / 12).
-    concat: one head maps the concatenated pair and its projection is compared
-    with exp(+2 pi i omega k / 12) (relative-shift decodability; not in Kanatas et al., 2026).
-    The negative sign for shared is the waveform pitch-shift-up convention of
-    Kanatas et al. (2026); STONE's CQT crop shifts pitch classes the other way and uses the
+    The negative sign is the waveform pitch-shift-up convention of Kanatas et al.
+    (2026); STONE's CQT crop shifts pitch classes the other way and uses the
     positive sign.
     """
 
-    def __init__(self, input_dim: int, method: str, probe: str, hidden_units: Sequence[int], temperature: float):
+    def __init__(self, input_dim: int, probe: str, hidden_units: Sequence[int], temperature: float):
         super().__init__()
-        self.method, self.temperature = method, temperature
+        self.temperature = temperature
         hu = list(hidden_units) if probe == "mlp" else []
-        self.head = _head(input_dim * 2 if method == "concat" else input_dim, hu)
+        self.head = _head(input_dim, hu)
         self.z = _ZTransform()
         if probe == "mlp":
             with torch.no_grad():
@@ -75,10 +73,9 @@ class _Probe(nn.Module):
                     if isinstance(m, nn.Linear):
                         nn.init.xavier_uniform_(m.weight)
                         nn.init.zeros_(m.bias)
-                if method == "shared":
-                    last = self.head[-1]
-                    assert isinstance(last, nn.Linear)
-                    last.bias.data[0] = 2.0  # breaks the uniform-softmax fixed point (|Z| = 0, zero gradient)
+                last = self.head[-1]
+                assert isinstance(last, nn.Linear)
+                last.bias.data[0] = 2.0  # breaks the uniform-softmax fixed point (|Z| = 0, zero gradient)
 
     def profile(self, x: Tensor) -> Tensor:
         """Softmax pitch-class profile of the probe head."""
@@ -86,14 +83,11 @@ class _Probe(nn.Module):
 
     def cross_power(self, z_orig: Tensor, z_shifted: Tensor) -> Tensor:
         """Cross-power spectral density between the original and shifted circle projections."""
-        if self.method == "concat":
-            return self.z(self.profile(torch.cat([z_orig, z_shifted], dim=-1)))
         return self.z(self.profile(z_orig)) * self.z(self.profile(z_shifted)).conj()
 
     def target(self, k: Tensor) -> Tensor:
         """Expected unit-modulus phase for a shift of k semitones."""
-        sign = 1.0 if self.method == "concat" else -1.0
-        return torch.exp(sign * 1j * 2 * torch.pi * self.z.omega * k)
+        return torch.exp(-1j * 2 * torch.pi * self.z.omega * k)
 
     def forward(self, z_orig: Tensor, z_shifted: Tensor, k: Tensor) -> Tensor:
         """Mean squared distance between the target phase and the measured cross-power."""
@@ -104,7 +98,6 @@ def pte(
     z: Tensor,
     shifted: Mapping[int, Tensor],
     *,
-    method: str = "shared",
     probe: str = "linear",
     score: str = "phase",
     hidden_units: Sequence[int] = (512, 256),
@@ -136,8 +129,8 @@ def pte(
     1e-3 with weight decay 1e-3, batches of 256 (clip, shift) pairs with
     mixed shifts, up to 200 epochs with early stopping on the validation loss
     after 15 flat epochs, best validation state restored. The MLP probe uses
-    Xavier initialization, and for the shared method an asymmetric output
-    bias and softmax temperature 0.5, which break the uniform-softmax fixed
+    Xavier initialization, an asymmetric output bias and softmax temperature
+    0.5, which break the uniform-softmax fixed
     point where the gradient vanishes (the mitigation of Theorem III.2's
     caveat that the objective's convexity does not transfer to network
     weights).
@@ -145,15 +138,19 @@ def pte(
     Read PTE together with mean_abs_cpsd: a probe whose cross-power magnitude
     stays near zero never trained, and its layer variation then correlates
     with any well-layered task; a working threshold of 0.3 separates trained from
-    untrained probes on music encoders. The shared method measures transport along the pitch
-    axis, not tonal content per se. About 2,000 clips are not enough at
+    untrained probes on music encoders. The metric measures transport along the pitch
+    axis, not tonal content per se. Kanatas et al. (2026) train a linear and
+    an MLP probe per layer and report the better variant: `pte` is the linear
+    probe and `pte/mlp` the MLP probe. The phase distance of their definition
+    and the distance of the raw cross-power (the STONE loss, magnitude
+    included) are both in the extras of every run; `score` chooses which one
+    is the value. About 2,000 clips are not enough at
     omega = 7; 10,000 to 20,000 are.
 
     Args:
         z: Unshifted representations, shape (N, D).
         shifted: Map from semitone shift k (nonzero integers) to representations, each (N, D),
             rows aligned with z. Positive k means the audio was shifted up in pitch.
-        method: "shared" (Kanatas et al., 2026) or "concat" (paired-probe decodability, not in that paper).
         probe: "linear" (paper) or "mlp".
         score: "phase" (paper) or "cpsd".
         hidden_units: MLP widths.
@@ -165,7 +162,7 @@ def pte(
 
     Returns:
         value: PTE from the chosen distance.
-        extras: phase_rmse, cpsd_rmse, mean_abs_cpsd (or mean_abs_z_pred for concat), val_rmse,
+        extras: phase_rmse, cpsd_rmse, mean_abs_cpsd, val_rmse,
             train_rmse, epochs_trained, rmse_k{k} per shift, n_train, n_test.
     """
     if z.ndim != 2:
@@ -176,10 +173,10 @@ def pte(
     for k in ks:
         if tuple(shifted[k].shape) != tuple(z.shape):
             raise ValueError(f"shifted[{k}] has shape {tuple(shifted[k].shape)}, expected {tuple(z.shape)}")
-    if method not in ("shared", "concat") or probe not in ("linear", "mlp") or score not in ("phase", "cpsd"):
-        raise ValueError("method in {shared, concat}, probe in {linear, mlp}, score in {phase, cpsd}")
+    if probe not in ("linear", "mlp") or score not in ("phase", "cpsd"):
+        raise ValueError("probe in {linear, mlp}, score in {phase, cpsd}")
     if temperature is None:
-        temperature = 0.5 if (method == "shared" and probe == "mlp") else 1.0
+        temperature = 0.5 if probe == "mlp" else 1.0
     dev = torch.device(device) if device is not None else torch.device("cpu")
 
     n, d = z.shape
@@ -205,7 +202,7 @@ def pte(
     n_k = len(ks)
 
     torch.manual_seed(seed)
-    model = _Probe(d, method, probe, hidden_units, temperature).to(dev)
+    model = _Probe(d, probe, hidden_units, temperature).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     def split_loss(z_part: Tensor, s_part: Tensor) -> float:
@@ -262,7 +259,7 @@ def pte(
             {
                 "phase_rmse": phase_rmse,
                 "cpsd_rmse": cpsd_rmse,
-                "mean_abs_cpsd" if method == "shared" else "mean_abs_z_pred": mag / n_k,
+                "mean_abs_cpsd": mag / n_k,
                 "val_rmse": math.sqrt(split_loss(z_va, s_va)),
                 "train_rmse": math.sqrt(split_loss(z_tr, s_tr)),
                 "epochs_trained": float(last + 1),
@@ -282,7 +279,7 @@ register_metric(
     citation=("kanatas2026goodlayer", "DBLP:conf/ismir/KongLMWLH24", "DBLP:journals/spl/LostanlenKMLH25"),
     arxiv="2608.14819",
     tags=("paper-canonical",),
-    description="Pitch-transposition equivariance, shared linear probe, phase distance (Kanatas et al., 2026).",
+    description="Pitch-transposition equivariance, linear probe, phase distance (Kanatas et al., 2026).",
 )(pte)
 register_metric(
     "pte/mlp",
@@ -290,15 +287,6 @@ register_metric(
     preprocess=Preprocess(),
     citation=("kanatas2026goodlayer", "DBLP:conf/ismir/KongLMWLH24"),
     arxiv="2608.14819",
-    tags=("paper-figure-config",),
-    description="PTE with the MLP probe (a configuration of the correlation analysis of Kanatas et al., 2026).",
+    tags=("paper-canonical",),
+    description="Pitch-transposition equivariance, MLP probe; Kanatas et al. (2026) report the better of the two probes.",
 )(partial(pte, probe="mlp"))
-register_metric(
-    "pte/cpsd",
-    inputs=_S,
-    preprocess=Preprocess(),
-    citation=("kanatas2026goodlayer", "DBLP:conf/ismir/KongLMWLH24"),
-    arxiv="2608.14819",
-    tags=("paper-figure-config",),
-    description="PTE scored by the complex cross-power distance including magnitude (used for MusicGen-L).",
-)(partial(pte, score="cpsd"))

@@ -49,9 +49,7 @@ metrics.
   Kanatas et al. (2026).
 - Tags mark provenance with respect to that paper and are carried into every
   record: `paper-canonical` (the variant and parameters behind its headline
-  correlation analysis), `heldout-canonical` (the variant used in its held-out
-  validation), `paper-figure-config` (the configuration of one of its figures),
-  `methods-stated` (the variant its methods text names), `computed-not-in-paper`
+  correlation analysis), `methods-stated` (the variant its methods text names), `computed-not-in-paper`
   (computed in that analysis, not reported), `unpublished-variant`; `relational`
   and `collapse-indicator` are family markers.
 
@@ -59,7 +57,7 @@ metrics.
 
 | Family (TMLR 2026) | req-metrics modules and metrics | Input |
 |---|---|---|
-| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*), effective_rank/variance, spectral_entropy, matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (+ corrected), eigenvalue_early_enrichment, gaussianity, sparsity | points |
+| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe* and the variance convention in the extras), spectral_entropy, matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (+ corrected), eigenvalue_early_enrichment, gaussianity, sparsity | points |
 | Relational | relational: self_clustering, uniformity, normalized_std; anisotropy/cosine | points |
 | Manifold | dimension: intrinsic_dimension (TwoNN), gride, mle, mlid, mst_dimension; local_geometry: neighborhood_curvature, local_rectifiability | points |
 | Not in that taxonomy | trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance (layer pairs); tokens and norms (token fields) | frames, views, shifts, pairs, tokens |
@@ -130,10 +128,10 @@ kind. The canonical set:
 | intrinsic_dimension | GRIDE at the 8th-neighbor scale (correlation analysis); TwoNN (methods text) | none | pooled | 1 |
 | effective_rank | singular spectrum | center | pooled | 1 |
 | anisotropy | spectral | center + L2 | pooled | 1 |
-| trajectory_curvature | k = 1, signed (text); absolute, negated (correlation analysis) | none | frames, 1,000 to 5,000 clips | 1 |
+| trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames, 1,000 to 5,000 clips | 1 |
 | lidar | effective-rank readout, delta 1e-6, biased denominators | none (LDA centers) | pooled | 10 |
 | infonce | temperature 0.3 | center + L2 | pooled | 2 |
-| pte | shared probe, linear, omega 7, phase distance | none | pooled | 1 + 11 shifts |
+| pte, pte/mlp | linear and MLP probes, the better reported; omega 7; phase distance | none | pooled | 1 + 11 shifts |
 
 10,000 clips of 15 seconds, one per track; pooled vectors are time means for
 encoders and the final-token state for autoregressive decoders.
@@ -148,10 +146,9 @@ and pooling label, number of views, number of items, seed, representation
 width and the library version. Anisotropy was stored in two spectral variants
 (with and without row normalization); the published one is centered + L2.
 Frame-level curvature was computed on 1,000 to 5,000 clips per model, not
-10,000. The PTE row of the published correlation analysis selects, per
-model, the configuration among {linear, mlp} x {phase, cpsd} with the largest
-absolute correlation; `pte` reproduces the canonical linear and phase score of
-the text, `pte/mlp` and `pte/cpsd` the other configurations.
+10,000. PTE is trained with a linear and an MLP probe per layer and the
+better variant is reported; the cross-power distance that includes the
+magnitude is in the extras of every run next to the phase distance.
 
 ## 5. Intrinsic dimension: caveats
 
@@ -162,7 +159,7 @@ estimator artefact driven by growing nearest-neighbour distances and
 representation norms, not a rising true dimension. Estimates are biased lower
 bounds whose bias is not consistent across layers, and the layer-wise
 pattern co-moves with the von Neumann entropy of the centered Gram matrix
-(`spectral_entropy`, `effective_rank/variance`). Report ID profiles as
+(`spectral_entropy`, the variance convention of `effective_rank`). Report ID profiles as
 geometric descriptors, not as manifold dimensions, and read them next to
 the spectral entropies. The plug-in participation ratio has a separate,
 sample-size bias of about PR/N (Chun et al., 2026); see

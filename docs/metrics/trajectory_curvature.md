@@ -31,7 +31,9 @@ analysis uses the folded variant negated. normalize="path_length" divides each
 angle by the sum of the two displacement lengths (RECURVE, Shin et al.,
 2024, NeurIPS, Definition 3.2), the turning rate per unit length used for
 boundary detection; it is no longer scale-free and in Kanatas et al. (2026)
-it removed the cross-layer signal. The extras report the mean cosine itself, the
+it removed the cross-layer signal. All three readings come from the same
+angles and are in the extras of every call; convention and normalize only
+choose the value. The extras also report the mean cosine itself, the
 "straightness" maximized by Niu et al. (2024, NeurIPS) and Wang et al.
 (2026, ICML).
 
@@ -43,4 +45,5 @@ Args:
 
 Returns:
     value: mean curvature in radians (or radians per unit length).
-    extras: degrees (value in degrees for normalize="none"), mean_cos, n_angles, n_zero_steps.
+    extras: signed and abs (both conventions, radians) with signed_degrees and abs_degrees,
+        path_length_normalized (the RECURVE reading), mean_cos, n_angles, n_zero_steps.

@@ -129,7 +129,6 @@ class RegistryTests(unittest.TestCase):
         names = rq.list_metrics()
         for n in (
             "effective_rank",
-            "effective_rank/variance",
             "anisotropy",
             "anisotropy/cosine",
             "alpha_req",

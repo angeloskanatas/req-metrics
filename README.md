@@ -18,7 +18,7 @@ tensors of any modality; the documentation says clips for the items of a
 corpus, and only the pitch-transposition equivariance metric is specific to
 music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
-The registry holds 41 metrics in ten groups: spectral, intrinsic dimension, local
+The registry holds 37 metrics in ten groups: spectral, intrinsic dimension, local
 geometry, relational, trajectory, views, equivariance, layer pairs, token fields
 and norms. Each metric has a published definition and is checked against the
 implementation it was adopted from. The same estimators run post hoc on
@@ -115,7 +115,7 @@ task family and the training paradigm.
 
 `pool` is `cls`, `mean`, `max`, `last`, `frames`, a grid readout (`gap`,
 `freq_concat_mean`, `partitioned`, `freq_concat`, with `pool_kwargs={"grid": (F, T)}`)
-or any parameter-free callable; `augment` is yours. Sinks are `csv_sink`,
+or any parameter-free callable; `augment` is any callable you supply. Sinks are `csv_sink`,
 `json_sink`, `tensorboard_sink`, `wandb_sink` or any callable of `(records, step)`.
 Monitoring records have the same schema as post-hoc records. The rationale for
 the fixed subset, the training-batch buffer, the sweep schedule and reading every
@@ -125,20 +125,21 @@ layer is in `docs/DESIGN.md`.
 
 | Group | Metrics | Input |
 |---|---|---|
-| Spectral | `alpha_req`, `anisotropy`, `anisotropy/cosine`, `effective_rank`, `effective_rank/variance`, `eigenvalue_early_enrichment`, `gaussianity`, `gaussianity/ks`, `gaussianity/swd`, `matrix_entropy`, `participation_ratio`, `participation_ratio/corrected`, `sparsity`, `spectral_entropy` | `(N, D)` points |
+| Spectral | `alpha_req`, `anisotropy`, `anisotropy/cosine`, `effective_rank`, `eigenvalue_early_enrichment`, `gaussianity`, `gaussianity/ks`, `gaussianity/swd`, `matrix_entropy`, `participation_ratio`, `participation_ratio/corrected`, `sparsity`, `spectral_entropy` | `(N, D)` points |
 | Intrinsic dimension | `intrinsic_dimension`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `mlid`, `mst_dimension` | `(N, D)` points |
 | Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
 | Relational | `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
-| Trajectory | `trajectory_curvature`, `trajectory_curvature/abs`, `trajectory_curvature/recurve` | `(T, D)` per clip, time-ordered |
+| Trajectory | `trajectory_curvature` | `(T, D)` per clip, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
-| Equivariance | `pte`, `pte/cpsd`, `pte/mlp` | embeddings of pitch-shifted copies |
+| Equivariance | `pte`, `pte/mlp` | embeddings of pitch-shifted copies |
 | Layer pairs | `information_imbalance`, `neighborhood_overlap` | two layers |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per clip |
 | Norms | `embedding_norm` | `(N, D)` points |
 
 `rq.list_metrics()` and `rq.get_metric(name)` expose the registry: input contract,
-preprocessing, citation keys and item cap of every metric. Metric names with a
-slash are variants of the base metric.
+preprocessing, citation keys and item cap of every metric. A name with a slash is
+a different estimator or probe of the same quantity; alternative conventions of one
+computation are in the extras of its record.
 
 ## Documentation
 
@@ -153,9 +154,9 @@ slash are variants of the base metric.
 ## Reproducing Kanatas et al. (2026)
 
 `rq.protocols.get("kanatas2026")` pins the metric variants, parameters and sample
-sizes of the paper per input kind. The layer-wise results and raw per-layer records
-are on the companion site, https://angeloskanatas.github.io/music-fms-layer-eval/,
-and `Records.to_atlas_json` writes new records in its format.
+sizes used in the paper. Its layer-wise results and raw per-layer records are on the
+companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
+`Records.to_atlas_json` writes records in that format.
 
 ## Related tools
 

@@ -1,6 +1,6 @@
 # `pte`
 
-Pitch-transposition equivariance, shared linear probe, phase distance (Kanatas et al., 2026).
+Pitch-transposition equivariance, linear probe, phase distance (Kanatas et al., 2026).
 
 - Input: `shifted`
 - Canonical preprocessing: `none`
@@ -29,8 +29,8 @@ clips split 70/15/15 by clip before shifting, 11 nonzero shifts, Adam at
 1e-3 with weight decay 1e-3, batches of 256 (clip, shift) pairs with
 mixed shifts, up to 200 epochs with early stopping on the validation loss
 after 15 flat epochs, best validation state restored. The MLP probe uses
-Xavier initialization, and for the shared method an asymmetric output
-bias and softmax temperature 0.5, which break the uniform-softmax fixed
+Xavier initialization, an asymmetric output bias and softmax temperature
+0.5, which break the uniform-softmax fixed
 point where the gradient vanishes (the mitigation of Theorem III.2's
 caveat that the objective's convexity does not transfer to network
 weights).
@@ -38,15 +38,19 @@ weights).
 Read PTE together with mean_abs_cpsd: a probe whose cross-power magnitude
 stays near zero never trained, and its layer variation then correlates
 with any well-layered task; a working threshold of 0.3 separates trained from
-untrained probes on music encoders. The shared method measures transport along the pitch
-axis, not tonal content per se. About 2,000 clips are not enough at
+untrained probes on music encoders. The metric measures transport along the pitch
+axis, not tonal content per se. Kanatas et al. (2026) train a linear and
+an MLP probe per layer and report the better variant: `pte` is the linear
+probe and `pte/mlp` the MLP probe. The phase distance of their definition
+and the distance of the raw cross-power (the STONE loss, magnitude
+included) are both in the extras of every run; `score` chooses which one
+is the value. About 2,000 clips are not enough at
 omega = 7; 10,000 to 20,000 are.
 
 Args:
     z: Unshifted representations, shape (N, D).
     shifted: Map from semitone shift k (nonzero integers) to representations, each (N, D),
         rows aligned with z. Positive k means the audio was shifted up in pitch.
-    method: "shared" (Kanatas et al., 2026) or "concat" (paired-probe decodability, not in that paper).
     probe: "linear" (paper) or "mlp".
     score: "phase" (paper) or "cpsd".
     hidden_units: MLP widths.
@@ -58,5 +62,5 @@ Args:
 
 Returns:
     value: PTE from the chosen distance.
-    extras: phase_rmse, cpsd_rmse, mean_abs_cpsd (or mean_abs_z_pred for concat), val_rmse,
+    extras: phase_rmse, cpsd_rmse, mean_abs_cpsd, val_rmse,
         train_rmse, epochs_trained, rmse_k{k} per shift, n_train, n_test.

@@ -93,6 +93,12 @@ def _aggregate(
         )
     if keep_per_clip:
         out["per_clip"] = [float(v) for v in values]
+    numeric = [e for e in extras_list if e and "error" not in e]
+    if numeric:  # per-clip extras shared by every clip are averaged under their own names
+        for key in set.intersection(*(set(e) for e in numeric)):
+            vals_k = [e[key] for e in numeric if isinstance(e[key], (int, float)) and not isinstance(e[key], bool)]
+            if len(vals_k) == len(numeric) and key not in out:
+                out[key] = float(np.mean(vals_k))
     first_err = next((e["error"] for e in extras_list if "error" in e), None)
     if first_err is not None:
         out["error"] = first_err
