@@ -18,10 +18,9 @@ tensors of any modality; the documentation says clips for the items of a
 corpus, and only the pitch-transposition equivariance metric is specific to
 music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
-The registry holds 41 metrics in ten groups, spanning the spectral, relational
-and manifold families of the Arputharaj et al. (2026) taxonomy together with
-trajectory, view-invariance, equivariance, layer-pair and token-field metrics.
-Each metric has a published definition and is checked against the
+The registry holds 41 metrics in ten groups: spectral, intrinsic dimension, local
+geometry, relational, trajectory, views, equivariance, layer pairs, token fields
+and norms. Each metric has a published definition and is checked against the
 implementation it was adopted from. The same estimators run post hoc on
 extracted embeddings and, through forward hooks, on every layer of a model
 while it trains.
@@ -208,6 +207,4 @@ keys point into `docs/references.bib`.
 
 ## License
 
-Apache License 2.0. The TwoNN and GRIDE routines are attributed ports of DADApy
-(Apache-2.0) and the bias-corrected participation ratio follows the MIT-licensed
-code of Chun et al.; see `NOTICE`.
+Apache License 2.0. Code ported from other projects is attributed in `NOTICE`.
