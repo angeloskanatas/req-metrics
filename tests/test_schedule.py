@@ -1,8 +1,10 @@
 """Item caps, cumulative profile plots and the step-based monitoring schedule."""
 
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -114,6 +116,38 @@ class StepScheduleTests(unittest.TestCase):
         last = cb.monitor.history[-1][1][0]
         self.assertEqual(last.extras["global_step"], 10)
         self.assertEqual(last.extras["epoch"], 0)
+
+    def test_mixed_schedules_keep_every_sweep_in_the_sinks(self):
+        model = Toy()
+        xs = []
+        fake = type(
+            "W",
+            (),
+            {
+                "log": lambda self, log: xs.append(log["monitor/step"]),
+                "define_metric": lambda self, name, step_metric=None: None,
+            },
+        )()
+        sys.modules["wandb"] = types.ModuleType("wandb")
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                sinks = [rq.json_sink(d), rq.wandb_sink(fake, line_series=False)]
+                cb = self._callback(every_n_epochs=1, sweep_steps=(2,), sinks=sinks)
+                trainer = self._trainer()
+                cb.on_train_start(trainer, model)
+                trainer.global_step = 2
+                cb.on_train_batch_end(trainer, model, None, None, 1)  # step sweep, label 2
+                trainer.global_step = 6
+                cb.on_train_epoch_end(trainer, model)  # epoch sweep, label 1
+                trainer.current_epoch, trainer.global_step = 1, 12
+                cb.on_train_epoch_end(trainer, model)  # epoch sweep, label 2
+                names = sorted(f.name for f in Path(d).glob("*.json"))
+        finally:
+            del sys.modules["wandb"]
+        self.assertEqual(
+            names, ["epoch_0_step_0.json", "epoch_0_step_2.json", "epoch_0_step_6.json", "epoch_1_step_12.json"]
+        )
+        self.assertEqual(xs, [0, 2, 6, 12])
 
     def test_cache_batches_materializes_once(self):
         model = Toy()

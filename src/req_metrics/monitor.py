@@ -444,6 +444,11 @@ class LayerMonitor:
         return {step: rec.profile(metric) for step, rec in self.history}
 
 
+def _x_step(rec: Records, step: int) -> int:
+    """The x value of a sweep: its global step when the records carry one (the Lightning callback), else step."""
+    return int(rec[0].extras.get("global_step", step)) if len(rec) else step
+
+
 def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
     """Append every sweep's rows to one CSV file (header written once)."""
     path = Path(path)
@@ -493,18 +498,32 @@ def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
 
 
 def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
-    """Write one JSON file per sweep: <directory>/step_<step>.json."""
+    """Write one JSON file per sweep: <directory>/step_<step>.json.
+
+    Records stamped with the epoch and the global step (as the Lightning callback
+    does) are written to epoch_<e>_step_<s>.json, so epoch and step schedules never
+    share a file name; training-batch records get the prefix online_.
+    """
     directory = Path(directory)
 
     def sink(rec: Records, step: int) -> None:
         directory.mkdir(parents=True, exist_ok=True)
-        rec.to_json(directory / f"step_{step}.json")
+        ex = rec[0].extras if len(rec) else {}
+        prefix = "online_" if ex.get("source") == "training-batches" else ""
+        if "epoch" in ex and "global_step" in ex:
+            name = f"{prefix}epoch_{ex['epoch']}_step_{ex['global_step']}.json"
+        else:
+            name = f"{prefix}step_{step}.json"
+        rec.to_json(directory / name)
 
     return sink
 
 
 def tensorboard_sink(log_dir: str | Path) -> Callable[[Records, int], None]:
-    """Write layer_metrics/<metric>/layer_<l> scalars to TensorBoard event files (torch.utils.tensorboard)."""
+    """Write layer_metrics/<metric>/layer_<l> scalars to TensorBoard event files (torch.utils.tensorboard).
+
+    The x value is the global step when the records carry one, else the step argument.
+    """
     from torch.utils.tensorboard import SummaryWriter
 
     writer = SummaryWriter(str(log_dir))
@@ -513,7 +532,9 @@ def tensorboard_sink(log_dir: str | Path) -> Callable[[Records, int], None]:
         for r in rec:
             if r.layer_b is None and r.value == r.value:
                 writer.add_scalar(
-                    f"{metric_key_prefix(r)[0]}/{r.metric.replace('/', '_')}/layer_{r.layer}", r.value, step
+                    f"{metric_key_prefix(r)[0]}/{r.metric.replace('/', '_')}/layer_{r.layer}",
+                    r.value,
+                    _x_step(rec, step),
                 )
         writer.flush()
 
@@ -531,9 +552,9 @@ def _profile_series(
         p = dict(past.profile(metric))
         if p and all(l in p for l in xs) and p != dict(prof):
             ys.append([p[l] for l in xs])
-            keys.append(f"step {step}")
+            keys.append(f"step {past[0].extras.get('global_step', step)}")
     ys.append([v for _, v in prof])
-    keys.append(f"step {rec[0].extras.get('step', '')}")
+    keys.append(f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}")
     return xs, ys, keys
 
 
@@ -549,7 +570,8 @@ def wandb_sink(
     The sweep step is logged as its own metric and declared the x-axis of every
     layer_metrics/* and profiles/* key with wandb.define_metric, so sweeps interleave
     with the run's other logging without passing an explicit `step=` (which W&B
-    requires to be monotone across all log calls). Metric names have "/" replaced by
+    requires to be monotone across all log calls); its value is the global step when
+    the records carry one, so epoch and step schedules share one axis. Metric names have "/" replaced by
     "_" in keys. Uses the active run unless one is given. With history (a
     LayerMonitor's or OnlineBuffer's .history), every profile plot shows all sweeps so
     far, one line per step, so the depth profile's evolution is read off one chart.
@@ -565,7 +587,7 @@ def wandb_sink(
             for key in ("layer_metrics/*", "profiles/*", "online_metrics/*", "online_profiles/*"):
                 target.define_metric(key, step_metric=step_metric)
             state["defined"] = True
-        log: dict[str, Any] = {step_metric: step}
+        log: dict[str, Any] = {step_metric: _x_step(rec, step)}
         for r in rec:
             if r.layer_b is None and r.value == r.value:  # skip nan
                 log[f"{metric_key_prefix(r)[0]}/{r.metric.replace('/', '_')}_layer_{r.layer}"] = r.value

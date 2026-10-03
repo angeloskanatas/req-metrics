@@ -68,6 +68,7 @@ class LightningPlugAndPlayTests(unittest.TestCase):
                 batch_size=16,
                 online=True,
                 online_n_items=80,
+                sinks=[rq.json_sink(Path(d) / "sweeps")],
             )
             trainer = pl.Trainer(
                 max_epochs=2,
@@ -94,6 +95,9 @@ class LightningPlugAndPlayTests(unittest.TestCase):
             self.assertEqual(cb.online.handles, [])  # detached at train end
             metrics_csv = next(Path(d).rglob("metrics.csv")).read_text()
             self.assertIn("layer_metrics/effective_rank_layer_2", metrics_csv)
+            names = sorted(f.name for f in (Path(d) / "sweeps").glob("*.json"))
+            self.assertEqual(len(names), 5)  # 3 sweeps and 2 online computations, none overwritten
+            self.assertEqual(sum(n.startswith("online_") for n in names), 2)
             self.assertIn("online_metrics/effective_rank_layer_2", metrics_csv)
 
     def test_resume_from_checkpoint(self):
