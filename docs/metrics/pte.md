@@ -29,7 +29,7 @@ linear probe, 10,000 clips split 70/15/15 by clip before shifting, 11 nonzero
 shifts, Adam at 1e-3, up to 200 epochs with early stopping. The remaining
 defaults here are weight decay 1e-3, batches of 256 (clip, shift) pairs with
 mixed shifts, early stopping after 15 flat epochs and the best validation state
-restored. The MLP probe (`pte/mlp`, probe="mlp") uses
+restored. The MLP probe (probe="mlp") uses
 Xavier initialization, an asymmetric output bias and softmax temperature
 0.5, which break the uniform-softmax fixed
 point where the gradient vanishes (the mitigation of Theorem III.2's

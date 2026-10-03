@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "req-metrics"
-version = "0.2.0"
+version = "0.1.0.dev0"
 description = "Label-free representation-quality metrics for layer-wise analysis of pretrained models and for monitoring during training"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -1,4 +1,4 @@
-# `mlid`
+# `intrinsic_dimension/mlid`
 
 Geometric mean of per-point local intrinsic dimension (mLID).
 

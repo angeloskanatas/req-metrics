@@ -155,6 +155,52 @@ class LightningPlugAndPlayTests(unittest.TestCase):
             self.assertEqual([s for s, _ in cb2.monitor.history], [2, 3])  # no sweep at start of a resumed run
             self.assertEqual([r.extras["epoch"] for _, rec in cb2.monitor.history for r in rec[:1]], [1, 2])
 
+    def test_fit_with_view_metrics(self):
+        from req_metrics.integrations.lightning import LayerMonitorCallback
+
+        class Lit(pl.LightningModule):
+            def __init__(self):
+                super().__init__()
+                self.blocks = nn.ModuleList([nn.Sequential(nn.Linear(16, 16), nn.GELU()) for _ in range(2)])
+
+            def forward(self, x):
+                for b in self.blocks:
+                    x = x + b(x)
+                return x
+
+            def training_step(self, batch, idx):
+                return self(batch[0]).square().mean()
+
+            def configure_optimizers(self):
+                return torch.optim.SGD(self.parameters(), lr=0.01)
+
+        torch.manual_seed(0)
+        dl = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(torch.randn(96, 16)), batch_size=16)
+        cb = LayerMonitorCallback(
+            ["effective_rank"],
+            layers="blocks",
+            pool=lambda out: out,
+            n_items=64,
+            batch_size=16,
+            view_metrics=["lidar"],
+            augment=lambda x, g: x + 0.1 * torch.randn(x.shape, generator=g),
+            q=3,
+            log=False,
+        )
+        trainer = pl.Trainer(
+            max_epochs=1,
+            logger=False,
+            enable_progress_bar=False,
+            enable_checkpointing=False,
+            enable_model_summary=False,
+            callbacks=[cb],
+            accelerator="cpu",
+        )
+        trainer.fit(Lit(), dl)
+        lidar = [r for _, rec in cb.monitor.history for r in rec if r.metric == "lidar"]
+        self.assertEqual(len(lidar), 2 * 2)  # two sweeps, two layers
+        self.assertTrue(all(r.value == r.value for r in lidar))
+
     def test_resolve_layers_and_poolers(self):
         m = nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 4))
 

@@ -18,9 +18,9 @@ tensors of any modality; the documentation says clips for the items of a
 corpus, and only the pitch-transposition equivariance metric is specific to
 music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
-The registry holds 40 metrics in eleven groups: spectral, intrinsic dimension, local
-geometry, relational, clustering, trajectory, views, equivariance, layer pairs, token
-fields and norms. Each metric has a published definition and is checked against the
+The registry holds 35 metrics in eleven groups: spectral, intrinsic dimension, local
+geometry, relational, clustering, distribution, trajectory, views, equivariance, layer
+pairs and token fields. Each metric has a published definition and is checked against the
 implementation it was adopted from. The same estimators run post hoc on
 extracted embeddings and, through forward hooks, on every layer of a model
 while it trains.
@@ -30,8 +30,8 @@ while it trains.
 Python 3.10 or later and PyTorch 2.1 or later.
 
 ```bash
-pip install "req-metrics @ git+https://github.com/angeloskanatas/req-metrics.git@v0.2.0"
-pip install "req-metrics[lightning] @ git+https://github.com/angeloskanatas/req-metrics.git@v0.2.0"   # with the Lightning callback
+pip install "req-metrics @ git+https://github.com/angeloskanatas/req-metrics.git"
+pip install "req-metrics[lightning] @ git+https://github.com/angeloskanatas/req-metrics.git"   # with the Lightning callback
 ```
 
 For development, with the test, lint and Lightning dependencies:
@@ -62,7 +62,9 @@ frames = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) per clip, time-or
 rq.compute(frames, ["trajectory_curvature"], population="frames", n=2000)
 
 views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same clips
-rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
+spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
+rq.compute(views, ["lidar"], views=spec)
+rq.compute({l: v[:2] for l, v in views.items()}, ["infonce", "alignment"], views=spec)  # two views
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
 rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
@@ -93,7 +95,7 @@ training and on the schedule you give, and logs to the trainer's logger
 from req_metrics.integrations.lightning import LayerMonitorCallback
 
 trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
-    ["effective_rank", "mlid", "anisotropy"], layers="backbone.blocks", pool="cls",
+    ["effective_rank", "intrinsic_dimension/mlid", "anisotropy"], layers="backbone.blocks", pool="cls",
     n_items=5000, every_n_epochs=5, sweep_steps=(100, 300, 1000, 3000, 10000),
     model_attr="backbone",
     view_metrics=["lidar"], augment=my_augment, q=10,   # views: the objective's own positives
@@ -103,7 +105,7 @@ trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
 Without Lightning, `LayerMonitor` does the same with a forward callable and a loader:
 
 ```python
-mon = rq.LayerMonitor(model.blocks, pool="cls", metrics=["effective_rank", "mlid"], n_items=5000)
+mon = rq.LayerMonitor(model.blocks, pool="cls", metrics=["effective_rank", "intrinsic_dimension/mlid"], n_items=5000)
 mon.sweep(model, monitor_loader, step=epoch, sinks=[rq.wandb_sink(history=mon.history), rq.csv_sink("sweeps.csv")])
 mon.profiles("effective_rank")                       # {step: [(layer, value), ...]}
 ```
@@ -126,22 +128,24 @@ layer is in `docs/DESIGN.md`.
 
 | Group | Metrics | Input |
 |---|---|---|
-| Spectral | `alpha_req`, `anisotropy`, `anisotropy/cosine`, `effective_rank`, `eigenvalue_early_enrichment`, `gaussianity`, `gaussianity/ks`, `gaussianity/swd`, `matrix_entropy`, `participation_ratio`, `participation_ratio/corrected`, `sparsity`, `spectral_entropy` | `(N, D)` points |
-| Intrinsic dimension | `intrinsic_dimension`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `mlid`, `mst_dimension` | `(N, D)` points |
+| Spectral | `alpha_req`, `anisotropy`, `effective_rank`, `eigenvalue_early_enrichment`, `matrix_entropy`, `participation_ratio` | `(N, D)` points |
+| Intrinsic dimension | `intrinsic_dimension`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `intrinsic_dimension/mlid`, `intrinsic_dimension/mst` | `(N, D)` points |
 | Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
-| Relational | `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
+| Relational | `cosine_anisotropy`, `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
 | Clustering | `cluster_quality` | `(N, D)` points |
 | Trajectory | `trajectory_curvature` | `(T, D)` per clip, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
-| Equivariance | `pte`, `pte/mlp` | embeddings of pitch-shifted copies |
+| Equivariance | `pte` | embeddings of pitch-shifted copies |
 | Layer pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two layers |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per clip |
-| Norms | `embedding_norm` | `(N, D)` points |
+| Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
 
 `rq.list_metrics()` and `rq.get_metric(name)` expose the registry: input contract,
 preprocessing, citation keys and item cap of every metric. A name with a slash is
-a different estimator or probe of the same quantity; alternative conventions of one
-computation are in the extras of its record.
+another published estimator of the same property, computed separately (TwoNN is
+`intrinsic_dimension`, GRIDE is `intrinsic_dimension/gride`). Settings of one
+computation, such as a bias correction or a spectrum convention, are arguments, and
+every alternative is in the extras of the record.
 
 ## Documentation
 

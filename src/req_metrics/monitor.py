@@ -402,7 +402,30 @@ class LayerMonitor:
             step: Training step or epoch written into every record's extras["step"].
             sinks: Callables receiving (records, step): csv_sink, json_sink, tensorboard_sink,
                 wandb_sink, or any callable of your own.
+
+        The hooked layers, and forward itself when it is a module, run in eval mode; every
+        submodule's previous mode is restored afterwards. A forward that wraps a model in a
+        function should put the rest of the model in eval mode itself.
         """
+        if self.view_metrics and self.augment is not None and iter(loader) is loader:
+            raise ValueError("view metrics read the loader q + 1 times; pass a list or a DataLoader, not an iterator")
+        roots = ([forward] if isinstance(forward, nn.Module) else []) + list(self.layer_modules)
+        modes = [(m, m.training) for root in roots for m in root.modules()]
+        for root in roots:
+            root.eval()
+        try:
+            return self._sweep(forward, loader, step, sinks)
+        finally:
+            for m, was_training in modes:
+                m.training = was_training
+
+    def _sweep(
+        self,
+        forward: Callable[[Any], Any],
+        loader: Iterable,
+        step: int,
+        sinks: Sequence[Callable[[Records, int], None]],
+    ) -> Records:
         layers = self.collect(forward, loader)
         rec = compute(
             layers,

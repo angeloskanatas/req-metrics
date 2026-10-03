@@ -1,4 +1,4 @@
-# `anisotropy/cosine`
+# `cosine_anisotropy`
 
 Mean pairwise cosine similarity between distinct samples.
 

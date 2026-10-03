@@ -166,7 +166,9 @@ collinearity with self-clustering), the layer-pair measures of Jiang et al.
 structure estimator of Dai et al. (2025), whose paper and released code
 define different quantities, and the
 parameter- and representation-prediction probes of Plachouras et al. (2025),
-which train a probe for every layer, transformation and evaluation. The
+which train a probe for every layer, transformation and evaluation, and the
+Jacobian effective rank of Chung and Kim (2026), which needs the model and its
+inputs rather than representations. The
 reasons are in `docs/METRICS.md`, section 6.
 
 ## 6. Sample size

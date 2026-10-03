@@ -53,10 +53,10 @@ covers what applies across metrics.
 
 | Family (TMLR 2026) | req-metrics modules and metrics | Input |
 |---|---|---|
-| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe* and the variance convention in the extras), spectral_entropy, matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (+ corrected), eigenvalue_early_enrichment, gaussianity, sparsity | points |
-| Relational | relational: self_clustering, uniformity, normalized_std; anisotropy/cosine | points |
-| Manifold | dimension: intrinsic_dimension (TwoNN), gride, mle, mlid, mst_dimension; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens and norms (token fields) | points, frames, views, shifts, pairs, tokens |
+| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
+| Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
+| Manifold | dimension: intrinsic_dimension (TwoNN), intrinsic_dimension/gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
+| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields) | points, frames, views, shifts, pairs, tokens |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -152,11 +152,11 @@ estimator artifact driven by growing nearest-neighbor distances and
 representation norms, not a rising true dimension. Estimates are biased lower
 bounds whose bias is not consistent across layers, and the layer-wise
 pattern co-moves with the von Neumann entropy of the centered Gram matrix
-(`spectral_entropy`, the variance convention of `effective_rank`). Report ID profiles as
+(the variance convention of `effective_rank`). Report ID profiles as
 geometric descriptors, not as manifold dimensions, and read them next to
 the spectral entropies. The plug-in participation ratio has a separate,
-sample-size bias of about PR/N (Chun et al., 2026); see
-`participation_ratio/corrected`.
+sample-size bias of about PR/N (Chun et al., 2026); see the `correction`
+argument of `participation_ratio`.
 
 Duplicates matter for the two-neighbor estimators. An exact duplicate has
 r_1 = 0 and an infinite ratio, and its neighbors a ratio of exactly 1; DADApy's
@@ -209,8 +209,8 @@ complete-collapse monitor only; it does not see dimensional collapse.
 biased low by roughly PR/N. correction="row" removes the sample-size term, the
 case of network activations where all units are observed (their Sec. 4.5);
 "both" also removes the unit-subsampling term. The corrected estimators center
-algebraically and take the raw matrix; `participation_ratio/corrected` registers
-the row-corrected variant without pre-centering. Quartic index sums are evaluated
+algebraically and take the raw matrix; all estimates come from one pass and are
+in the extras of every record. Quartic index sums are evaluated
 in closed form (Gram matrix, column moments) and agree with the MIT reference
 code to 1e-12 (NOTICE). The plug-in estimate remains the default for parity
 with published numbers.

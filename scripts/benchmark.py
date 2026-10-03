@@ -39,7 +39,6 @@ def main() -> None:
     rows.append(("Spectrum (shared SVD)", time.perf_counter() - t))
     for name in (
         "effective_rank",
-        "spectral_entropy",
         "matrix_entropy",
         "alpha_req",
         "participation_ratio",
@@ -50,16 +49,15 @@ def main() -> None:
     t = time.perf_counter()
     nb = rq.Neighbors.from_points(x, 64)
     rows.append(("Neighbors k=64 (shared kNN)", time.perf_counter() - t))
-    timed("mlid (from Neighbors)", lambda: rq.mlid(nb, k=64))
+    timed("intrinsic_dimension/mlid (from Neighbors)", lambda: rq.mlid(nb, k=64))
     timed("intrinsic_dimension/gride (from Neighbors, range 64)", lambda: rq.gride(nb, scale=8, range_max=64))
     timed("intrinsic_dimension/mle (from Neighbors)", lambda: rq.mle(nb))
     timed("intrinsic_dimension (twonn, own kNN)", lambda: rq.twonn(x))
     timed("neighborhood_curvature (from Neighbors)", lambda: rq.neighborhood_curvature(x, k=64, neighbors=nb))
-    timed("gaussianity (256 directions)", lambda: rq.gaussianity(x))
-    timed("gaussianity/swd", lambda: rq.gaussianity(x, method="swd"))
+    timed("gaussianity (256 directions, all three statistics)", lambda: rq.gaussianity(x))
     timed("sparsity", lambda: rq.sparsity(x))
     timed("embedding_norm", lambda: rq.embedding_norm(x))
-    timed("mst_dimension (first 1024 points)", lambda: rq.mst_dimension(x[:1024]))
+    timed("intrinsic_dimension/mst (first 1024 points)", lambda: rq.mst_dimension(x[:1024]))
     timed(
         "local_rectifiability (2048 points, 128 anchors)",
         lambda: rq.local_rectifiability(x[:2048], n=16, n_anchors=128, n_scales=4),

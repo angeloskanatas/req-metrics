@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from functools import partial
 
 import numpy as np
 import torch
@@ -129,7 +128,7 @@ def pte(
     shifts, Adam at 1e-3, up to 200 epochs with early stopping. The remaining
     defaults here are weight decay 1e-3, batches of 256 (clip, shift) pairs with
     mixed shifts, early stopping after 15 flat epochs and the best validation state
-    restored. The MLP probe (`pte/mlp`, probe="mlp") uses
+    restored. The MLP probe (probe="mlp") uses
     Xavier initialization, an asymmetric output bias and softmax temperature
     0.5, which break the uniform-softmax fixed
     point where the gradient vanishes (the mitigation of Theorem III.2's
@@ -277,11 +276,3 @@ register_metric(
     tags=("paper-canonical",),
     description="Pitch-transposition equivariance, linear probe, phase distance (Kanatas et al., 2026).",
 )(pte)
-register_metric(
-    "pte/mlp",
-    inputs=_S,
-    preprocess=Preprocess(),
-    citation=("kanatas2026goodlayer", "DBLP:conf/ismir/KongLMWLH24"),
-    arxiv="2608.14819",
-    description="Pitch-transposition equivariance with an MLP probe.",
-)(partial(pte, probe="mlp"))

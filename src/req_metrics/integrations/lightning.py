@@ -30,6 +30,16 @@ except ImportError:  # pragma: no cover
     _Base = object
 
 
+class _Inputs:
+    """Re-iterable view of the monitoring batches as 1-tuples of model inputs; view metrics read it q + 1 times."""
+
+    def __init__(self, batches: Iterable[Any], batch_input: Callable[[Any], Any]):
+        self.batches, self.batch_input = batches, batch_input
+
+    def __iter__(self):
+        return ((self.batch_input(b),) for b in self.batches)
+
+
 class LayerMonitorCallback(_Base):
     """Sweep layer-wise metrics during a Lightning fit.
 
@@ -249,8 +259,7 @@ class LayerMonitorCallback(_Base):
 
                 torch.cuda.empty_cache()
             forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
-            loader = ((self.batch_input(b),) for b in self._loader)
-            rec = self.monitor.sweep(forward, loader, epoch, ())
+            rec = self.monitor.sweep(forward, _Inputs(self._loader, self.batch_input), epoch, ())
             self._stamp(trainer, rec)
             for sink in self._sinks(trainer):
                 sink(rec, epoch)

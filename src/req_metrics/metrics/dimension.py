@@ -309,7 +309,7 @@ register_metric(
     description="Levina-Bickel MLE intrinsic dimension, k = 10..20.",
 )(mle)
 register_metric(
-    "mlid",
+    "intrinsic_dimension/mlid",
     cache="neighbors",
     inputs=_P,
     preprocess=Preprocess(),
@@ -317,7 +317,7 @@ register_metric(
     arxiv="2401.10474",
 )(mlid)
 register_metric(
-    "mst_dimension",
+    "intrinsic_dimension/mst",
     inputs=_P,
     preprocess=Preprocess(),
     max_items=2000,

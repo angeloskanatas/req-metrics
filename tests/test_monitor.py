@@ -179,6 +179,35 @@ class MonitorTests(unittest.TestCase):
         rec = buf.compute(["effective_rank"], step=1)
         self.assertEqual({r.n_items for r in rec}, {32})
 
+    def test_sweep_runs_in_eval_mode_and_restores_modes(self):
+        model = nn.Sequential(nn.Linear(16, 16), nn.Dropout(0.5), nn.Linear(16, 16), nn.Dropout(0.5))
+        model.train()
+        model[3].eval()  # a submodule left in eval by the user stays in eval
+        mon = rq.LayerMonitor([model[1], model[3]], pool=lambda out: out, metrics=["effective_rank"], n_items=120)
+        first = mon.sweep(model, loader(), step=0)
+        second = mon.sweep(model, loader(), step=1)
+        self.assertEqual([r.value for r in first], [r.value for r in second])  # no dropout noise
+        self.assertTrue(model.training and model[1].training and not model[3].training)
+
+    def test_view_metrics_reject_a_one_shot_loader(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks,
+            pool="mean",
+            metrics=["effective_rank"],
+            view_metrics=["lidar"],
+            augment=lambda x, g: x + 0.1 * torch.randn(x.shape, generator=g),
+            q=2,
+            n_items=120,
+        )
+        with self.assertRaisesRegex(ValueError, "not an iterator"):
+            mon.sweep(self.model, iter(loader()), step=0)
+
+    def test_compute_warns_when_an_estimator_fails(self):
+        views = {0: torch.randn(3, 200, 8)}
+        with self.assertWarns(RuntimeWarning):
+            rec = rq.compute(views, ["infonce"])  # infonce takes exactly two views
+        self.assertIn("error", rec[0].extras)
+
     def test_compute_rejects_layers_of_unequal_length(self):
         with self.assertRaises(ValueError):
             rq.compute({0: torch.randn(40, 4), 1: torch.randn(30, 4)}, ["effective_rank"])

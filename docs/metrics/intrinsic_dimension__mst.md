@@ -1,4 +1,4 @@
-# `mst_dimension`
+# `intrinsic_dimension/mst`
 
 Intrinsic dimension from the scaling of minimum-spanning-tree length.
 

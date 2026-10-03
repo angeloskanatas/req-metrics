@@ -24,7 +24,7 @@ class PooledTests(unittest.TestCase):
             "anisotropy",
             "alpha_req",
             "participation_ratio",
-            "mlid",
+            "intrinsic_dimension/mlid",
             "intrinsic_dimension/gride",
             "neighborhood_curvature",
             "gaussianity",
@@ -35,7 +35,7 @@ class PooledTests(unittest.TestCase):
             mets,
             model="toy",
             pooling="time-mean",
-            params={"mlid": {"k": 32}, "intrinsic_dimension/gride": {"scale": 4}},
+            params={"intrinsic_dimension/mlid": {"k": 32}, "intrinsic_dimension/gride": {"scale": 4}},
         )
         self.assertEqual(len(rec), 3 * len(mets))
         r = rec.where(metric="effective_rank", layer=2)[0]
@@ -46,8 +46,10 @@ class PooledTests(unittest.TestCase):
         self.assertAlmostEqual(
             rec.where(metric="anisotropy", layer=1)[0].value, rq.anisotropy_spectral(layers[1]).value, places=9
         )
-        self.assertAlmostEqual(rec.where(metric="mlid", layer=0)[0].value, rq.mlid(layers[0], k=32).value, places=9)
-        self.assertEqual(rec.where(metric="mlid", layer=0)[0].params, {"k": 32})
+        self.assertAlmostEqual(
+            rec.where(metric="intrinsic_dimension/mlid", layer=0)[0].value, rq.mlid(layers[0], k=32).value, places=9
+        )
+        self.assertEqual(rec.where(metric="intrinsic_dimension/mlid", layer=0)[0].params, {"k": 32})
         self.assertAlmostEqual(
             rec.where(metric="intrinsic_dimension/gride", layer=0)[0].value,
             rq.gride(layers[0], scale=4).value,

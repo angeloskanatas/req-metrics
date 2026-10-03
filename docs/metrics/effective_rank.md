@@ -8,7 +8,7 @@ Effective rank: exponential of the Shannon entropy of the normalized spectrum.
 - Shared cache: spectrum
 - Origin: https://arxiv.org/abs/2210.02885
 - Cite: `DBLP:conf/eusipco/RoyV07` (The effective rank: A measure of effective dimensionality (2007)); `DBLP:conf/icml/GarridoBNL23` (RankMe: Assessing the Downstream Performance of Pretrained Self-Supervised
-                  Representations by Their Rank (2023))
+                  Representations by Their Rank (2023)); `jha2026nerve` (NerVE: Nonlinear Eigenspectrum Dynamics in LLM Feed-Forward Networks (2026))
 
 ## Definition, protocol and pitfalls
 
@@ -25,7 +25,9 @@ that the effective rank ignores. Skean et al. (2025, ICML) and the reptrix
 library normalize the eigenvalues of the covariance instead (s_k^2),
 which weights the leading directions more heavily; pass
 spectrum="variance" for that convention. Both conventions come from the
-same spectrum, so the other one is always in the extras.
+same spectrum, so the other one is always in the extras. With
+spectrum="variance", normalized_entropy is the spectral entropy of NerVE
+(Jha et al., 2026, arXiv:2603.06922, Eq. 1).
 
 The matrix is mean-centered before the SVD. RankMe as published does
 not center; the reptrix reference implementation does, through PCA.

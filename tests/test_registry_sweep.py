@@ -27,7 +27,7 @@ class RegistrySweepTests(unittest.TestCase):
             m
             for m in rq.list_metrics()
             if rq.get_metric(m).inputs == rq.InputKind.POINTS
-            and m not in ("mst_dimension", "local_rectifiability", "gaussianity/ks")
+            and m not in ("intrinsic_dimension/mst", "local_rectifiability")
         ]  # slow per clip
         clips = [torch.randn(80, 16) for _ in range(6)]
         self._assert_clean(rq.compute({0: clips}, names, population="frames", n=6, params=SMALL))

@@ -6,7 +6,7 @@ and source citation. Populations (pooled, frames, tokens) and I/O belong to the
 pipeline, not to the estimators.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.1.0.dev0"
 
 from req_metrics import protocols
 from req_metrics._types import InputKind, MetricResult, Preprocess
@@ -21,21 +21,17 @@ from req_metrics.layouts import (
 from req_metrics.metrics.clustering import cluster_quality
 from req_metrics.metrics.compare import cka, information_imbalance, neighborhood_overlap, svcca
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
+from req_metrics.metrics.distribution import embedding_norm, gaussianity, sparsity
 from req_metrics.metrics.equivariance import pte
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
-from req_metrics.metrics.norms import embedding_norm
-from req_metrics.metrics.relational import normalized_std, self_clustering, uniformity
+from req_metrics.metrics.relational import anisotropy_cosine, normalized_std, self_clustering, uniformity
 from req_metrics.metrics.spectral import (
     alpha_req,
-    anisotropy_cosine,
     anisotropy_spectral,
     effective_rank,
     eigenvalue_early_enrichment,
-    gaussianity,
     matrix_entropy,
     participation_ratio,
-    sparsity,
-    spectral_entropy,
 )
 from req_metrics.metrics.tokens import cls_patch_cosine, token_cosine, token_gram_drift, token_norm_outliers
 from req_metrics.metrics.trajectory import trajectory_curvature
@@ -77,7 +73,6 @@ __all__ = [
     "l2_normalize",
     "standardize",
     "effective_rank",
-    "spectral_entropy",
     "matrix_entropy",
     "alpha_req",
     "anisotropy_spectral",

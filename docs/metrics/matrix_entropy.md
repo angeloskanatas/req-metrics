@@ -26,7 +26,9 @@ foundation-model states. The reference library's alpha = 2 shortcut
 divides the squared Frobenius norm by N^2, which assumes a kernel matrix
 with unit diagonal; on a trace-normalized Gram matrix it overstates the
 entropy by exactly 2 log N. The entropy here is computed from the
-eigenvalues for every alpha. Not centered by default, following the papers.
+eigenvalues for every alpha. Not centered by default, following the papers;
+with center=True and alpha = 1 it equals the normalized entropy of
+effective_rank(spectrum="variance").
 
 Args:
     x: Points (N, D), or a Spectrum of already preprocessed points.

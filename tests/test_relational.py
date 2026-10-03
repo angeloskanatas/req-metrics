@@ -86,18 +86,18 @@ class CorrectedParticipationRatioTests(unittest.TestCase):
         row = rq.participation_ratio(x, normalized=False, correction="row")
         self.assertLess(naive, d - 0.5)  # plug-in bias about PR/N = 7%
         self.assertAlmostEqual(row.value, d, delta=0.6)
-        self.assertAlmostEqual(row.extras["participation_ratio_naive"], naive, places=6)
+        self.assertAlmostEqual(row.extras["naive"], naive, places=6)
 
-    def test_naive_closed_form_matches_spectrum_path_and_registry_variant(self):
+    def test_one_pass_estimates_match_the_spectrum_path_and_the_pipeline(self):
         x = torch.randn(400, 30) @ torch.randn(30, 30)
-        a = rq.participation_ratio(x, normalized=False).value
-        b = rq.participation_ratio(x, normalized=False, correction="both").extras["participation_ratio_naive"]
-        self.assertAlmostEqual(a, b, places=6)
-        rec = rq.compute({0: x}, ["participation_ratio/corrected"])
-        self.assertAlmostEqual(
-            rec[0].value * 30, rq.participation_ratio(x, normalized=False, correction="row").value, places=9
-        )
-        with self.assertRaises(TypeError):
+        plug_in = rq.participation_ratio(rq.Spectrum.from_points(x), normalized=False).value
+        r = rq.participation_ratio(x, normalized=False, correction="both")
+        self.assertAlmostEqual(r.extras["naive"], plug_in, places=6)
+        self.assertEqual(r.value, r.extras["both"])
+        rec = rq.compute({0: x}, ["participation_ratio"], params={"participation_ratio": {"correction": "row"}})
+        self.assertAlmostEqual(rec[0].value * 30, r.extras["row"], places=9)
+        self.assertAlmostEqual(rec[0].extras["naive"], plug_in, places=6)
+        with self.assertRaises(ValueError):
             rq.participation_ratio(rq.Spectrum.from_points(x), correction="row")
 
 

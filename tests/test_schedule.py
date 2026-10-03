@@ -32,7 +32,7 @@ def loader(n=64, d=12, batch=16):
 
 class ItemCapTests(unittest.TestCase):
     def test_registry_caps_declared_for_superlinear_estimators(self):
-        self.assertEqual(rq.get_metric("mst_dimension").max_items, 2000)
+        self.assertEqual(rq.get_metric("intrinsic_dimension/mst").max_items, 2000)
         self.assertIsNone(rq.get_metric("effective_rank").max_items)
 
     def test_limits_subsample_and_record_count(self):

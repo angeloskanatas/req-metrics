@@ -29,7 +29,9 @@ class SelectionTests(unittest.TestCase):
         a = rq.value_at(self.runs["wide"], "alpha_req", 1)
         order = rq.rank_runs(self.runs, "alpha_req", layer=1, direction="target", target=a)
         self.assertEqual(order[0][0], "wide")
-        order = rq.rank_runs(self.runs, "mlid", layer=1)  # not computed: every run sorts with nan last
+        order = rq.rank_runs(
+            self.runs, "intrinsic_dimension/mlid", layer=1
+        )  # not computed: every run sorts with nan last
         self.assertTrue(all(math.isnan(v) for _, v in order))
         with self.assertRaises(ValueError):
             rq.rank_runs(self.runs, "alpha_req", layer=1, direction="target")

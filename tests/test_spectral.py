@@ -45,8 +45,8 @@ class EntropyTests(unittest.TestCase):
         h2 = -math.log(float((p**2).sum()))
         self.assertAlmostEqual(rq.matrix_entropy(x, alpha=2.0, normalization="raw").value, h2, places=9)
 
-    def test_spectral_entropy_normalized_is_near_one_for_gaussian(self):
-        self.assertGreater(rq.spectral_entropy(gaussian()).value, 0.98)
+    def test_variance_normalized_entropy_is_near_one_for_gaussian(self):
+        self.assertGreater(rq.effective_rank(gaussian(), spectrum="variance").extras["normalized_entropy"], 0.98)
 
 
 class AlphaReqTests(unittest.TestCase):
@@ -103,8 +103,22 @@ class GaussianityTests(unittest.TestCase):
     def test_swd_terms_near_zero_for_standard_normal(self):
         r = rq.gaussianity(gaussian(5000, 16), method="swd")
         self.assertLess(r.value, 0.01)
-        self.assertLess(r.extras["center"], 0.01)
-        self.assertLess(r.extras["scale"], 0.01)
+        self.assertLess(r.extras["swd_center"], 0.01)
+        self.assertLess(r.extras["swd_scale"], 0.01)
+
+    def test_one_call_gives_all_statistics_and_ks_matches_scipy(self):
+        from scipy import stats
+
+        from req_metrics.metrics.distribution import _directions
+
+        x = gaussian(800, 12).double()
+        r = rq.gaussianity(x, method="ks", num_directions=32)
+        u = (x - x.mean(0)) @ _directions(12, 32, 0, x)
+        ref = sum(stats.kstest(u[:, k].numpy(), "norm").statistic for k in range(32)) / 32
+        self.assertAlmostEqual(r.value, ref, places=12)
+        self.assertEqual(r.value, r.extras["ks"])
+        self.assertEqual(rq.gaussianity(x, num_directions=32).value, r.extras["epps_pulley"])
+        self.assertEqual(rq.gaussianity(x, method="swd", num_directions=32).value, r.extras["swd_shape"])
 
     def test_seed_reproducible(self):
         x = gaussian(500, 8)
@@ -130,15 +144,13 @@ class RegistryTests(unittest.TestCase):
         for n in (
             "effective_rank",
             "anisotropy",
-            "anisotropy/cosine",
+            "cosine_anisotropy",
             "alpha_req",
             "gaussianity",
-            "gaussianity/swd",
             "matrix_entropy",
             "participation_ratio",
             "eigenvalue_early_enrichment",
             "sparsity",
-            "spectral_entropy",
         ):
             self.assertIn(n, names)
         spec = rq.get_metric("anisotropy")

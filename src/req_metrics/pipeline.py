@@ -16,6 +16,7 @@ View metrics take layers[l] of shape (q, N, D); PTE takes layers[l] = (z, shifte
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -35,9 +36,23 @@ from req_metrics.view_construction import ShiftSpec, ViewSpec
 _NEIGHBOR_K = {
     "intrinsic_dimension/gride": ("range_max", 64),
     "intrinsic_dimension/mle": ("k_range", (10, 20)),
-    "mlid": ("k", 64),
+    "intrinsic_dimension/mlid": ("k", 64),
     "neighborhood_curvature": ("k", 64),
 }
+
+
+def _warn_failed(records: Records) -> Records:
+    """Warn once per call when estimators failed; their records hold nan and extras["error"]."""
+    failed = [r for r in records.rows if "error" in r.extras]
+    if failed:
+        first = failed[0]
+        warnings.warn(
+            f"{len(failed)} of {len(records.rows)} records failed and hold nan; first: {first.metric} "
+            f"at layer {first.layer}: {first.extras['error']}",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    return records
 
 
 def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence | None = None) -> np.ndarray:
@@ -271,7 +286,7 @@ def compute(
                 if vs.shape[1] < v.shape[1]:
                     extras["n_items_used"] = int(vs.shape[1])
                 record(spec, l, value, extras, len(idx), int(v.shape[-1]), int(v.shape[0]))
-        return records
+        return _warn_failed(records)
 
     if kind == InputKind.SHIFTED:
         z0, _ = layers[layer_ids[0]]
@@ -283,7 +298,7 @@ def compute(
             for spec in specs:
                 value, extras = _run(spec, (z, sh), params.get(spec.name, {}))
                 record(spec, l, value, extras, len(idx), int(z.shape[-1]), len(sh))
-        return records
+        return _warn_failed(records)
 
     if kind == InputKind.PAIR:
         raise ValueError("pair metrics compare two representations; use compute_pairs")
@@ -300,7 +315,7 @@ def compute(
             x = torch.as_tensor(layers[l])[idx]
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
-        return records
+        return _warn_failed(records)
 
     if population == "tokens":
         if any(s.inputs == InputKind.TRAJECTORY for s in specs):
@@ -311,7 +326,7 @@ def compute(
             x = x[idx]
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
-        return records
+        return _warn_failed(records)
 
     if population == "frames":
         clips0 = layers[layer_ids[0]]
@@ -332,7 +347,7 @@ def compute(
             for name, (values, extras_list) in per_metric.items():
                 value, extras = _aggregate(values, extras_list, keep_per_clip)
                 record(get_metric(name), l, value, extras, len(idx), dim)
-        return records
+        return _warn_failed(records)
 
     raise ValueError(f"unknown population {population!r}")
 

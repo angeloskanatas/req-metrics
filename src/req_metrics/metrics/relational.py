@@ -15,7 +15,7 @@ import torch
 from torch import Tensor
 
 from req_metrics._types import InputKind, MetricResult, Preprocess
-from req_metrics.preprocess import apply_preprocess
+from req_metrics.preprocess import apply_preprocess, l2_normalize
 from req_metrics.registry import register_metric
 
 
@@ -124,6 +124,35 @@ def normalized_std(x: Tensor) -> MetricResult:
 
 
 _P = InputKind.POINTS
+
+
+def anisotropy_cosine(x: Tensor, *, center: bool = False) -> MetricResult:
+    """Mean pairwise cosine similarity between distinct samples.
+
+    Ethayarajh (2019, EMNLP) measures anisotropy as the expected cosine
+    between representations of random inputs; Godey et al. (2024, EACL) track
+    the same average across layers and attribute it to self-attention.
+    Computed exactly in O(N D) from the sum of the unit vectors. Timkey and
+    van Schijndel (2021, EMNLP) show this measure is often dominated by one
+    to five rogue dimensions and recommend standardizing before computing
+    it; centering alone removes the shared mean direction.
+
+    Args:
+        x: Points (N, D).
+        center: Mean-center before normalizing (off in the papers).
+
+    Returns:
+        value: mean off-diagonal cosine in [-1/(N-1), 1].
+        extras: none.
+    """
+    if x.ndim != 2 or x.shape[0] < 2:
+        raise ValueError(f"expected (N, D) with N >= 2, got shape {tuple(x.shape)}")
+    y = l2_normalize(apply_preprocess(x.double(), Preprocess(center=center)))
+    n = y.shape[0]
+    total = y.sum(dim=0)
+    return MetricResult(float((total @ total - n) / (n * (n - 1))), {})
+
+
 register_metric(
     "self_clustering",
     inputs=_P,
@@ -148,3 +177,9 @@ register_metric(
     arxiv="2011.10566",
     tags=("collapse-indicator",),
 )(normalized_std)
+register_metric(
+    "cosine_anisotropy",
+    inputs=InputKind.POINTS,
+    preprocess=Preprocess(),
+    citation=("ethayarajh2019contextual", "DBLP:conf/eacl/GodeyCS24", "timkey2021rogue"),
+)(anisotropy_cosine)

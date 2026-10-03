@@ -93,16 +93,15 @@ _ATLAS_NAMES = {
     "effective_rank": ("effective_rank", "default"),
     "effective_rank/variance": ("effective_rank", "variance"),
     "anisotropy": ("anisotropy", "spectral"),
-    "anisotropy/cosine": ("anisotropy", "cosine"),
+    "cosine_anisotropy": ("anisotropy", "cosine"),
     "intrinsic_dimension": ("id", "twonn"),
     "intrinsic_dimension/mle": ("id", "mle"),
-    "mlid": ("id", "mlid"),
+    "intrinsic_dimension/mlid": ("id", "mlid"),
     "alpha_req": ("alpha", "default"),
     "infonce": ("infonce", "default"),
     "lidar": ("lidar", "default"),
     "trajectory_curvature": ("curvature", "signed"),
     "pte": ("pte", "lin_phase"),
-    "pte/mlp": ("pte", "mlp_phase"),
 }
 
 
@@ -117,8 +116,8 @@ def atlas_rows(r: Record) -> list[tuple[str, str, float]]:
         return [("id", f"gride_k{int(r.params.get('scale', 8))}", r.value)]
     if r.metric == "trajectory_curvature" and "signed" in r.extras and "abs" in r.extras:
         return [("curvature", "signed", float(r.extras["signed"])), ("curvature", "default", float(r.extras["abs"]))]
-    if r.metric in ("pte", "pte/mlp") and "phase_rmse" in r.extras and "cpsd_rmse" in r.extras:
-        probe = "mlp" if r.metric == "pte/mlp" or r.params.get("probe") == "mlp" else "lin"
+    if r.metric == "pte" and "phase_rmse" in r.extras and "cpsd_rmse" in r.extras:
+        probe = "mlp" if r.params.get("probe") == "mlp" else "lin"
         return [
             ("pte", f"{probe}_phase", 1.0 - float(r.extras["phase_rmse"]) / 2.0),
             ("pte", f"{probe}_cpsd", 1.0 - float(r.extras["cpsd_rmse"]) / 2.0),

@@ -85,8 +85,8 @@ class RegistryTests(unittest.TestCase):
             "intrinsic_dimension",
             "intrinsic_dimension/gride",
             "intrinsic_dimension/mle",
-            "mlid",
-            "mst_dimension",
+            "intrinsic_dimension/mlid",
+            "intrinsic_dimension/mst",
             "neighborhood_curvature",
             "local_rectifiability",
         ):
