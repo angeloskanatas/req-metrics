@@ -5,20 +5,33 @@ Keep a Changelog; versions follow Semantic Versioning.
 
 ## [0.2.0] - 2026-10-03
 
-- One record per computation: `effective_rank/variance`, `trajectory_curvature/abs`,
-  `trajectory_curvature/recurve` and `pte/cpsd` are removed; their values are in the extras of
-  `effective_rank`, `trajectory_curvature` and `pte`, and the `spectrum`, `convention`, `normalize`
-  and `score` arguments choose the value. The unpublished concatenated-probe method of `pte` is
-  removed. Frames records carry the mean of the per-clip extras. The site export writes every
-  variant the site stores from those extras.
-- `cluster_quality`: k-means Davies-Bouldin index and inertia (Whetten et al., 2025), equal to
-  scikit-learn's on the same labels.
-- `cka` (linear, with the debiased estimator) and `svcca` as layer-pair metrics, with parity
-  against the authors' reference code; `compute_pairs(metric="cka" | "svcca", params=...)`
-  computes per-layer summaries once and accepts two checkpoints as A and B. 40 metrics.
-- Monitoring sinks: `json_sink` names files by epoch and global step, with an `online_` prefix for
-  training-batch records, so combined epoch and step schedules no longer overwrite files; the
-  TensorBoard and W&B sinks and the profile legends use the global step when records carry it.
+### Added
+- `cluster_quality`: k-means inertia and Davies-Bouldin index (Whetten et al., 2025).
+- `cka` (linear, optionally debiased) and `svcca`, tested against the authors' reference code.
+  `compute_pairs(metric="cka")` or `"svcca"` computes them for every layer pair, within one model
+  or between two checkpoints.
+
+### Changed
+- Frames records include the mean of each numeric per-clip extra.
+- Monitoring sinks use the global step as the x-axis, and in profile-plot legends, when records
+  carry it.
+
+### Removed
+- Four registry names. Their values are extras of the base metric, selected by an argument:
+
+  | Removed | Use |
+  |---|---|
+  | `effective_rank/variance` | `effective_rank`, `spectrum="variance"` |
+  | `trajectory_curvature/abs` | `trajectory_curvature`, `convention="abs"` |
+  | `trajectory_curvature/recurve` | `trajectory_curvature`, `normalize="path_length"` |
+  | `pte/cpsd` | `pte`, `score="cpsd"` |
+
+- The `method` argument of `pte`. The same probe always maps the clip and its transposition.
+
+### Fixed
+- `json_sink` overwrote files when epoch and step schedules were combined or training-batch
+  monitoring was on. Files are now named `epoch_<e>_step_<s>.json`, with an `online_` prefix for
+  training-batch records.
 
 ## [0.1.0] - 2026-10-02
 
