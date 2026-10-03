@@ -199,7 +199,7 @@ class ProtocolTests(unittest.TestCase):
                 rq.get_metric(name)
         self.assertEqual(p.params("pooled")["intrinsic_dimension/gride"]["scale"], 8)
         rec = rq.compute(pooled_layers(n=150, d=8), ["effective_rank", "anisotropy"], params=p.params("pooled"))
-        self.assertEqual(rec[0].params, {"spectrum": "singular", "center": True})
+        self.assertEqual(rec[0].params, {"spectrum": "singular", "center": True, "max_eigenvalues": 2048})
 
 
 if __name__ == "__main__":

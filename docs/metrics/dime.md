@@ -24,6 +24,7 @@ Args:
     kernel: "linear" (cosine Gram) or "rbf" (median bandwidth).
     seed: Permutation seed.
     normalization: "raw" or "max" (divide by log N).
+    center: Mean-center each view before the kernel, as Skean et al. (2025) do.
 
 Returns:
     value: DiME.

@@ -22,6 +22,7 @@ Args:
     x: Points (N, D), or a Spectrum of preprocessed points.
     spectrum: "singular" or "variance".
     center: Mean-center before the SVD.
+    max_eigenvalues: Keep only the largest singular values, as a truncated PCA does.
 
 Returns:
     value: effective rank in [1, min(N, D)].

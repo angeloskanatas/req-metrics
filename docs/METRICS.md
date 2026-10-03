@@ -135,10 +135,10 @@ kind. The canonical set:
 | metric | estimator / variant | preprocessing | population | views |
 |---|---|---|---|---|
 | intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | pooled | 1 |
-| effective_rank | singular spectrum | center | pooled | 1 |
+| effective_rank | singular spectrum, largest 2048 values | center | pooled | 1 |
 | anisotropy | spectral | center + L2 | pooled | 1 |
 | trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames | 1 |
-| lidar | effective-rank readout, delta 1e-6, biased denominators | none (LDA centers) | pooled | 10 |
+| lidar | delta 1e-6, n and nq denominators, largest 2048 eigenvalues | none (LDA centers) | pooled | 10 |
 | infonce | temperature 0.3 | center + L2 | pooled | 2 |
 | pte | linear probe, omega 7, phase distance | none | pooled | 1 + 11 shifts |
 
