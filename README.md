@@ -18,9 +18,9 @@ tensors of any modality; the documentation says clips for the items of a
 corpus, and only the pitch-transposition equivariance metric is specific to
 music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
-The registry holds 37 metrics in ten groups: spectral, intrinsic dimension, local
-geometry, relational, trajectory, views, equivariance, layer pairs, token fields
-and norms. Each metric has a published definition and is checked against the
+The registry holds 40 metrics in eleven groups: spectral, intrinsic dimension, local
+geometry, relational, clustering, trajectory, views, equivariance, layer pairs, token
+fields and norms. Each metric has a published definition and is checked against the
 implementation it was adopted from. The same estimators run post hoc on
 extracted embeddings and, through forward hooks, on every layer of a model
 while it trains.
@@ -67,6 +67,7 @@ rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augme
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
 rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
 rq.compute_pairs(layers, metric="neighborhood_overlap")
+rq.compute_pairs(layers, metric="cka")              # or "svcca"; A and B can also be two checkpoints
 
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
 rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
@@ -129,10 +130,11 @@ layer is in `docs/DESIGN.md`.
 | Intrinsic dimension | `intrinsic_dimension`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `mlid`, `mst_dimension` | `(N, D)` points |
 | Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
 | Relational | `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
+| Clustering | `cluster_quality` | `(N, D)` points |
 | Trajectory | `trajectory_curvature` | `(T, D)` per clip, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
 | Equivariance | `pte`, `pte/mlp` | embeddings of pitch-shifted copies |
-| Layer pairs | `information_imbalance`, `neighborhood_overlap` | two layers |
+| Layer pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two layers |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per clip |
 | Norms | `embedding_norm` | `(N, D)` points |
 

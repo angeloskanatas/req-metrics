@@ -123,6 +123,127 @@ def neighborhood_overlap(
     )
 
 
+def _check_pair(x_a: Tensor, x_b: Tensor) -> None:
+    if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
+        raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
+
+
+def _debiased_hsic(xty: Tensor, rows_a: Tensor, rows_b: Tensor, sq_a: Tensor, sq_b: Tensor, n: int) -> Tensor:
+    """Unbiased linear HSIC up to the factor 1/(n(n-3)), from centered-feature summaries."""
+    return xty - n / (n - 2.0) * (rows_a @ rows_b) + sq_a * sq_b / ((n - 1) * (n - 2))
+
+
+def _cka_stats(x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Column-centered float64 features, ||X^T X||_F^2 and the squared row norms."""
+    xc = x.double() - x.double().mean(0, keepdim=True)
+    return xc, (xc.T @ xc).square().sum(), xc.square().sum(1)
+
+
+def _cka_from_stats(a: tuple[Tensor, Tensor, Tensor], b: tuple[Tensor, Tensor, Tensor]) -> tuple[float, float]:
+    """(biased, debiased) linear CKA from two _cka_stats; debiased is nan for N < 4."""
+    xa, xtx, rows_a = a
+    xb, yty, rows_b = b
+    xty = (xb.T @ xa).square().sum()
+    biased = float(xty / (xtx.sqrt() * yty.sqrt()))
+    n = xa.shape[0]
+    if n < 4:
+        return biased, float("nan")
+    sq_a, sq_b = rows_a.sum(), rows_b.sum()
+    num = _debiased_hsic(xty, rows_a, rows_b, sq_a, sq_b, n)
+    den_a = _debiased_hsic(xtx, rows_a, rows_a, sq_a, sq_a, n)
+    den_b = _debiased_hsic(yty, rows_b, rows_b, sq_b, sq_b, n)
+    return biased, float(num / (den_a.sqrt() * den_b.sqrt()))
+
+
+def cka(x_a: Tensor, x_b: Tensor, *, debiased: bool = False) -> MetricResult:
+    """Linear centered kernel alignment between two representations of the same items.
+
+    Kornblith, Norouzi, Lee and Hinton (2019, ICML, arXiv:1905.00414), Table 1:
+    CKA = ||Y^T X||_F^2 / (||X^T X||_F ||Y^T Y||_F) for column-centered X (N, D_a)
+    and Y (N, D_b), the normalized HSIC of Eq. 4 with linear kernels. 1 for
+    representations equal up to an orthogonal map and an isotropic scaling; it is
+    not invariant to arbitrary invertible linear maps, which is what lets it
+    distinguish layers wider than N. The plug-in estimate is biased upward when N
+    is not large relative to the widths. debiased=True uses the unbiased HSIC
+    estimator of Song et al. (2007) in the feature-space form of the authors'
+    reference notebook; it reduces the bias, can be negative and needs N >= 4. Both
+    estimates are in the extras. Computed in float64 from the D x D cross-products
+    in O(N D_a D_b), without N x N Gram matrices.
+
+    Args:
+        x_a, x_b: (N, D_a) and (N, D_b), rows describing the same items.
+        debiased: Return the debiased estimate.
+
+    Returns:
+        value: CKA in [0, 1] (debiased: can fall slightly below 0).
+        extras: biased, debiased (nan for N < 4).
+    """
+    _check_pair(x_a, x_b)
+    if debiased and x_a.shape[0] < 4:
+        raise ValueError(f"debiased CKA needs N >= 4, got N = {x_a.shape[0]}")
+    biased, unbiased = _cka_from_stats(_cka_stats(x_a), _cka_stats(x_b))
+    return MetricResult(unbiased if debiased else biased, {"biased": biased, "debiased": unbiased})
+
+
+def _svd_directions(x: Tensor, threshold: float) -> tuple[Tensor, int]:
+    """Left singular vectors of the centered x whose singular values sum to a fraction threshold of the total."""
+    u, s, _ = torch.linalg.svd(x - x.mean(0, keepdim=True), full_matrices=False)
+    cum = torch.cumsum(s, 0)
+    k = min(int(torch.searchsorted(cum, threshold * cum[-1]).item()) + 1, s.numel())
+    return u[:, :k], k
+
+
+def svcca(x_a: Tensor, x_b: Tensor, *, threshold: float = 0.99) -> MetricResult:
+    """SVCCA similarity: mean canonical correlation between the leading SVD directions of two representations.
+
+    Raghu, Gilmer, Yosinski and Sohl-Dickstein (2017, NeurIPS, arXiv:1706.05806):
+    each representation is centered and reduced by SVD to the fewest directions
+    whose singular values sum to at least threshold of their total (App. A, the
+    99% rule on singular values), canonical correlation analysis between the two
+    reduced representations gives min(k_a, k_b) correlations, and their mean is the
+    similarity (Eq. 1, averaged over the aligned directions as in the reference
+    tutorial and in Kornblith et al., 2019, Table 1). The correlations are the
+    singular values of U_a^T U_b for the orthonormal bases of the kept directions,
+    which equals the covariance-based CCA of the reference code at epsilon = 0
+    without inverting covariance matrices. Invariant to invertible linear maps of
+    the kept subspaces, so it needs N well above the kept widths: the reference
+    tutorial asks for 5 to 10 times as many items as neurons, and as a kept width
+    approaches N any two representations score near 1 (Kornblith et al., 2019,
+    Theorem 1).
+
+    Args:
+        x_a, x_b: (N, D_a) and (N, D_b), rows describing the same items.
+        threshold: Fraction of the summed singular values kept per representation.
+
+    Returns:
+        value: mean canonical correlation in [0, 1].
+        extras: r2 (mean squared correlation), k_a, k_b (directions kept).
+    """
+    _check_pair(x_a, x_b)
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"threshold must be in (0, 1], got {threshold}")
+    u_a, k_a = _svd_directions(x_a.double(), threshold)
+    u_b, k_b = _svd_directions(x_b.double(), threshold)
+    rho = torch.linalg.svdvals(u_a.T @ u_b).clamp(0.0, 1.0)
+    return MetricResult(float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(k_a), "k_b": float(k_b)})
+
+
+register_metric(
+    "cka",
+    inputs=InputKind.PAIR,
+    preprocess=Preprocess(),
+    citation=("kornblith2019similarity",),
+    arxiv="1905.00414",
+    description="Linear centered kernel alignment between two layers (Kornblith et al., 2019).",
+)(cka)
+register_metric(
+    "svcca",
+    inputs=InputKind.PAIR,
+    preprocess=Preprocess(),
+    citation=("raghu2017svcca",),
+    arxiv="1706.05806",
+    description="Mean canonical correlation of the leading SVD directions of two layers (Raghu et al., 2017).",
+)(svcca)
 register_metric(
     "neighborhood_overlap",
     inputs=InputKind.PAIR,

@@ -6,6 +6,8 @@ import torch
 
 import req_metrics as rq
 
+SMALL = {"cluster_quality": {"k": 8}}  # the default k = 1024 needs more points than these fixtures
+
 
 class RegistrySweepTests(unittest.TestCase):
     def setUp(self):
@@ -18,7 +20,7 @@ class RegistrySweepTests(unittest.TestCase):
     def test_point_metrics(self):
         names = [m for m in rq.list_metrics() if rq.get_metric(m).inputs == rq.InputKind.POINTS]
         x = torch.randn(600, 24) @ torch.diag(torch.linspace(1, 0.1, 24))
-        self._assert_clean(rq.compute({0: x, 1: 2 * x + 1}, names, n=600))
+        self._assert_clean(rq.compute({0: x, 1: 2 * x + 1}, names, n=600, params=SMALL))
 
     def test_point_metrics_on_frames_and_tokens(self):
         names = [
@@ -28,8 +30,8 @@ class RegistrySweepTests(unittest.TestCase):
             and m not in ("mst_dimension", "local_rectifiability", "gaussianity/ks")
         ]  # slow per clip
         clips = [torch.randn(80, 16) for _ in range(6)]
-        self._assert_clean(rq.compute({0: clips}, names, population="frames", n=6))
-        self._assert_clean(rq.compute({0: clips}, names, population="tokens", n=400))
+        self._assert_clean(rq.compute({0: clips}, names, population="frames", n=6, params=SMALL))
+        self._assert_clean(rq.compute({0: clips}, names, population="tokens", n=400, params=SMALL))
 
     def test_trajectory_and_token_metrics(self):
         traj = [torch.cumsum(torch.randn(60, 16), dim=0) for _ in range(5)]

@@ -18,7 +18,8 @@ from req_metrics.layouts import (
     stack_clips,
     strip_prefix_tokens,
 )
-from req_metrics.metrics.compare import information_imbalance, neighborhood_overlap
+from req_metrics.metrics.clustering import cluster_quality
+from req_metrics.metrics.compare import cka, information_imbalance, neighborhood_overlap, svcca
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.equivariance import pte
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
@@ -137,6 +138,9 @@ __all__ = [
     "convergence",
     "Convergence",
     "neighborhood_overlap",
+    "cka",
+    "svcca",
+    "cluster_quality",
     "rank_runs",
     "top_layers",
     "value_at",

@@ -11,6 +11,11 @@ Keep a Changelog; versions follow Semantic Versioning.
   and `score` arguments choose the value. The unpublished concatenated-probe method of `pte` is
   removed. Frames records carry the mean of the per-clip extras. The site export writes every
   variant the site stores from those extras. 37 metrics.
+- `cluster_quality`: k-means Davies-Bouldin index and inertia (Whetten et al., 2025), equal to
+  scikit-learn's on the same labels.
+- `cka` (linear, with the debiased estimator) and `svcca` as layer-pair metrics, with parity
+  against the authors' reference code; `compute_pairs(metric="cka" | "svcca", params=...)`
+  computes per-layer summaries once and accepts two checkpoints as A and B. 40 metrics.
 
 ## [0.1.0] - 2026-10-02
 

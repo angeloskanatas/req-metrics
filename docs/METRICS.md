@@ -56,7 +56,7 @@ covers what applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe* and the variance convention in the extras), spectral_entropy, matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (+ corrected), eigenvalue_early_enrichment, gaussianity, sparsity | points |
 | Relational | relational: self_clustering, uniformity, normalized_std; anisotropy/cosine | points |
 | Manifold | dimension: intrinsic_dimension (TwoNN), gride, mle, mlid, mst_dimension; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance (layer pairs); tokens and norms (token fields) | frames, views, shifts, pairs, tokens |
+| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens and norms (token fields) | points, frames, views, shifts, pairs, tokens |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -111,7 +111,13 @@ docstring says so.
   analysis code on identical data and seeds to six decimals.
 - Comparison group. The information imbalance agrees with DADApy's
   `_return_imbalance` on full index tables to 1e-10 for k = 1 and k = 3;
-  ranks are counted per chunk, so no N x N table is stored.
+  ranks are counted per chunk, so no N x N table is stored. Linear CKA
+  reproduces the recorded outputs of the authors' reference notebook, biased
+  and debiased, to 1e-11, and its Gram form when the width exceeds N. SVCCA
+  equals `cca_core.get_cca_similarity` of the reference code at epsilon 0 on
+  the SVD-reduced representations to 1e-12.
+- Clustering. The Davies-Bouldin index and the inertia equal scikit-learn's
+  `davies_bouldin_score` and k-means inertia on the same labels and seeding.
 - Relational group and corrections: see Section 6.
 
 ## 4. Reproducing Kanatas et al. (2026)
@@ -225,7 +231,18 @@ embedding units with no scale rule (paper exp(-d^2/sigma) versus code
 exp(-d^2/(2 sigma^2)), default 10), which confounds layer-wise comparison as
 norms grow with depth; reference code non-commercial; rho = -0.999 with
 self_clustering. Layer-wise representation dynamics (Jiang et al., 2026): no
-code and no peer review yet; candidates for the layer-pair family. Persistence
+code and no peer review yet; CKA and SVCCA, the published measures their
+subspace distances build on, are in the layer-pair family. Dense representation
+structure estimator (Dai et al., 2025, NeurIPS, arXiv:2510.17299): the released
+code computes a different quantity from the paper's Eq. 5 (scale normalizations
+and an intra-cluster denominator that the paper does not state, and no lambda,
+which Eq. 5 defines over the checkpoints of a run), so published values cannot be
+reproduced from the definition; the code carries no license. Parameter- and
+representation-prediction probes (Plachouras et al., 2025, IJCNN): they train a
+probe for every layer, transformation and evaluation, which is too costly for
+monitoring during training, and the paper evaluates them on final-layer
+features rather than as layer-selection measures; the authors' toolkit provides
+them. Persistence
 (Shestov et al., 2025): persistent homology on recommender embeddings, which
 would add a persistent-homology dependency.
 
@@ -242,3 +259,29 @@ k-NN table per layer and intersects them for every pair. Symmetric, so it
 answers a different question from the information imbalance (directional
 predictability of neighbor ranks); the two are the layer-pair family. The
 retention score of Jiang et al. (2026) is the Jaccard variant of this quantity.
+
+## 8. cka and svcca
+
+Layer-pair similarity indices for the same items in two representations.
+`cka` is linear centered kernel alignment (Kornblith et al., 2019, ICML,
+arXiv:1905.00414, Table 1), invariant to orthogonal maps and isotropic
+scaling; `debiased=True` uses the unbiased HSIC estimator, which matters when N
+is not large relative to the widths. `svcca` (Raghu et al., 2017, NeurIPS,
+arXiv:1706.05806) keeps the SVD directions that carry 99 percent of the summed
+singular values (App. A) and averages the canonical correlations between them
+(Eq. 1); it is invariant to invertible linear maps of the kept subspaces and
+therefore needs N well above the kept widths. Post hoc, `compute_pairs` gives the
+layer-by-layer similarity map of a model. During training, the same fixed items
+at two checkpoints give the drift of each layer, the use of Raghu et al.,
+Sec. 4.1, who compare every layer during training with its final state. Both
+are closed-form; per-layer summaries are computed once per call.
+
+## 9. cluster_quality
+
+Whetten et al. (2025, Interspeech): k-means with k = 1024 and k-means++
+seeding on the frame embeddings of a layer, reported as the inertia and the
+Davies-Bouldin index, as label-free indicators computed early in pretraining.
+In their study the two correlate with recognition in opposite directions, so
+they are read together and compared at the same layer, N and k. Full-batch
+Lloyd iterations with a seed replace the paper's mini-batch k-means, so values
+are reproducible.

@@ -361,18 +361,27 @@ def compute_pairs(
     corpus: str | None = None,
     chunk: int = 512,
     metric: str = "information_imbalance",
+    params: Mapping[str, Any] | None = None,
 ) -> Records:
     """A layer-pair metric between every layer of A and every layer of B (B defaults to A).
 
     Rows of all layers must describe the same clips in the same order. One
     Record per (layer_a, layer_b). metric is "information_imbalance" (default
-    k = 1; value Delta(A -> B), extras["reverse"]) or "neighborhood_overlap"
-    (default k = 30; symmetric). For the imbalance the cost is one chunked rank
+    k = 1; value Delta(A -> B), extras["reverse"]), "neighborhood_overlap"
+    (default k = 30; symmetric), "cka" or "svcca" (symmetric; params passes
+    debiased or threshold). For the imbalance the cost is one chunked rank
     table per layer rather than one per pair: for each target layer the ranks
     of all items are computed once and gathered at the k nearest neighbors of
     every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D).
-    For the overlap only the k-nearest-neighbor tables are needed, once per layer.
+    For the overlap only the k-nearest-neighbor tables are needed, once per
+    layer; for CKA the centered features and their norms, and for SVCCA the
+    kept singular directions, are also computed once per layer. To follow a
+    layer through training, pass the same items at two checkpoints as A and B.
     """
+    if metric in ("cka", "svcca"):
+        return _closed_form_pairs(
+            metric, layers_a, layers_b, dict(params or {}), n, seed, group_ids, model, model_b, pooling, corpus
+        )
     if metric not in ("information_imbalance", "neighborhood_overlap"):
         raise ValueError(f"unknown layer-pair metric {metric!r}")
     if k is None:
@@ -456,6 +465,91 @@ def compute_pairs(
                     seed=seed,
                     tags=spec.tags,
                     extras={"reverse": sums_ba[(la, lb)] / scale},
+                    version=__version__,
+                )
+            )
+    return out
+
+
+def _closed_form_pairs(
+    metric: str,
+    layers_a: Mapping[int, Tensor],
+    layers_b: Mapping[int, Tensor] | None,
+    params: dict[str, Any],
+    n: int | None,
+    seed: int,
+    group_ids: Sequence | None,
+    model: str | None,
+    model_b: str | None,
+    pooling: str | None,
+    corpus: str | None,
+) -> Records:
+    """CKA or SVCCA for every layer pair, with per-layer summaries computed once."""
+    from req_metrics.metrics.compare import _check_pair, _cka_from_stats, _cka_stats, _svd_directions
+
+    spec = get_metric(metric)
+    same = layers_b is None
+    b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
+    ids_a, ids_b = sorted(layers_a), sorted(b_map)
+    idx = choose_indices(torch.as_tensor(layers_a[ids_a[0]]).shape[0], n, seed, group_ids)
+    for l in ids_b:
+        _check_pair(torch.as_tensor(layers_a[ids_a[0]])[idx], torch.as_tensor(b_map[l])[idx])
+    if metric == "cka":
+        debiased = bool(params.get("debiased", False))
+        if debiased and len(idx) < 4:
+            raise ValueError(f"debiased CKA needs N >= 4, got N = {len(idx)}")
+
+        def summary(x: Tensor) -> Any:
+            return _cka_stats(x)
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            biased, unbiased = _cka_from_stats(a, b)
+            return (unbiased if debiased else biased), {"biased": biased, "debiased": unbiased}
+
+    else:
+        threshold = float(params.get("threshold", 0.99))
+        if not 0.0 < threshold <= 1.0:
+            raise ValueError(f"threshold must be in (0, 1], got {threshold}")
+
+        def summary(x: Tensor) -> Any:
+            return _svd_directions(x.double(), threshold)
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            rho = torch.linalg.svdvals(a[0].T @ b[0]).clamp(0.0, 1.0)
+            return float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(a[1]), "k_b": float(b[1])}
+
+    sa = {l: summary(torch.as_tensor(layers_a[l])[idx]) for l in ids_a}
+    sb = sa if same else {l: summary(torch.as_tensor(b_map[l])[idx]) for l in ids_b}
+    depths = _normalized_depths(ids_a)
+    done: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
+    out = Records()
+    for la in ids_a:
+        for lb in ids_b:
+            if same and (lb, la) in done:
+                value, extras = done[(lb, la)]
+                if metric == "svcca":
+                    extras = {**extras, "k_a": extras["k_b"], "k_b": extras["k_a"]}
+            else:
+                value, extras = pair(sa[la], sb[lb])
+                done[(la, lb)] = (value, extras)
+            out.rows.append(
+                Record(
+                    metric=spec.name,
+                    value=value,
+                    layer=la,
+                    layer_b=lb,
+                    depth=depths[la],
+                    model=model if model_b is None else f"{model}->{model_b}",
+                    population="pooled",
+                    pooling=pooling,
+                    corpus=corpus,
+                    n_items=len(idx),
+                    dim=int(torch.as_tensor(layers_a[la]).shape[-1]),
+                    preprocess="none",
+                    params=dict(params),
+                    seed=seed,
+                    tags=spec.tags,
+                    extras=dict(extras),
                     version=__version__,
                 )
             )

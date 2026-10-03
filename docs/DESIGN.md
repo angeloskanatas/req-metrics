@@ -153,20 +153,21 @@ reference code. Adopted beyond the paper's own set: self-clustering
 uniformity and alignment (Wang and Isola, 2020), the normalized standard
 deviation (Chen and He, 2021), the bias-corrected participation ratio (Chun et
 al., 2026), neighborhood overlap (Doimo et al., 2020), the intrinsic-dimension
-caveats of Schulte and Rügamer (2026) as card text, and the taxonomy and the
-alpha-ReQ fit-range caveat of Arputharaj et al. (2026). Not adopted: the
+caveats of Schulte and Rügamer (2026) as card text, the taxonomy and the
+alpha-ReQ fit-range caveat of Arputharaj et al. (2026), the k-means inertia and
+Davies-Bouldin index of Whetten et al. (2025), and linear CKA (Kornblith et al.,
+2019) and SVCCA (Raghu et al., 2017) as layer-pair metrics. Not adopted: the
 condition number and coherence of Tsitsulin et al. (sign reversals across
 datasets, and a correlation with accuracy that Arputharaj et al. trace to OLS
 conditioning), diffusion spectral entropy (Liao et al., 2024; a bandwidth in
 absolute embedding units, non-commercial reference code, and near-perfect
-collinearity with self-clustering), and the layer-pair candidates of Jiang et
-al. (2026), which have no code and no peer review yet. Candidates for a next
-version, each needing a full read of its source first: the k-means inertia and
-Davies-Bouldin index of Whetten et al. (2025), the parameter- and
-representation-prediction equivariance probes of Plachouras et al. (2025),
-and the dense-representation structure estimator of Dai et al. (NeurIPS
-2025, arXiv:2510.17299). The reasons, with the tables they rest on, are in
-`docs/METRICS.md`, section 6.
+collinearity with self-clustering), the layer-pair measures of Jiang et al.
+(2026), which have no code and no peer review yet, the dense-representation
+structure estimator of Dai et al. (2025), whose paper and released code
+define different quantities, and the
+parameter- and representation-prediction probes of Plachouras et al. (2025),
+which train a probe for every layer, transformation and evaluation. The
+reasons are in `docs/METRICS.md`, section 6.
 
 ## 6. Sample size
 
