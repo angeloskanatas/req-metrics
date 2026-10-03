@@ -8,18 +8,21 @@ result carries a `ViewSpec` describing it.
 
 ## Two patterns
 
-**Monitoring during training, the objective's own positives.** LiDAR is
-defined with respect to the perturbations the objective treats as positives (Thilak
-et al., 2024, Section 3). During training the views are produced by re-running the
-data pipeline: each pass redraws the random crop and applies the method's
-augmentation chain, and for masked-prediction objectives the token mask is redrawn
-per view by running the encoder in train mode with dropout at zero. Objectives
-without augmentations still yield views that differ by the crop. In the library this
-is `make_views(encode, inputs, augment, q)`, where `encode` is the user's layer
-readout and `augment` the user's perturbation, with seeded passes; during training,
+**Monitoring during training, the objective's own positives.** LiDAR is defined with
+respect to the perturbations the objective treats as positives (Thilak et al., 2024,
+Section 3). During training the views are produced by re-running the data pipeline:
+each pass redraws the random crop and applies the method's augmentation chain, and
+for masked-prediction objectives the token mask is redrawn per view by running the
+encoder in train mode with dropout at zero. Objectives without augmentations still
+yield views that differ by the crop. In the library this is
+`make_views(encode, inputs, augment, q)`, where `encode` is the user's layer readout
+and `augment` the user's perturbation, with seeded passes; during training,
 `LayerMonitor` does the same, reading a live loader for the crops. Both draw each
-view independently. Positives that an objective draws jointly, such as crops
-constrained to lie near each other, are built by the caller and passed as a stack.
+view independently. Positives that an objective draws around a shared anchor, such
+as crops within a neighborhood of one center, come from a view loader whose dataset
+fixes the anchor per clip and draws each view's offset per pass, or post hoc from a
+stack built by the caller. No published LiDAR protocol states how to mix views of
+different kinds, such as global and local crops, within one clip's class.
 `ViewSpec(source="objective", ...)` records it.
 
 **Post-hoc comparison across models, a shared chain.** When models trained

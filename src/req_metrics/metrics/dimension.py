@@ -31,7 +31,7 @@ def _unique_rows(x: Tensor) -> Tensor:
     return torch.unique(x, dim=0)
 
 
-def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> MetricResult:
+def twonn(x: Tensor | Neighbors, *, mu_fraction: float = 0.9, algorithm: str = "base") -> MetricResult:
     """TwoNN intrinsic dimension from the ratio of second- to first-neighbor distance.
 
     Facco et al. (2017, Scientific Reports): under local uniformity mu = r_2 / r_1 is Pareto with
@@ -41,7 +41,7 @@ def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> Me
     extras["n_used"].
 
     Args:
-        x: Points (N, D).
+        x: Points (N, D), or a Neighbors table of the distinct points with k >= 2.
         mu_fraction: Fraction of the smallest ratios kept in the fit.
         algorithm: "base" or "ml".
 
@@ -49,8 +49,7 @@ def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> Me
         value: estimated dimension.
         extras: r (mean distance to the first two neighbors), n_used.
     """
-    xu = _unique_rows(x)
-    nb = Neighbors.from_points(xu, 2)
+    nb = _neighbors(x, 2)
     mus = nb.ratios(2, 1)
     n = mus.numel()
     log_mus = torch.log(mus)
@@ -256,6 +255,7 @@ def mst_dimension(x: Tensor, *, n_min: int | None = None, step: int | None = Non
 _P = InputKind.POINTS
 register_metric(
     "intrinsic_dimension",
+    cache="neighbors",
     inputs=_P,
     preprocess=Preprocess(),
     citation=("DBLP:journals/corr/abs-1803-06992", "glielmo2022dadapy"),

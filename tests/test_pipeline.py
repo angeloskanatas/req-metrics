@@ -112,6 +112,17 @@ class PooledTests(unittest.TestCase):
             rq.compute(pooled_layers(), ["effective_rank", "lidar"])
 
 
+class SharedNeighborTableTests(unittest.TestCase):
+    def test_twonn_reads_the_shared_table(self):
+        x = pooled_layers(n=300, d=10, n_layers=1)[0]
+        x = torch.cat([x, x[:5]])  # duplicates are dropped before the table is built
+        rec = rq.compute({0: x}, ["intrinsic_dimension", "intrinsic_dimension/gride", "intrinsic_dimension/mlid"])
+        direct = rq.twonn(x)
+        self.assertEqual(rec[0].value, direct.value)
+        self.assertEqual(rec[0].extras["n_distinct"], 300)
+        self.assertEqual(rec[0].extras["n_used"], direct.extras["n_used"])
+
+
 class FramesAndTokensTests(unittest.TestCase):
     def setUp(self):
         g = torch.Generator().manual_seed(1)
@@ -132,6 +143,20 @@ class FramesAndTokensTests(unittest.TestCase):
         self.assertEqual(rec[0].n_items, 1000)
         with self.assertRaises(ValueError):
             rq.compute(self.clips, ["trajectory_curvature"], population="tokens")
+
+    def test_tokens_records_carry_the_neighbor_regime(self):
+        g = torch.Generator().manual_seed(5)
+        centers = 20 * torch.randn(30, 6, generator=g)
+        tight = {0: [c + 0.01 * torch.randn(100, 6, generator=g) for c in centers]}
+        mets = ["intrinsic_dimension", "intrinsic_dimension/mle", "effective_rank"]
+        by = {r.metric: r for r in rq.compute(tight, mets, population="tokens", n=3000)}
+        self.assertEqual(by["effective_rank"].extras["n_clips"], 30)
+        self.assertNotIn("same_clip_fraction", by["effective_rank"].extras)
+        self.assertEqual(by["intrinsic_dimension"].extras["same_clip_fraction"], 1.0)  # k = 2 < 100 frames per clip
+        self.assertEqual(by["intrinsic_dimension/mle"].extras["same_clip_fraction"], 1.0)  # k = 20 < 100
+        single = {0: [c.unsqueeze(0) for c in centers]}  # one frame per clip: every neighbor is another clip
+        rec = rq.compute(single, ["intrinsic_dimension"], population="tokens")
+        self.assertEqual(rec[0].extras["same_clip_fraction"], 0.0)
 
     def test_device_argument_gives_the_same_records(self):
         mets = ["effective_rank", "intrinsic_dimension"]

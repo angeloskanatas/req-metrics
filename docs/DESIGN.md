@@ -148,16 +148,19 @@ index, RankMe-t and the effective rank of all frames pooled, to predict the outc
 at 200,000 steps. RankMe (Garrido et al., 2023) selects the hyperparameter
 configuration with the highest rank on 25,600 samples of the representation that is
 used downstream; LiDAR (Thilak et al., 2024) applies the same rule within one
-method. Both start from joint-embedding losses that do not track downstream quality
-(their Sec. 1); LeJEPA reports a training loss that does, for its own objective
-across hyperparameters (Balestriero and LeCun, 2025, Sec. 6.2). Post hoc, Skean et
-al. (2025) and Kanatas et al. (2026) relate layer profiles to downstream
-performance, and Arputharaj et al. (2026) relate final-layer metrics of 260 vision
-models to probe accuracy. `selection.rank_runs` and `selection.top_layers` encode
-the selection rules with the direction as an argument: Kanatas et al. report sign
-reversals across task families, and Arputharaj et al. find that the reliability of a
-metric, and for some metrics its sign, depends on the architecture class and the
-training objective.
+method, across hyperparameters that include I-JEPA's target mask scale, which
+changes the positives (their Table 1). Both start from joint-embedding losses that
+do not track downstream quality (their Sec. 1); LeJEPA reports a training loss that
+does, for its own objective across hyperparameters (Balestriero and LeCun, 2025,
+Sec. 6.2). Within one run the relation need not be monotone: during language-model
+pretraining the effective rank first expands and then contracts, and the contraction
+coincides with downstream gains (Li et al., 2025). Post hoc, Skean et al. (2025) and
+Kanatas et al. (2026) relate layer profiles to downstream performance, and
+Arputharaj et al. (2026) relate final-layer metrics of 260 vision models to probe
+accuracy. `selection.rank_runs` and `selection.top_layers` encode the selection
+rules with the direction as an argument: Kanatas et al. report sign reversals across
+task families, and Arputharaj et al. find that the reliability of a metric, and for
+some metrics its sign, depends on the architecture class and the training objective.
 
 ## 5. What was considered and not adopted
 
@@ -179,10 +182,12 @@ et al., 2024; a bandwidth in absolute embedding units, non-commercial reference
 code, and near-perfect collinearity with self-clustering), the layer-pair measures
 of Jiang et al. (2026), which have no code and no peer review yet, the
 dense-representation structure estimator of Dai et al. (2025), whose paper and
-released code define different quantities, and the parameter- and
+released code define different quantities, the parameter- and
 representation-prediction probes of Plachouras et al. (2025), which train a probe
-for every layer, transformation and evaluation. The reasons are in
-`docs/METRICS.md`, section 6.
+for every layer, transformation and evaluation, Task Priors (Patel and Balestriero,
+2025), whose prior kernel and temperature have no selection rule, and Q-Score
+(Kalibhat et al., 2024), a per-sample misclassification predictor whose authors do
+not extend it to ViT encoders. The reasons are in `docs/METRICS.md`, section 6.
 
 ## 6. Sample size
 

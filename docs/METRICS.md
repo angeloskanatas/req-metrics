@@ -73,7 +73,10 @@ change.
 - `pooled`: one vector per clip (token or time mean, class token, final token, or a
   grid readout). The setting of RankMe, LiDAR, Arputharaj et al. (2026) and Kanatas
   et al. (2026), and of the layer-wise intrinsic-dimension studies of Valeriani et
-  al. (2023, token mean) and Cheng et al. (2025, ICLR, last token).
+  al. (2023, token mean) and Cheng et al. (2025, ICLR, last token). With several
+  clips per track, a clip's nearest neighbors can be clips of its own track (the
+  regime effect described under `tokens`); `group_ids` keeps one clip per track, as
+  Kanatas et al. (2026) did.
 - `frames`: each clip's own frames or patches form one cloud; the estimator runs per
   clip and the values are aggregated (mean of the finite values; std, median, min,
   max and the count of failures in the extras). Viswanathan et al. (2025) estimate
@@ -99,14 +102,17 @@ change.
   spurious peak to layer profiles and reverses the dependence on c; the argument
   assumes, as they verify for words, that a clip's frames lie closer to each other
   than to other clips' frames. Compare such values at equal N, k and clip count.
-  Repeated draws with different seeds give the batch spread of Razzhigaev et al.;
-  class, register and first-position tokens can distort such a cloud (Timkey and van
-  Schijndel, 2021, report cosine above 0.99 between position-0 tokens), so strip
-  them first (`layouts.strip_prefix_tokens`, or `n_prefix` with the "frames"
-  readout). Token-field metrics whose definition pairs tokens within one clip
-  (`cls_patch_cosine`, `token_cosine`; registry `per_clip`) run per clip here too,
-  while `token_norm_outliers` reads the pooled tokens, as Darcet et al. (2024) set
-  their cutoff from a pooled norm histogram.
+  Records of this population carry `n_clips`, and those of the neighbor estimators
+  `same_clip_fraction`, the mean share of a point's neighbors behind the value that
+  are frames of its own clip (their Sec. 5 diagnostic): near 1 in the local regime,
+  near 1 / c without clip structure. Repeated draws with different seeds give the
+  batch spread of Razzhigaev et al.; class, register and first-position tokens can
+  distort such a cloud (Timkey and van Schijndel, 2021, report cosine above 0.99
+  between position-0 tokens), so strip them first (`layouts.strip_prefix_tokens`, or
+  `n_prefix` with the "frames" readout). Token-field metrics whose definition pairs
+  tokens within one clip (`cls_patch_cosine`, `token_cosine`; registry `per_clip`)
+  run per clip here too, while `token_norm_outliers` reads the pooled tokens, as
+  Darcet et al. (2024) set their cutoff from a pooled norm histogram.
 
 Rosina Fernandez, Guillaume and Wisniewski (2025) compare the cosine similarity of
 frame pairs from the same recording and from different recordings and find the two
@@ -301,7 +307,19 @@ IJCNN): they train a probe for every layer, transformation and evaluation, which
 too costly for monitoring during training, and the paper evaluates them on
 final-layer features rather than as layer-selection measures; the authors' toolkit
 provides them. Persistence (Shestov et al., 2025): persistent homology on
-recommender embeddings, which would add a persistent-homology dependency.
+recommender embeddings, which would add a persistent-homology dependency. Task
+Priors (Patel and Balestriero, 2025, NeurIPS UniReps workshop): the expected value
+and variance of a linear objective under a Gibbs prior over label graphs, in closed
+form; the prior needs a kernel, the model's own or a reference model's, and a
+temperature, neither with a selection rule, the paper and its code use different
+kernel normalizations, and in the high-temperature limit the mean is the kernel
+alignment of the model with the prior, which `cka` normalizes. Q-Score (Kalibhat et
+al., 2024, AAAI): a per-sample score from the strongly active features whose
+activation rate lies in a percentile band tuned per model and dataset; it is
+validated as a predictor of which samples a linear probe misclassifies, not for
+ranking layers, checkpoints or models, and its authors state that their observations
+do not directly extend to ViT encoders, whose representations are signed and not
+sparse.
 
 ## 7. neighborhood_overlap
 

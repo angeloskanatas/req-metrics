@@ -35,11 +35,14 @@ from req_metrics.registry import MetricSpec, get_metric
 from req_metrics.spectrum import Spectrum
 from req_metrics.view_construction import ShiftSpec, ViewSpec
 
-_NEIGHBOR_K = {
-    "intrinsic_dimension/gride": ("range_max", 64),
-    "intrinsic_dimension/mle": ("k_range", (10, 20)),
-    "intrinsic_dimension/mlid": ("k", 64),
-    "neighborhood_curvature": ("k", 64),
+# Estimators reading the shared neighbor table: the argument that sizes their table and the
+# one that sets the neighbors behind their value (None: TwoNN, which reads two).
+_NEIGHBOR_ARGS: dict[str, tuple[str | None, str | None]] = {
+    "intrinsic_dimension": (None, None),
+    "intrinsic_dimension/gride": ("range_max", "scale"),
+    "intrinsic_dimension/mle": ("k_range", "k_range"),
+    "intrinsic_dimension/mlid": ("k", "k"),
+    "neighborhood_curvature": ("k", "k"),
 }
 
 
@@ -99,8 +102,11 @@ def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence
     return idx
 
 
-def _pooled_tokens(clips: Sequence[Any], clip_idx: np.ndarray, n: int | None, seed: int) -> Tensor:
-    """At most n tokens drawn at random from the selected clips, without concatenating every clip first."""
+def _pooled_tokens(clips: Sequence[Any], clip_idx: np.ndarray, n: int | None, seed: int) -> tuple[Tensor, Tensor]:
+    """At most n tokens drawn at random from the selected clips, and the clip of each token.
+
+    No clip is concatenated with the others before the draw.
+    """
     lengths = np.array([len(clips[i]) for i in clip_idx])
     offsets = np.concatenate([[0], np.cumsum(lengths)])
     flat = choose_indices(int(offsets[-1]), n, seed)  # sorted global token indices
@@ -109,7 +115,7 @@ def _pooled_tokens(clips: Sequence[Any], clip_idx: np.ndarray, n: int | None, se
     for j in np.unique(owner):
         rows = torch.from_numpy(flat[owner == j] - offsets[j])
         parts.append(_tensor(clips[clip_idx[j]])[rows])
-    return torch.cat(parts)
+    return torch.cat(parts), torch.from_numpy(owner)
 
 
 def _normalized_depths(layer_ids: Sequence[int]) -> dict[int, float]:
@@ -165,12 +171,33 @@ def _aggregate(
     return (float(vals.mean()) if vals.size else float("nan")), out
 
 
+def _cap_index(n_rows: int, cap: int | None, seed: int) -> Tensor | None:
+    """Sorted indices of a seeded random subsample of n_rows rows down to cap, or None if none is needed."""
+    if cap is None or n_rows <= cap:
+        return None
+    return torch.randperm(n_rows, generator=torch.Generator().manual_seed(seed))[:cap].sort().values
+
+
 def _cap(x: Tensor, cap: int | None, seed: int) -> Tensor:
     """Seeded random subsample of the rows of x down to cap (sorted indices), or x itself."""
-    if cap is None or x.shape[0] <= cap:
-        return x
-    idx = torch.randperm(x.shape[0], generator=torch.Generator().manual_seed(seed))[:cap].sort().values
-    return x[idx.to(x.device)]
+    idx = _cap_index(x.shape[0], cap, seed)
+    return x if idx is None else x[idx.to(x.device)]
+
+
+def _neighbor_count(spec: MetricSpec, kw: Mapping[str, Any], role: int) -> int:
+    """Neighbors an estimator reads: role 0 sizes its table, role 1 sets its value."""
+    arg = _NEIGHBOR_ARGS[spec.name][role]
+    if arg is None:
+        return 2
+    v = kw[arg] if arg in kw else inspect.signature(spec.fn).parameters[arg].default
+    return int(v[1]) if isinstance(v, (tuple, list)) else int(v)
+
+
+def _same_group_fraction(indices: Tensor, groups: Tensor, k: int) -> float:
+    """Mean share of a point's k nearest neighbors (column 0 is the point) that belong to its own group."""
+    g = groups.to(indices.device)
+    k = min(k, indices.shape[1] - 1)
+    return float((g[indices[:, 1 : k + 1]] == g[:, None]).double().mean())
 
 
 def _points_sweep(
@@ -179,41 +206,38 @@ def _points_sweep(
     params: Mapping[str, Mapping[str, Any]],
     seed: int = 0,
     limits: Mapping[str, int] | None = None,
+    groups: Tensor | None = None,
 ) -> dict[str, tuple[float, dict]]:
     """Run point metrics on one (N, D) cloud, sharing Spectrum per preprocessing and one Neighbors table.
 
     Metrics with a registry max_items (or an entry in limits) see a seeded subsample
     of at most that many rows, with their own spectrum or neighbor table; the count
-    used is written to extras["n_items_used"].
+    used is written to extras["n_items_used"]. With groups (one id per row), the
+    neighbor-table estimators also report extras["same_clip_fraction"], the mean share
+    of a point's neighbors behind the value that share its group.
     """
     out: dict[str, tuple[float, dict]] = {}
     x = layer_tensor
     limits = dict(limits or {})
-    subsets: dict[int, Tensor] = {x.shape[0]: x}
+    subsets: dict[int, tuple[Tensor, Tensor | None]] = {x.shape[0]: (x, groups)}
 
-    def subset(cap: int | None) -> Tensor:
+    def subset(cap: int | None) -> tuple[Tensor, Tensor | None]:
         n = x.shape[0] if cap is None else min(int(cap), x.shape[0])
         if n not in subsets:
-            subsets[n] = _cap(x, n, seed)
+            idx = _cap_index(x.shape[0], n, seed)
+            if idx is None:
+                subsets[n] = (x, groups)
+            else:
+                subsets[n] = (x[idx.to(x.device)], None if groups is None else groups[idx])
         return subsets[n]
 
     spectra: dict[Any, Spectrum] = {}
-    neighbors: dict[int, tuple[Tensor, Neighbors]] = {}  # kNN estimators see the distinct points
-    need_k: list[Any] = [
-        (
-            _NEIGHBOR_K[s.name][1]
-            if _NEIGHBOR_K[s.name][0] not in params.get(s.name, {})
-            else params[s.name][_NEIGHBOR_K[s.name][0]]
-        )
-        for s in specs
-        if s.cache in ("neighbors", "neighbors_kw")
-    ]
-    k_max = 0
-    for k in need_k:
-        k_max = max(k_max, k[1] if isinstance(k, tuple) else int(k))
+    neighbors: dict[int, tuple[Tensor, Neighbors, Tensor | None]] = {}  # kNN estimators see the distinct points
+    table = [s for s in specs if s.cache in ("neighbors", "neighbors_kw")]
+    k_max = max((_neighbor_count(s, params.get(s.name, {}), 0) for s in table), default=0)
     for spec in specs:
         kw = dict(params.get(spec.name, {}))
-        xs = subset(limits.get(spec.name, spec.max_items))
+        xs, gs = subset(limits.get(spec.name, spec.max_items))
         n_used = int(xs.shape[0])
         if spec.cache == "spectrum":
             pre, kw = _preprocess_args(spec, kw)
@@ -224,18 +248,25 @@ def _points_sweep(
         elif spec.cache in ("neighbors", "neighbors_kw"):
             if n_used not in neighbors:
                 try:
-                    xu = torch.unique(xs, dim=0)
-                    neighbors[n_used] = (xu, Neighbors.from_points(xu, k_max))
+                    xu, inv = torch.unique(xs, dim=0, return_inverse=True)
+                    gu = None
+                    if gs is not None:  # a row duplicated across groups keeps one of them
+                        gu = torch.empty(xu.shape[0], dtype=gs.dtype)
+                        gu[inv.cpu()] = gs
+                    neighbors[n_used] = (xu, Neighbors.from_points(xu, k_max), gu)
                 except Exception as e:
                     out[spec.name] = (float("nan"), {"error": f"{type(e).__name__}: {e}"})
                     continue
-            xu, nb = neighbors[n_used]
+            xu, nb, gu = neighbors[n_used]
             if spec.cache == "neighbors":
                 out[spec.name] = _run(spec, (nb,), kw)
             else:
                 out[spec.name] = _run(spec, (xu,), {**kw, "neighbors": nb})
             if xu.shape[0] < n_used:
                 out[spec.name][1]["n_distinct"] = int(xu.shape[0])
+            if gu is not None and "error" not in out[spec.name][1]:
+                k_value = _neighbor_count(spec, kw, 1)
+                out[spec.name][1]["same_clip_fraction"] = _same_group_fraction(nb.indices, gu, k_value)
         else:
             out[spec.name] = _run(spec, (xs,), kw)
         if n_used < x.shape[0]:
@@ -405,8 +436,11 @@ def compute(
         clip_idx = choose_indices(len(layers[layer_ids[0]]), None, seed, group_ids)
         for l in layer_ids:
             if pooled_specs:
-                x = _to(_pooled_tokens(layers[l], clip_idx, n, seed), dev)
-                for name, (value, extras) in _points_sweep(x, pooled_specs, params, seed, limits).items():
+                x, owner = _pooled_tokens(layers[l], clip_idx, n, seed)
+                x = _to(x, dev)
+                n_clips = int(torch.unique(owner).numel())
+                for name, (value, extras) in _points_sweep(x, pooled_specs, params, seed, limits, owner).items():
+                    extras["n_clips"] = n_clips
                     record(get_metric(name), l, value, extras, int(x.shape[0]), int(x.shape[-1]))
             if clip_specs:
                 per_clip(layers[l], clip_specs, clip_idx, l)

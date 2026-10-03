@@ -20,12 +20,14 @@ First release in preparation.
 - Pipeline: `compute()` over pooled vectors, per-clip frames or token clouds, with shared spectra
   and neighbor tables, seeded subsetting and per-metric item caps; the pooled token cloud is drawn
   without concatenating clips, and token-field metrics that pair tokens within a clip run per clip
-  in both populations; neighbor estimators drop duplicate rows; `device=` moves each layer, clip or
-  pooled token cloud to the computing device one at a time, and MPS maps to the CPU;
-  `compute_pairs()`, with one rank table per layer when a model is compared with itself; `Records`
-  with JSON, CSV and pandas export; `convergence()` sample-size curves; selection rules across runs
-  and layers (`rank_runs`, `top_layers`); parameter-free readouts for token grids and frame
-  sequences, with prefix tokens dropped by `n_prefix`; `protocols.get("kanatas2026")`.
+  in both populations; neighbor estimators, TwoNN included, drop duplicate rows and share one table
+  per layer, and under the tokens population report the share of neighbors from the same clip;
+  `device=` moves each layer, clip or pooled token cloud to the computing device one at a time, and
+  MPS maps to the CPU; `compute_pairs()`, with one rank table per layer when a model is compared
+  with itself; `Records` with JSON, CSV and pandas export; `convergence()` sample-size curves;
+  selection rules across runs and layers (`rank_runs`, `top_layers`); parameter-free readouts for
+  token grids and frame sequences, with prefix tokens dropped by `n_prefix`;
+  `protocols.get("kanatas2026")`.
 - Seeded draws (projection directions, anchors, permutations, token samples) come from CPU
   generators, so a seed gives the same value on CPU and GPU tensors.
 - Monitoring: `LayerMonitor` on a fixed seeded subset in eval mode, with separate clip and token
