@@ -179,5 +179,4 @@ recomputes a metric on repeated subsets at several fractions through the same
 preprocessing and caches as `compute()`, so N can be chosen per metric and
 cells compared at unequal N can be recognised. Published values are not
 comparable across different N for the N-dependent metrics; the protocol of
-Kanatas et al. (2026) used 10,000 clips of 15 seconds, one per track, after
-checking that depth profiles had converged.
+Kanatas et al. (2026) used 10,000 clips of 15 seconds, one per track.

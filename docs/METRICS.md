@@ -129,17 +129,15 @@ kind. The canonical set:
 | trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames | 1 |
 | lidar | effective-rank readout, delta 1e-6, biased denominators | none (LDA centers) | pooled | 10 |
 | infonce | temperature 0.3 | center + L2 | pooled | 2 |
-| pte, pte/mlp | linear and MLP probes, the better reported; omega 7; phase distance | none | pooled | 1 + 11 shifts |
+| pte | linear probe, omega 7, phase distance | none | pooled | 1 + 11 shifts |
 
 10,000 clips of 15 seconds, one per track; pooled vectors are time means for
 encoders and the final-token state for autoregressive decoders.
 
 Every record written here carries metric and variant, estimator parameters,
 preprocessing, population and pooling label, number of views, number of items,
-seed, representation width and the library version. PTE is trained with a
-linear and an MLP probe per layer on 20,000 clips and the better variant is
-reported; the cross-power distance that includes the magnitude is in the extras
-of every run next to the phase distance.
+seed, representation width and the library version. PTE is trained with a linear probe on 10,000 clips; the cross-power distance that
+includes the magnitude is in the extras of every run next to the phase distance.
 
 ## 5. Intrinsic dimension: caveats
 

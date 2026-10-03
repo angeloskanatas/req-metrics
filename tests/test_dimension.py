@@ -91,7 +91,7 @@ class RegistryTests(unittest.TestCase):
             "local_rectifiability",
         ):
             self.assertIn(name, rq.list_metrics())
-        self.assertIn("paper-canonical", rq.get_metric("intrinsic_dimension/gride").tags)
+        self.assertIn("paper-canonical", rq.get_metric("intrinsic_dimension").tags)
 
 
 if __name__ == "__main__":

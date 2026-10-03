@@ -4,7 +4,7 @@ GRIDE intrinsic dimension at the 8th-neighbor scale.
 
 - Input: `points`
 - Canonical preprocessing: `none`
-- Tags: paper-canonical
+- Tags: none
 - Shared cache: neighbors
 - Origin: https://arxiv.org/abs/2104.13832
 - Cite: `denti2022gride` (The generalized ratios intrinsic dimension estimator (2022)); `glielmo2022dadapy` (DADApy: Distance-based Analysis of DAta-manifolds in Python (2022)); `DBLP:journals/corr/abs-1803-06992` (Estimating the intrinsic dimension of datasets by a minimal neighborhood
@@ -23,9 +23,9 @@ to range_max, which traces the dimension as a function of the
 neighborhood size. This follows dadapy's reference implementation: the
 same ratio filter, bisection on the likelihood derivative, and
 Fisher-information standard error. The returned value is the estimate
-whose outer rank n2 equals scale. Kanatas et al. (2026) report GRIDE profiles
-qualitatively consistent with TwoNN; their protocol entry uses scale 8, the
-ratio of the 8th to the 4th neighbor distance. Larger range_max
+whose outer rank n2 equals scale; scale 8 is the ratio of the 8th to the 4th
+neighbor distance. Kanatas et al. (2026) report GRIDE profiles qualitatively
+consistent with TwoNN. Larger range_max
 needs a Neighbors table with that many neighbors per point.
 
 Args:

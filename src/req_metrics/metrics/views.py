@@ -121,7 +121,7 @@ def infonce(views: Tensor, *, temperature: float = 0.1, center: bool = True, l2:
     for unrelated views the loss exceeds log N by about half the variance of
     the scaled similarities, so the bound can be negative. The temperature
     is a protocol constant that must be recorded: the
-    reference implementation uses 0.1, the protocol of Kanatas et al. (2026) 0.3. The shared
+    reference implementation uses 0.1; the results of Kanatas et al. (2026) were computed at 0.3. The shared
     augmentation chain contained a pitch shift, which confounds this metric
     on tonal tasks unless that augmentation is removed.
 

@@ -24,11 +24,12 @@ chordal distance between the unit-normalized cross-power and its target
 (score="phase", the definition of Kanatas et al. (2026)), or by the distance of the
 raw cross-power including its magnitude (score="cpsd"). PTE = 1 - d/2 in
 [0, 1]: 1 means transposition-equivariant tonal content is linearly
-decodable, about 0.29 means random phase. Protocol of Kanatas et al. (2026): 20,000
-clips split 70/15/15 by clip before shifting, 11 nonzero shifts, Adam at
-1e-3 with weight decay 1e-3, batches of 256 (clip, shift) pairs with
-mixed shifts, up to 200 epochs with early stopping on the validation loss
-after 15 flat epochs, best validation state restored. The MLP probe uses
+decodable, about 0.29 means random phase. Protocol of Kanatas et al. (2026): a
+linear probe, 10,000 clips split 70/15/15 by clip before shifting, 11 nonzero
+shifts, Adam at 1e-3, up to 200 epochs with early stopping. The remaining
+defaults here are weight decay 1e-3, batches of 256 (clip, shift) pairs with
+mixed shifts, early stopping after 15 flat epochs and the best validation state
+restored. The MLP probe (`pte/mlp`, probe="mlp") uses
 Xavier initialization, an asymmetric output bias and softmax temperature
 0.5, which break the uniform-softmax fixed
 point where the gradient vanishes (the mitigation of Theorem III.2's
@@ -38,12 +39,9 @@ weights).
 Read PTE together with mean_abs_cpsd: a probe whose cross-power magnitude
 stays near zero never left the uniform softmax, and its phase error is then
 noise rather than a measurement. The metric measures transport along the pitch
-axis, not tonal content per se. Kanatas et al. (2026) train a linear and
-an MLP probe per layer and report the better variant: `pte` is the linear
-probe and `pte/mlp` the MLP probe. The phase distance of their definition
-and the distance of the raw cross-power (the STONE loss, magnitude
-included) are both in the extras of every run; `score` chooses which one
-is the value.
+axis, not tonal content per se. The phase distance of the definition and the
+distance of the raw cross-power (the STONE loss, magnitude included) are both
+in the extras of every run; `score` chooses which one is the value.
 
 Args:
     z: Unshifted representations, shape (N, D).
@@ -52,7 +50,7 @@ Args:
     probe: "linear" (paper) or "mlp".
     score: "phase" (paper) or "cpsd".
     hidden_units: MLP widths.
-    temperature: Softmax temperature; default 0.5 for shared MLP, 1.0 otherwise.
+    temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear probe.
     epochs, lr, weight_decay, batch_size, patience: Training protocol.
     val_fraction, test_fraction: Clip-level split fractions.
     seed: Split and initialization seed.

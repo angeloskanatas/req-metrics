@@ -74,8 +74,7 @@ KANATAS2026 = Protocol(
         "Section 3.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "
         "for encoders and the final token for autoregressive decoders; frame-level metrics use the full "
         "token sequences.",
-        "PTE: a linear and an MLP probe per layer on 20,000 clips (70/15/15 split) with all 11 shifts; the "
-        "better variant is reported.",
+        "PTE: a linear probe per layer on 10,000 clips (70/15/15 split) with all 11 nonzero shifts.",
     ),
 )
 

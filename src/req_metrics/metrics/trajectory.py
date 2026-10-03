@@ -20,15 +20,14 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
     |v_t||v_{t+k}|) in [0, pi], averaged over t. Zero for a straight
     trajectory, invariant to the scale of the representation, and the
     definition of Kanatas et al. (2026). Reference values for
-    k = 1: independent frames give 2pi/3 (120 degrees), a random walk pi/2,
-    and the transformer layers of Kanatas et al. (2026) 101 to 115 degrees.
+    k = 1: independent frames give 2pi/3 (120 degrees) and a random walk pi/2.
 
     convention="abs" folds the range to [0, pi/2] by taking the absolute
     cosine, as widely used implementations do (Skean et al., 2025, ICML), which
     maps the anti-persistent regime (angles above pi/2) onto the persistent one.
-    On the anti-persistent branch, where Kanatas et al. (2026) find every layer
-    they study, the folded reading is a rank reversal of the signed one, so
-    values and correlation signs are not comparable across conventions.
+    On the anti-persistent branch the folded reading is a rank reversal of the
+    signed one, so values and correlation signs are not comparable across
+    conventions.
     normalize="path_length" divides each
     angle by the sum of the two displacement lengths (RECURVE, Shin et al.,
     2024, NeurIPS, Definition 3.2), the turning rate per unit length used for

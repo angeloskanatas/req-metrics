@@ -131,9 +131,9 @@ def gride(
     neighborhood size. This follows dadapy's reference implementation: the
     same ratio filter, bisection on the likelihood derivative, and
     Fisher-information standard error. The returned value is the estimate
-    whose outer rank n2 equals scale. Kanatas et al. (2026) report GRIDE profiles
-    qualitatively consistent with TwoNN; their protocol entry uses scale 8, the
-    ratio of the 8th to the 4th neighbor distance. Larger range_max
+    whose outer rank n2 equals scale; scale 8 is the ratio of the 8th to the 4th
+    neighbor distance. Kanatas et al. (2026) report GRIDE profiles qualitatively
+    consistent with TwoNN. Larger range_max
     needs a Neighbors table with that many neighbors per point.
 
     Args:
@@ -298,7 +298,6 @@ register_metric(
     preprocess=Preprocess(),
     citation=("denti2022gride", "glielmo2022dadapy", "DBLP:journals/corr/abs-1803-06992"),
     arxiv="2104.13832",
-    tags=("paper-canonical",),
     description="GRIDE intrinsic dimension at the 8th-neighbor scale.",
 )(gride)
 register_metric(
