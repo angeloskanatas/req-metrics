@@ -1,11 +1,9 @@
 # Metric reference
 
-What every metric computes, where it comes from, how it was verified, and
-what the published analysis of Kanatas et al. (2026) recorded. The full
-per-metric text lives in the estimator docstrings and is rendered unchanged
-into `docs/metrics/` (one card per metric, built by
-`scripts/build_metric_cards.py`); this document holds what cuts across
-metrics.
+Definitions, sources and verification of the metrics, and the protocol of
+Kanatas et al. (2026). The per-metric text is in the estimator docstrings and is
+rendered into `docs/metrics/` by `scripts/build_metric_cards.py`; this document
+covers what applies across metrics.
 
 ## 1. Conventions
 
@@ -144,7 +142,7 @@ includes the magnitude is in the extras of every run next to the phase distance.
 MLE, TwoNN and GRIDE target the pointwise dimension, which cannot increase
 under Lipschitz maps (Schulte and Rügamer, 2026, AISTATS); every standard
 layer type is Lipschitz, so a layer-wise ID profile that rises is an
-estimator artefact driven by growing nearest-neighbour distances and
+estimator artifact driven by growing nearest-neighbor distances and
 representation norms, not a rising true dimension. Estimates are biased lower
 bounds whose bias is not consistent across layers, and the layer-wise
 pattern co-moves with the von Neumann entropy of the centered Gram matrix
@@ -154,14 +152,14 @@ the spectral entropies. The plug-in participation ratio has a separate,
 sample-size bias of about PR/N (Chun et al., 2026); see
 `participation_ratio/corrected`.
 
-Duplicates matter for the two-neighbour estimators. An exact duplicate has
-r_1 = 0 and an infinite ratio, and its neighbours a ratio of exactly 1; DADApy's
+Duplicates matter for the two-neighbor estimators. An exact duplicate has
+r_1 = 0 and an infinite ratio, and its neighbors a ratio of exactly 1; DADApy's
 2NN keeps such rows unless `remove_identical_points` is called, whereas
 `twonn` here removes exact duplicate rows first and records the count used.
 On MERT-v1-95M embeddings of 990 GTZAN clips, which contain 13 exact
 duplicates, the two conventions differ by about 20 percent at every layer
 (for example 12.6 against 15.6 at layer 6), while GRIDE at the scale of the
-8th neighbour is unaffected; both match DADApy to all printed digits under
+8th neighbor is unaffected; both match DADApy to all printed digits under
 the same convention. Deduplicate the corpus before estimating, as the
 published protocol does, or read `extras["n_used"]`.
 
@@ -219,7 +217,7 @@ sign of the correlation with accuracy (TMLR study, Appendix B.1); record it.
 
 ### Considered and not adopted (relational and spectral candidates)
 Condition number (Tsitsulin et al.): sign reversals across datasets in their
-Table 3, and the TMLR study shows its correlation with accuracy is an artefact of
+Table 3, and the TMLR study shows its correlation with accuracy is an artifact of
 OLS conditioning that disappears under a k-NN probe. Coherence (Tsitsulin et
 al.): their Table 1 marks it data-dependent and least stable; not in the TMLR
 study. Diffusion spectral entropy (Liao et al.): bandwidth sigma in absolute

@@ -96,7 +96,7 @@ trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
     n_items=5000, every_n_epochs=5, sweep_steps=(100, 300, 1000, 3000, 10000),
     model_attr="backbone",
     view_metrics=["lidar"], augment=my_augment, q=10,   # views: the objective's own positives
-    online=True)])                                      # also the training-batch buffer, as a collapse alarm
+    online=True)])                                      # also the training-batch buffer, as a collapse indicator
 ```
 
 Without Lightning, `LayerMonitor` does the same with a forward callable and a loader:

@@ -1,15 +1,14 @@
 """Layer-wise monitoring during training, framework-independent.
 
-Two modes. LayerMonitor registers forward hooks on the layer modules you name,
+Two modes. LayerMonitor registers forward hooks on the given layer modules,
 runs a fixed monitoring set through a forward callable in eval mode, pools each
 layer's output, and hands the per-layer tensors to compute(); the same records
 come out as in a post-hoc run, so curves logged during training are directly
 comparable with curves computed on stored embeddings. OnlineBuffer hooks the
 same modules during the ordinary training forward passes and keeps the most
-recent rows, at no extra cost, as a collapse alarm on the training-time
-representation. Neither knows anything about the model: which modules are
-layers, how a block output becomes one vector per clip, and how an augmented
-view is drawn are all arguments.
+recent rows, at no extra cost, as a collapse indicator on the training-time
+representation. Which modules are layers, how a block output becomes one
+vector per clip, and how an augmented view is drawn are arguments.
 """
 
 from __future__ import annotations
@@ -170,7 +169,7 @@ class OnlineBuffer:
     layers (dropout, batch statistics, masking) and weights that moved while the window
     filled. Records carry extras["source"] = "training-batches" and the sinks log them
     under online_metrics/, so they never mix with fixed-subset records. Use it as a
-    collapse alarm; use LayerMonitor for curves that compare across sweeps, runs and
+    collapse indicator; use LayerMonitor for curves that compare across sweeps, runs and
     checkpoints. Forward hooks fire again on activation recomputation (gradient
     checkpointing), which duplicates rows; blocks skipped by stochastic depth fire
     less often, and all buffers are read at the smallest filled count. Eval-mode

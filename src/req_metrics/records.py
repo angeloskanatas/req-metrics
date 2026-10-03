@@ -20,10 +20,10 @@ class Record:
         value: The headline number; nan when the estimator failed (see extras["error"]).
         layer: Layer index; layer_b is set only for two-layer comparisons.
         depth: Layer index over the largest provided index, in [0, 1].
-        model: Free label for the representation source.
+        model: Label of the representation source.
         population: "pooled", "frames" or "tokens".
-        pooling: Free label for how pooled vectors were formed ("time-mean", "final-token").
-        corpus: Free label for the input clips.
+        pooling: Label of how pooled vectors were formed ("time-mean", "final-token").
+        corpus: Label of the input clips.
         n_items: Clips (or tokens) the estimator saw after subsetting.
         dim: Representation width.
         n_views: Views per clip for view metrics; shifts for PTE.

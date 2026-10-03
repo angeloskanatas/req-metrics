@@ -1,7 +1,7 @@
 # Design notes
 
-The decisions behind the library. The per-metric facts are in `METRICS.md` and the cards; this
-document is about the whole.
+Design decisions that apply across metrics. Per-metric details are in `METRICS.md`
+and the metric cards.
 
 ## 1. Inclusion rule: published metrics only
 
@@ -173,10 +173,10 @@ and the dense-representation structure estimator of Dai et al. (NeurIPS
 N is part of the protocol. Entropic effective rank keeps rising with N
 (RankMe used 25,600 samples; 10,000 gives over 95 percent of the asymptote at
 width 2048), the plug-in participation ratio is biased by about PR/N,
-nearest-neighbour ID estimates carry a few percent of subsample noise, and
+nearest-neighbor ID estimates carry a few percent of subsample noise, and
 even anisotropy moves when N is not much larger than D. `convergence()`
 recomputes a metric on repeated subsets at several fractions through the same
 preprocessing and caches as `compute()`, so N can be chosen per metric and
-cells compared at unequal N can be recognised. Published values are not
+cells compared at unequal N can be recognized. Published values are not
 comparable across different N for the N-dependent metrics; the protocol of
 Kanatas et al. (2026) used 10,000 clips of 15 seconds, one per track.

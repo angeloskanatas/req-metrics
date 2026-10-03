@@ -1,12 +1,12 @@
-"""Building and describing augmented views without owning any encoder code.
+"""Construction and description of augmented views and pitch-shifted copies.
 
 LiDAR, InfoNCE and DiME consume a (q, N, D) stack of views of the same N
 clips. What a view is decides what the score means: LiDAR measures
 invariance to exactly the perturbations that produced the views (Thilak et
 al., 2024, Sec. 3), so a run with the objective's own positive-pair
 construction and a run with a shared augmentation chain answer different
-questions. The library therefore never builds views silently. The user
-supplies two callables and a ViewSpec that is stored with every result.
+questions. Views are built from user-supplied encoder and augmentation
+callables, and a ViewSpec describing them is stored with every result.
 """
 
 from __future__ import annotations
@@ -72,9 +72,8 @@ def make_views(
 ) -> Tensor:
     """Build a (q, N, D) view stack from user-supplied encoder and augmentation callables.
 
-    The library owns only the loop: for each of q passes it draws a seeded
-    generator, augments each batch of inputs with it, encodes, and stacks the
-    pooled representations. `encode(batch) -> (B, D)` is any callable, a
+    For each of q passes a seeded generator is drawn, each batch of inputs is
+    augmented with it and encoded, and the pooled representations are stacked. `encode(batch) -> (B, D)` is any callable, a
     frozen model's pooled hidden state or a layer hook; `augment(batch,
     generator) -> batch` is the perturbation whose invariance is being
     measured. Keep inputs in a fixed order across passes so row i is the same
@@ -152,7 +151,7 @@ def make_shifted(
     """Encode k-semitone shifted copies of every clip: {k: (N, D)} aligned with the unshifted rows.
 
     `shift(batch, k) -> batch` is the user's audio pitch shift (deterministic given k);
-    `encode(batch) -> (B, D)` the user's layer readout. The library owns only the loop.
+    `encode(batch) -> (B, D)` the user's layer readout.
 
     Args:
         encode: Maps a batch to a (B, D) tensor.

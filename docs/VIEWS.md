@@ -1,9 +1,8 @@
 # Views for LiDAR, InfoNCE and DiME
 
 The three view-based metrics take a tensor of shape (q, N, D): q views of the
-same N clips at one layer. The library does not know how the views were made
-and does not need to; but the score is only interpretable together with that
-information, so every view-based result carries a `ViewSpec`.
+same N clips at one layer. How the views were made determines what the score
+means, so every view-based result carries a `ViewSpec` describing it.
 
 ## Two patterns
 
@@ -16,7 +15,7 @@ token mask is redrawn per view by running the encoder in train mode with
 dropout at zero. Objectives without augmentations still yield views that
 differ by the crop. In the library this is `make_views(encode, inputs,
 augment, q)`, where `encode` is the user's layer readout and `augment` the
-user's perturbation; the library owns only the loop and the seeding.
+user's perturbation, with seeded passes.
 `ViewSpec(source="objective", ...)` records it.
 
 **Post-hoc comparison across models, a shared chain.** When models trained
