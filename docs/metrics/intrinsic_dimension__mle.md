@@ -18,7 +18,7 @@ T_j(x))]^-1 from the neighbor distances T_j, averaged over points and over k in 
 unbiased.
 
 Args:
-    x: Points (N, D), or a Neighbors table with k >= k_range[1].
+    x: Points (N, D), duplicates removed first, or a Neighbors table with k >= k_range[1].
     k_range: Inclusive range of neighbor counts.
     unbiased: Use k - 2 in the denominator.
 

@@ -1,5 +1,6 @@
 """compute() over synthetic layers: caching equivalence, populations, subsetting, records I/O, protocol."""
 
+import inspect
 import math
 import tempfile
 import unittest
@@ -61,6 +62,31 @@ class PooledTests(unittest.TestCase):
             places=9,
         )
         self.assertEqual([l for l, _ in rec.profile("effective_rank")], [0, 1, 2])
+
+    def test_preprocessing_arguments_reach_cached_estimators(self):
+        x = pooled_layers()[1] + 3.0
+        cases = [
+            ("anisotropy", {"l2": False}, rq.anisotropy_spectral(x, l2=False), "center"),
+            ("effective_rank", {"center": False}, rq.effective_rank(x, center=False), "none"),
+            ("matrix_entropy", {"center": True}, rq.matrix_entropy(x, center=True), "center"),
+            ("gaussianity", {"center": False}, rq.gaussianity(x, center=False), "none"),
+            ("participation_ratio", {}, rq.participation_ratio(x), "center"),
+        ]
+        for name, kw, direct, pre in cases:
+            r = rq.compute({0: x}, [name], params={name: kw})[0]
+            self.assertAlmostEqual(r.value, direct.value, places=9, msg=name)
+            self.assertEqual((r.preprocess, r.params), (pre, kw), msg=name)
+        both = rq.compute({0: x}, ["effective_rank", "anisotropy"], params={"anisotropy": {"l2": False}})
+        self.assertAlmostEqual(both[0].value, rq.effective_rank(x).value, places=9)
+        self.assertAlmostEqual(both[1].value, cases[0][2].value, places=9)
+
+    def test_registry_preprocessing_matches_estimator_defaults(self):
+        for name in rq.list_metrics():
+            spec = rq.get_metric(name)
+            accepted = inspect.signature(spec.fn).parameters
+            for f in ("center", "standardize", "l2"):
+                if f in accepted:
+                    self.assertEqual(accepted[f].default, getattr(spec.preprocess, f), msg=f"{name}.{f}")
 
     def test_subsetting_is_shared_across_layers_and_seeded(self):
         layers = pooled_layers(n=300)

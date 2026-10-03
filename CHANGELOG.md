@@ -22,7 +22,11 @@ First release in preparation.
   with JSON, CSV and pandas export; `convergence()` sample-size curves; selection rules across runs
   and layers (`rank_runs`, `top_layers`); parameter-free readouts for token grids and frame
   sequences; `protocols.get("kanatas2026")`.
-- Monitoring: `LayerMonitor` on a fixed seeded subset in eval mode, view passes in train mode for
-  objectives whose positives come from masking inside the model, the Jacobian effective rank of
-  every layer's readout, `OnlineBuffer` over training batches, CSV, JSON, TensorBoard and Weights &
-  Biases sinks, and a PyTorch Lightning callback with epoch and step schedules.
+- Seeded draws (projection directions, anchors, permutations, token samples) come from CPU
+  generators, so a seed gives the same value on CPU and GPU tensors.
+- Monitoring: `LayerMonitor` on a fixed seeded subset in eval mode; view passes that read a live
+  loader, so random crops are redrawn per view, and run in train mode for objectives whose
+  positives come from masking inside the model, with buffers restored; the Jacobian effective rank
+  of every layer's readout by randomized range finding; `OnlineBuffer` over training batches; CSV,
+  JSON, TensorBoard and Weights & Biases sinks, with selected extras; and a PyTorch Lightning
+  callback with epoch and step schedules.

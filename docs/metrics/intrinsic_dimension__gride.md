@@ -21,7 +21,7 @@ the 8th and 4th neighbors. Bisection on the likelihood derivative and Fisher-inf
 errors follow DADApy.
 
 Args:
-    x: Points (N, D), or a Neighbors table with k >= range_max.
+    x: Points (N, D), duplicates removed first, or a Neighbors table with k >= range_max.
     scale: Outer neighbor rank of the returned estimate; a power of two.
     range_max: Largest outer rank.
     d0, d1: Bisection bounds on the dimension.

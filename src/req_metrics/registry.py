@@ -20,11 +20,14 @@ class MetricSpec:
     """Registry entry for one metric.
 
     Attributes:
-        name: Registry key, lowercase with underscores; variants use a slash
-            suffix, e.g. "intrinsic_dimension/gride".
+        name: Registry key, lowercase with underscores; another estimator of the
+            same quantity takes a slash suffix, e.g. "intrinsic_dimension/gride".
         fn: The estimator.
         inputs: Tensor contract the estimator expects.
-        preprocess: Canonical preprocessing the pipeline applies before fn.
+        preprocess: fn's default preprocessing. For cache="spectrum" the pipeline
+            applies it, with fn's own center, standardize and l2 arguments, before
+            building the shared Spectrum; other estimators preprocess internally.
+            Records store the preprocessing a call applied.
         citation: BibTeX keys in docs/references.bib, origin first.
         arxiv: arXiv identifier of the origin paper, if any.
         description: One sentence.

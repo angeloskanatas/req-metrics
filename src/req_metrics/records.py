@@ -91,7 +91,6 @@ _CSV_FIELDS = [
 
 _ATLAS_NAMES = {
     "effective_rank": ("effective_rank", "default"),
-    "effective_rank/variance": ("effective_rank", "variance"),
     "anisotropy": ("anisotropy", "spectral"),
     "cosine_anisotropy": ("anisotropy", "cosine"),
     "intrinsic_dimension": ("id", "twonn"),
@@ -112,6 +111,8 @@ def atlas_rows(r: Record) -> list[tuple[str, str, float]]:
     one record: the folded curvature next to the signed one, and the cpsd distance
     of a PTE probe next to its phase distance.
     """
+    if r.metric == "effective_rank" and r.params.get("spectrum") == "variance":
+        return [("effective_rank", "variance", r.value)]
     if r.metric == "intrinsic_dimension/gride":
         return [("id", f"gride_k{int(r.params.get('scale', 8))}", r.value)]
     if r.metric == "trajectory_curvature" and "signed" in r.extras and "abs" in r.extras:

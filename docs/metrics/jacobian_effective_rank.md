@@ -11,17 +11,18 @@ Effective rank of a layer readout's input-output Jacobian (Chung and Kim, 2026).
 
 ## Definition, protocol and pitfalls
 
-Jacobian effective rank (JER), from Jacobian-vector products.
+Jacobian effective rank (JER) from a sketch of the input-output Jacobian.
 
-Chung and Kim (2026, arXiv:2602.03282, Eq. 1 and App. D): with s_i the singular
-values of the products J(x) v_1, ..., J(x) v_k of the Jacobian at input x with k
-random orthonormal input directions, JER(x) = (sum s_i)^2 / sum s_i^2, averaged over
-inputs; at most k. It counts the input directions a readout responds to, a property
-of the model's function rather than of the representation's geometry, and its
-preferred direction depends on the task.
+Chung and Kim (2026, arXiv:2602.03282, Eq. 1): with s_i the k leading singular values of
+the Jacobian J(x) of a readout at input x, JER(x) = (sum s_i)^2 / sum s_i^2, averaged over
+inputs; at most k. The singular values are those of the sketch, e.g. B = Q^T J from
+jacobian_products, which estimates them by randomized range finding as the paper does
+(Sec. 4.1; k = 32, 5 power iterations, 100 inputs). It counts the input directions a
+readout responds to, a property of the model's function rather than of the
+representation's geometry, and its preferred direction depends on the task.
 
 Args:
-    jvps: (B, k, D) products for B inputs and k directions; D is the flattened readout size.
+    sketch: (B, k, M) per input, k rows whose singular values estimate those of J(x).
 
 Returns:
     value: mean JER over inputs.

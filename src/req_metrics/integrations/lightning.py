@@ -6,7 +6,7 @@ training set, runs a sweep at the start of training and every n epochs, and
 logs per-layer scalars to the trainer's logger (plus layer-profile line plots
 when the logger is Weights & Biases). With online=True it also keeps ring
 buffers of the training forward passes and logs the same point metrics on
-them under online_metrics/, at no extra forward cost. Under distributed
+them under online_metrics/, without extra forward passes. Under distributed
 training everything runs on global rank zero only.
 """
 
@@ -17,7 +17,16 @@ from typing import Any
 
 import torch.nn as nn
 
-from req_metrics.monitor import LayerMonitor, OnlineBuffer, Pooler, metric_key_prefix, monitor_loader, resolve_layers
+from req_metrics.monitor import (
+    LayerMonitor,
+    OnlineBuffer,
+    Pooler,
+    layer_scalars,
+    metric_key,
+    metric_key_prefix,
+    monitor_loader,
+    resolve_layers,
+)
 from req_metrics.records import Records
 from req_metrics.view_construction import ViewSpec
 
@@ -61,9 +70,9 @@ class LayerMonitorCallback(_Base):
             monitoring subset.
         view_metrics, augment, q, view_spec, views_in_train_mode: View metrics computed from q
             augmented passes with augment(batch, generator); see LayerMonitor.
-        jacobian_items, jacobian_probes, jacobian_input, jacobian_forward: Jacobian effective
-            rank of every layer's readout on the first jacobian_items monitoring inputs; see
-            LayerMonitor. Off by default.
+        jacobian_items, jacobian_probes, jacobian_power_iters, jacobian_input, jacobian_forward:
+            Jacobian effective rank of every layer's readout on the first jacobian_items
+            monitoring inputs; see LayerMonitor. Off by default.
         params, model, pooling, corpus: Forwarded to LayerMonitor and recorded.
         online: Also hook the training forward passes into an OnlineBuffer and compute
             online_metrics (default: the same point metrics) on the most recent online_n_items
@@ -76,12 +85,14 @@ class LayerMonitorCallback(_Base):
             (100, 300, 1000, 3000, 10000) to resolve the early phases of training). Every record
             carries extras["epoch"] and extras["global_step"].
         cache_batches: Materialize the monitoring subset once (CPU tensors) so later sweeps skip
-            decoding; use when the dataset's __getitem__ is expensive and the subset fits in memory.
-            A loader that is a one-shot iterator is always materialized.
+            decoding and see the same inputs, also when the dataset's __getitem__ draws a random
+            crop; the q view passes still read the live loader, so each view draws its own crop.
+            A loader that is a one-shot iterator is always materialized, and its views share it.
         sinks: Extra callables receiving (records, epoch): csv_sink, json_sink, tensorboard_sink,
             wandb_sink or your own.
         log: Log per-layer scalars through trainer.logger (TensorBoard, CSV, MLflow, W&B, ...);
             adds layer-profile plots when the logger is W&B.
+        log_extras: Numeric extras logged next to the values, e.g. ("frechet_var",).
         batch_size: Batch size of the automatic monitoring loader.
         seed: Subset and augmentation seed.
     """
@@ -100,11 +111,12 @@ class LayerMonitorCallback(_Base):
         loader: Callable[[Any, Any], Iterable] | None = None,
         view_metrics: Sequence[str] = (),
         augment: Callable | None = None,
-        q: int = 2,
+        q: int = 10,
         view_spec: ViewSpec | None = None,
         views_in_train_mode: bool = False,
         jacobian_items: int = 0,
         jacobian_probes: int = 32,
+        jacobian_power_iters: int = 5,
         jacobian_input: Callable[[Any], Any] | None = None,
         jacobian_forward: Callable[[Any], Any] | None = None,
         params=None,
@@ -113,6 +125,7 @@ class LayerMonitorCallback(_Base):
         corpus: str | None = None,
         sinks: Sequence[Callable[[Records, int], None]] = (),
         log: bool = True,
+        log_extras: Sequence[str] = (),
         batch_size: int = 32,
         seed: int = 0,
         online: bool = False,
@@ -138,9 +151,11 @@ class LayerMonitorCallback(_Base):
         self.batch_input = batch_input or (lambda b: b[0] if isinstance(b, (tuple, list)) else b)
         self._loader_fn = loader
         self._loader: Iterable[Any] | None = None
+        self._live: Iterable[Any] | None = None
         self.view_metrics, self.augment, self.q, self.view_spec = list(view_metrics), augment, q, view_spec
         self.views_in_train_mode = views_in_train_mode
         self.jacobian_items, self.jacobian_probes = jacobian_items, jacobian_probes
+        self.jacobian_power_iters = jacobian_power_iters
         self.jacobian_input, self.jacobian_forward = jacobian_input, jacobian_forward
         self.labels: dict[str, Any]
         self.params, self.labels = (
@@ -152,6 +167,7 @@ class LayerMonitorCallback(_Base):
             },
         )
         self.sinks, self.log, self.batch_size, self.seed = list(sinks), log, batch_size, seed
+        self.log_extras = tuple(log_extras)
         self.monitor: LayerMonitor | None = None
 
     def _target(self, pl_module):
@@ -177,6 +193,7 @@ class LayerMonitorCallback(_Base):
                 views_in_train_mode=self.views_in_train_mode,
                 jacobian_items=self.jacobian_items,
                 jacobian_probes=self.jacobian_probes,
+                jacobian_power_iters=self.jacobian_power_iters,
                 jacobian_input=self.jacobian_input,
                 jacobian_forward=self.jacobian_forward,
                 seed=self.seed,
@@ -193,7 +210,9 @@ class LayerMonitorCallback(_Base):
                 if dataset is None:
                     raise ValueError("cannot find the training dataset; pass loader=")
                 batches = monitor_loader(dataset, self.n_items, self.batch_size, self.seed)
-            if self.cache_batches or iter(batches) is batches:  # a one-shot iterator is kept for later sweeps
+            one_shot = iter(batches) is batches
+            self._live = None if one_shot else batches
+            if self.cache_batches or one_shot:  # a one-shot iterator is kept for later sweeps
                 batches = [
                     tuple(t.cpu() if hasattr(t, "cpu") else t for t in b)
                     if isinstance(b, (tuple, list))
@@ -215,12 +234,8 @@ class LayerMonitorCallback(_Base):
             loggers = list(getattr(trainer, "loggers", None) or ([trainer.logger] if trainer.logger else []))
             if not loggers or not len(rec):
                 return
-            scalar_prefix, profile_prefix = metric_key_prefix(rec[0])
-            scalars = {
-                f"{scalar_prefix}/{r.metric.replace('/', '_')}_layer_{r.layer}": r.value
-                for r in rec
-                if r.layer_b is None and r.value == r.value
-            }
+            profile_prefix = metric_key_prefix(rec[0])[1]
+            scalars = layer_scalars(rec, self.log_extras)
             for logger in loggers:
                 logger.log_metrics(scalars, step=trainer.global_step)
                 exp = getattr(logger, "experiment", None)
@@ -238,7 +253,7 @@ class LayerMonitorCallback(_Base):
                     plots: dict[str, Any] = {"trainer/global_step": trainer.global_step}
                     for metric in sorted({r.metric for r in rec if r.layer_b is None}):
                         xs, ys, keys = _profile_series(rec, history, metric)
-                        plots[f"{profile_prefix}/{metric.replace('/', '_')}"] = wandb.plot.line_series(
+                        plots[f"{profile_prefix}/{metric_key(rec.where(metric=metric)[0])}"] = wandb.plot.line_series(
                             xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                         )
                     exp.log(plots)
@@ -275,7 +290,10 @@ class LayerMonitorCallback(_Base):
 
                 torch.cuda.empty_cache()
             forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
-            rec = self.monitor.sweep(forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target)
+            views = _Inputs(self._live, self.batch_input) if self._live is not None else None
+            rec = self.monitor.sweep(
+                forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target, view_loader=views
+            )
             self._stamp(trainer, rec)
             for sink in self._sinks(trainer):
                 sink(rec, epoch)

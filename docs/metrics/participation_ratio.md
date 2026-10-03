@@ -3,7 +3,7 @@
 Participation ratio (sum lambda)^2 / sum lambda^2 of the covariance eigenvalues.
 
 - Input: `points`
-- Canonical preprocessing: `none`
+- Canonical preprocessing: `center`
 - Tags: none
 - Shared cache: none
 - Origin: https://arxiv.org/abs/2602.03282

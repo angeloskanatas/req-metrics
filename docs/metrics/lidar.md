@@ -16,8 +16,9 @@ scatter of the clips' view means and S_w the scatter of the views around their c
 delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
 S_w^{-1/2} S_b S_w^{-1/2}. The clean clip names the class and is not one of the q views. Use
 the training objective's own positives when monitoring one model (their Sec. 4.2) and one
-shared chain when comparing models. The denominators leave the value unchanged; an absolute
-delta makes it scale-dependent when within-clip variance approaches delta. Directions without
+shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
+leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
+within-clip variance approaches delta. Directions without
 clip signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the
 width (App. 11). The paper's epsilon is omitted.
 

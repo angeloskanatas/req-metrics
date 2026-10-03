@@ -23,7 +23,7 @@ def _neighbors(x: Tensor | Neighbors, k: int) -> Neighbors:
         if x.k < k:
             raise ValueError(f"Neighbors table has k={x.k}, estimator needs {k}")
         return x
-    return Neighbors.from_points(x, k)
+    return Neighbors.from_points(_unique_rows(x), k)  # zero distances break the log-ratio estimators
 
 
 def _unique_rows(x: Tensor) -> Tensor:
@@ -58,7 +58,7 @@ def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> Me
     elif algorithm == "base":
         n_eff = int(n * mu_fraction)
         xs = torch.sort(log_mus).values[:n_eff]
-        ys = -torch.log(1.0 - torch.arange(1, n_eff + 1, dtype=xs.dtype) / n)
+        ys = -torch.log(1.0 - torch.arange(1, n_eff + 1, dtype=xs.dtype, device=xs.device) / n)
         d = float((xs * ys).sum() / (xs * xs).sum())  # least-squares slope through the origin
     else:
         raise ValueError(f"unknown algorithm {algorithm!r}")
@@ -117,7 +117,7 @@ def gride(
     errors follow DADApy.
 
     Args:
-        x: Points (N, D), or a Neighbors table with k >= range_max.
+        x: Points (N, D), duplicates removed first, or a Neighbors table with k >= range_max.
         scale: Outer neighbor rank of the returned estimate; a power of two.
         range_max: Largest outer rank.
         d0, d1: Bisection bounds on the dimension.
@@ -156,7 +156,7 @@ def mle(x: Tensor | Neighbors, *, k_range: tuple[int, int] = (10, 20), unbiased:
     unbiased.
 
     Args:
-        x: Points (N, D), or a Neighbors table with k >= k_range[1].
+        x: Points (N, D), duplicates removed first, or a Neighbors table with k >= k_range[1].
         k_range: Inclusive range of neighbor counts.
         unbiased: Use k - 2 in the denominator.
 
@@ -180,12 +180,13 @@ def mle(x: Tensor | Neighbors, *, k_range: tuple[int, int] = (10, 20), unbiased:
 def mlid(x: Tensor | Neighbors, *, k: int = 64) -> MetricResult:
     """Geometric mean of per-point local intrinsic dimension (mLID).
 
-    LID_i = mu_k / (w_k - mu_k) by the method of moments (Amsaleg et al., 2018), with mu_k the
-    mean of the k - 1 nearest distances and w_k the k-th; aggregated as the geometric mean, the
-    Frechet mean of LDReg (Huang et al., 2024, ICLR, arXiv:2401.10474).
+    LID_i = mu_k / (w_k - mu_k) by the method of moments (Amsaleg et al., 2018), aggregated as
+    the geometric mean, the Frechet mean of LDReg (Huang et al., 2024, ICLR, arXiv:2401.10474).
+    w_k is the k-th neighbor distance and mu_k the mean of the k - 1 nearer ones, as in the
+    LDReg code (lid_mom_est); the paper's text averages all k.
 
     Args:
-        x: Points (N, D), or a Neighbors table with at least k neighbors.
+        x: Points (N, D), duplicates removed first, or a Neighbors table with at least k neighbors.
         k: Neighborhood size.
 
     Returns:

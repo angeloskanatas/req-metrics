@@ -1,4 +1,4 @@
-"""Jacobian effective rank: exact on linear maps, products equal to J v, every layer in one pass."""
+"""Jacobian effective rank: exact on linear maps, power iterations, the Jacobian spectrum of every layer."""
 
 import unittest
 
@@ -33,16 +33,29 @@ class JacobianTests(unittest.TestCase):
         self.assertAlmostEqual(r.value, float(s.sum() ** 2 / s.square().sum()), places=4)
         self.assertEqual(r.extras["n_probes"], 8)
 
-    def test_products_equal_jacobian_vector_products_for_every_layer(self):
+    def test_power_iterations_recover_the_leading_singular_values(self):
+        torch.manual_seed(0)
+        u, _ = torch.linalg.qr(torch.randn(64, 64, dtype=torch.float64))
+        v, _ = torch.linalg.qr(torch.randn(64, 64, dtype=torch.float64))
+        s = 0.7 ** torch.arange(64, dtype=torch.float64)
+        lin = nn.Linear(64, 64, bias=False).double()
+        lin.weight.data = u @ torch.diag(s) @ v.T
+        x = torch.randn(3, 64, dtype=torch.float64)
+        err = {}
+        for p in (0, 5):
+            sketch = rq.jacobian_products(lin, x, [lin], lambda o: o, num_probes=8, power_iters=p)[0]
+            err[p] = float((torch.linalg.svdvals(sketch) - s[:8]).abs().max())
+        self.assertLess(err[5], 1e-4)  # error ratio (s_9 / s_8)^11 per Halko et al., 2011
+        self.assertLess(err[5], err[0] / 100)
+
+    def test_sketch_spectrum_equals_the_jacobian_spectrum_of_every_layer(self):
         torch.manual_seed(0)
         net, x, pool = _Net().eval(), torch.randn(2, 5, 16), rq.make_pooler("mean")
         fast = torch.backends.mha.get_fastpath_enabled()
         with torch.no_grad():
-            products = rq.jacobian_products(net, x, list(net.blocks), pool, num_probes=4, seed=1)
+            sketches = rq.jacobian_products(net, x, list(net.blocks), pool, num_probes=16, power_iters=1, seed=1)
         self.assertEqual(torch.backends.mha.get_fastpath_enabled(), fast)
-        self.assertEqual({i: tuple(t.shape) for i, t in products.items()}, {i: (2, 4, 16) for i in range(3)})
-        gen = torch.Generator().manual_seed(1)
-        probe = torch.linalg.qr(torch.randn(80, 4, generator=gen, dtype=torch.float64))[0].T.float()[0].view(5, 16)
+        self.assertEqual({i: tuple(t.shape) for i, t in sketches.items()}, {i: (2, 16, 80) for i in range(3)})
         from torch.nn.attention import SDPBackend, sdpa_kernel
 
         torch.backends.mha.set_fastpath_enabled(False)
@@ -51,7 +64,8 @@ class JacobianTests(unittest.TestCase):
                 jac = jacrev(lambda z: pool(net.blocks[1](net.blocks[0](z.unsqueeze(0))))[0])(x[0])
         finally:
             torch.backends.mha.set_fastpath_enabled(fast)
-        self.assertTrue(torch.allclose(products[1][0, 0], torch.einsum("dtk,tk->d", jac, probe), atol=1e-5))
+        exact = torch.linalg.svdvals(jac.reshape(16, 80).double())  # 16 readout dims: k = 16 spans the range
+        self.assertTrue(torch.allclose(torch.linalg.svdvals(sketches[1][0].double()), exact, rtol=1e-4, atol=1e-6))
 
     def test_registered_and_computed_through_the_pipeline(self):
         rec = rq.compute({0: torch.randn(3, 4, 10), 1: torch.randn(3, 4, 10)}, ["jacobian_effective_rank"])

@@ -56,7 +56,7 @@ covers what applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
 | Manifold | dimension: intrinsic_dimension (TwoNN), intrinsic_dimension/gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, frames, views, shifts, pairs, tokens, Jacobian-vector products |
+| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, frames, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -96,7 +96,7 @@ docstring says so.
   DADApy labels each GRIDE scale by its outer rank, so `gride_k8` is the
   estimate from the ratio of the 8th to the 4th neighbor distance. The
   Levina-Bickel MLE follows their Eq. 8 and 9 with k = 10..20, not
-  scikit-dimension's single k = 5. The estimators are ported rather than
+  scikit-dimension's single k = 20. The estimators are ported rather than
   wrapped so that one kNN table serves every estimator on torch tensors and
   GPUs without a scikit-learn and Cython dependency; the port is attributed in
   NOTICE and tested for parity.
@@ -108,7 +108,8 @@ docstring says so.
 - View group. LiDAR reproduces the analysis code of Kanatas et al. (2026) to
   2e-14 with delta 1e-6; the default delta 1e-4 is that of the Skean et al.
   (2025) analysis code. Thilak et al. state unbiased estimates without giving
-  denominators; the choice leaves the value unchanged. InfoNCE matches to 1e-9
+  denominators; the choice rescales S_b and S_w by constants, which leaves the
+  value unchanged at delta 0 and otherwise changes only delta's relative size. InfoNCE matches to 1e-9
   on two views; with more views it averages the two-view loss over view pairs. DiME's joint entropy matches
   repitl to 1e-15; unlike that analysis code, it never swaps the N x N Gram
   Hadamard product for D x D covariances when N > D, since the two differ
@@ -296,14 +297,18 @@ are reproducible.
 ## 10. jacobian_effective_rank
 
 Chung and Kim (2026, arXiv:2602.03282, Eq. 1): the participation ratio
-(sum s_i)^2 / sum s_i^2 of the singular values of J(x) v_1, ..., J(x) v_k, the
-products of a readout's input-output Jacobian with k random orthonormal input
-directions, averaged over inputs; at most k. Their protocol (App. D) uses 32
-directions and 100 noise images on the final embedding. `LayerMonitor` computes
-it on the first `jacobian_items` inputs of the monitoring set, for the readout of
-every hooked layer, with one forward-mode pass per direction for all layers;
+(sum s_i)^2 / sum s_i^2 of the k leading singular values of a readout's
+input-output Jacobian J(x), averaged over inputs; at most k. The singular values
+are estimated by randomized range finding (Halko et al., 2011) from k random
+orthonormal input directions with subspace iteration; their protocol uses 32
+directions, 5 power iterations and 100 ImageNet validation images on the final
+embedding (Sec. 4.1, App. I.4), with Gaussian-noise inputs as a control (App.
+E.1). `jacobian_products` implements the estimator and `LayerMonitor` applies it
+to the first `jacobian_items` inputs of the monitoring set, for the readout of
+every hooked layer: the first products serve all layers in one forward-mode pass
+per direction, and each power iteration costs 2k passes per layer.
 `jacobian_input` sets the tensor the Jacobian is taken with respect to (a
 spectrogram rather than the waveform, for instance). Values are comparable at
-equal k, inputs and readout. Chung and Kim find the measure predictive of
+equal k, power iterations, inputs and readout. Chung and Kim find the measure predictive of
 compositional binding and state that it is not a universal quality measure.
 

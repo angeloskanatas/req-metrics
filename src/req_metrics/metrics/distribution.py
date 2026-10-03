@@ -15,8 +15,8 @@ _EP_GRID = (-5.0, 5.0, 17)  # LeJEPA reference implementation (Algorithm 1)
 
 
 def _directions(d: int, m: int, seed: int, like: Tensor) -> Tensor:
-    gen = torch.Generator(device=like.device).manual_seed(seed)
-    a = torch.randn(d, m, generator=gen, device=like.device, dtype=like.dtype)
+    gen = torch.Generator().manual_seed(seed)  # CPU stream: the same directions on every device
+    a = torch.randn(d, m, generator=gen, dtype=like.dtype).to(like.device)
     return a / a.norm(dim=0, keepdim=True)
 
 

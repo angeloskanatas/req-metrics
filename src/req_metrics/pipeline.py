@@ -16,8 +16,10 @@ View metrics take layers[l] of shape (q, N, D); PTE takes layers[l] = (z, shifte
 
 from __future__ import annotations
 
+import inspect
 import warnings
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -25,7 +27,7 @@ import torch
 from torch import Tensor
 
 from req_metrics import __version__
-from req_metrics._types import InputKind, MetricResult
+from req_metrics._types import InputKind, MetricResult, Preprocess
 from req_metrics.neighbors import Neighbors, _cdist_mode
 from req_metrics.preprocess import apply_preprocess
 from req_metrics.records import Record, Records
@@ -82,6 +84,18 @@ def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence
 def _normalized_depths(layer_ids: Sequence[int]) -> dict[int, float]:
     top = max(layer_ids) if layer_ids else 0
     return {l: (l / top if top > 0 else 0.0) for l in layer_ids}
+
+
+def _preprocess_args(spec: MetricSpec, kwargs: Mapping[str, Any]) -> tuple[Preprocess, dict[str, Any]]:
+    """The preprocessing a call applies, and the remaining arguments.
+
+    The registry's preprocessing, overridden by the estimator's own center, standardize
+    and l2 arguments; arguments the estimator does not take stay in the remainder.
+    """
+    accepted = inspect.signature(spec.fn).parameters
+    own = {f: bool(kwargs[f]) for f in ("center", "standardize", "l2") if f in kwargs and f in accepted}
+    rest = {k: v for k, v in kwargs.items() if k not in own}
+    return replace(spec.preprocess, **own), rest
 
 
 def _run(spec: MetricSpec, args: tuple, kwargs: Mapping[str, Any]) -> tuple[float, dict[str, Any]]:
@@ -153,7 +167,7 @@ def _points_sweep(
         return subsets[n]
 
     spectra: dict[Any, Spectrum] = {}
-    neighbors: dict[int, Neighbors] = {}
+    neighbors: dict[int, tuple[Tensor, Neighbors]] = {}  # kNN estimators see the distinct points
     need_k: list[Any] = [
         (
             _NEIGHBOR_K[s.name][1]
@@ -171,21 +185,26 @@ def _points_sweep(
         xs = subset(limits.get(spec.name, spec.max_items))
         n_used = int(xs.shape[0])
         if spec.cache == "spectrum":
-            key = (spec.preprocess, n_used)
+            pre, kw = _preprocess_args(spec, kw)
+            key = (pre, n_used)
             if key not in spectra:
-                spectra[key] = Spectrum.from_points(apply_preprocess(xs, spec.preprocess), center=False)
+                spectra[key] = Spectrum.from_points(apply_preprocess(xs, pre), center=False)
             out[spec.name] = _run(spec, (spectra[key],), kw)
         elif spec.cache in ("neighbors", "neighbors_kw"):
             if n_used not in neighbors:
                 try:
-                    neighbors[n_used] = Neighbors.from_points(xs, k_max)
+                    xu = torch.unique(xs, dim=0)
+                    neighbors[n_used] = (xu, Neighbors.from_points(xu, k_max))
                 except Exception as e:
                     out[spec.name] = (float("nan"), {"error": f"{type(e).__name__}: {e}"})
                     continue
+            xu, nb = neighbors[n_used]
             if spec.cache == "neighbors":
-                out[spec.name] = _run(spec, (neighbors[n_used],), kw)
+                out[spec.name] = _run(spec, (nb,), kw)
             else:
-                out[spec.name] = _run(spec, (xs,), {**kw, "neighbors": neighbors[n_used]})
+                out[spec.name] = _run(spec, (xu,), {**kw, "neighbors": nb})
+            if xu.shape[0] < n_used:
+                out[spec.name][1]["n_distinct"] = int(xu.shape[0])
         else:
             out[spec.name] = _run(spec, (xs,), kw)
         if n_used < x.shape[0]:
@@ -215,7 +234,7 @@ def compute(
     Args:
         layers: Layer index -> data. Point metrics: (N, D) for "pooled", a sequence of
             (T_i, D) for "frames" and "tokens". View metrics: (q, N, D). PTE: (z, {k: z_k}).
-            Jacobian effective rank: (B, k, D) Jacobian-vector products (see jacobian_products).
+            Jacobian effective rank: (B, k, M) Jacobian sketches (see jacobian_products).
         metrics: Registry names. All must share one input kind per call.
         population: "pooled", "frames" or "tokens" (point and trajectory metrics only).
         n: Keep at most n clips (or tokens, for "tokens") chosen at random with seed; the
@@ -263,7 +282,7 @@ def compute(
                 n_items=n_items,
                 dim=dim,
                 n_views=n_views,
-                preprocess=spec.preprocess.describe(),
+                preprocess=_preprocess_args(spec, params.get(spec.name, {}))[0].describe(),
                 params=dict(params.get(spec.name, {})),
                 views=views.describe() if views else None,
                 shifts=shifts.describe() if shifts else None,

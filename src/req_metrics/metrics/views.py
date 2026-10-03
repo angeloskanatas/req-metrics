@@ -28,8 +28,9 @@ def lidar(
     delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
     S_w^{-1/2} S_b S_w^{-1/2}. The clean clip names the class and is not one of the q views. Use
     the training objective's own positives when monitoring one model (their Sec. 4.2) and one
-    shared chain when comparing models. The denominators leave the value unchanged; an absolute
-    delta makes it scale-dependent when within-clip variance approaches delta. Directions without
+    shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
+    leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
+    within-clip variance approaches delta. Directions without
     clip signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the
     width (App. 11). The paper's epsilon is omitted.
 
@@ -208,10 +209,10 @@ def dime(
         x, y = x - x.mean(dim=0, keepdim=True), y - y.mean(dim=0, keepdim=True)
     kx, ky = _normalized_gram(x, kernel), _normalized_gram(y, kernel)
     joint = _renyi_matrix_entropy(kx * ky, alpha)
-    g = torch.Generator(device=x.device).manual_seed(seed)
+    g = torch.Generator().manual_seed(seed)  # CPU stream: the same permutations on every device
     permuted = 0.0
     for _ in range(n_perm):
-        idx = torch.randperm(n, generator=g, device=x.device)
+        idx = torch.randperm(n, generator=g).to(x.device)
         permuted += _renyi_matrix_entropy(kx * ky[idx][:, idx], alpha) / n_perm
     value = permuted - joint
     if normalization == "max":

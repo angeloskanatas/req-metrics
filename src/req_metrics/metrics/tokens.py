@@ -74,8 +74,8 @@ def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> Metric
     _check_tokens(tokens)
     x = tokens.double()
     if x.shape[0] > n_tokens:
-        g = torch.Generator(device=x.device).manual_seed(seed)
-        x = x[torch.randperm(x.shape[0], generator=g, device=x.device)[:n_tokens]]
+        g = torch.Generator().manual_seed(seed)  # CPU stream: the same tokens on every device
+        x = x[torch.randperm(x.shape[0], generator=g)[:n_tokens].to(x.device)]
     u = F.normalize(x, dim=1)
     n = u.shape[0]
     total = u.sum(dim=0)

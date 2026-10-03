@@ -54,10 +54,10 @@ Memory-bounded chunking throughout: kNN tables and rank tables are built in
 row chunks, never as N x N tensors. One singular spectrum per (layer,
 preprocessing) and one neighbor table per layer, sized to the largest
 requested k, are shared by every estimator that reads them. Spectra, kNN and
-LDA run in float64 with a dtype switch for GPUs with slow double precision;
-in float64 the matmul expansion of pairwise distances is used, in float32 the
-direct path, because the expansion loses the small distances that ratio
-estimators depend on. Computation stays on the device of the input tensors.
+LDA run in float64; `Spectrum.from_points` and `Neighbors.from_points` take a
+dtype for GPUs with slow double precision. In float64 the matmul expansion of
+pairwise distances is used, in float32 the direct path, because the expansion
+loses the small distances that ratio estimators depend on. Computation stays on the device of the input tensors.
 The information-imbalance matrix builds one rank table per layer and gathers
 it for every other layer, O(L N^2 D) instead of O(L^2 N^2 D). GRIDE needs a
 neighbor table with `range_max` neighbors, so keep that modest unless
@@ -74,8 +74,9 @@ neighbor-based estimators share one chunked kNN table, O(N^2 D), as does
 uniformity. The MST dimension builds dense distance matrices over subsamples up to
 N (O(N^2) memory); DiME eigendecomposes N x N Gram matrices for each of its
 re-pairings (O(N^3)); local rectifiability is linear in N per anchor set but
-repeated over scales. Those three carry item caps. The Kolmogorov-Smirnov
-Gaussianity runs one test per dimension. View metrics scale with q and PTE trains
+repeated over scales. Those three carry item caps. Gaussianity computes all
+three statistics on every call, with one Kolmogorov-Smirnov test per random
+direction. View metrics scale with q and PTE trains
 a probe. `scripts/benchmark.py` measures every registered metric on the machine at
 hand.
 
@@ -98,6 +99,10 @@ Under distributed training the callback runs on
 global rank zero only. The monitoring subset is a re-iterable loader; a
 one-shot iterator, or any loader with `cache_batches=True`, is materialized
 once on the CPU so every sweep sees the same batches without decoding again.
+The q view passes read the live loader instead, so a dataset that draws a
+random crop per item gives every view its own crop, as the objective's
+positives do; with `views_in_train_mode`, buffers such as BatchNorm running
+statistics are restored after those passes.
 An EMA target or any other branch is monitored by pointing `model_attr` at
 it, one callback per branch. Every record carries the epoch and the global
 step, and the W&B profile plots draw all sweeps so far, one line per step, so
@@ -107,9 +112,12 @@ Logging: Weights & Biases rejects `step=` values below its internal counter,
 so no sink passes `step=`; `wandb_sink` logs a `monitor/step` metric and binds
 `layer_metrics/*`, `profiles/*` and the `online_*` families to it with
 `define_metric`, and the Lightning path follows `WandbLogger.log_metrics`
-(the `trainer/global_step` key). `tensorboard_sink` writes
-`layer_metrics/<metric>/layer_<l>` through `torch.utils.tensorboard`; CSV and
-JSON sinks and any callable of `(records, step)` are accepted.
+(the `trainer/global_step` key). Every scalar sink uses the keys of
+`layer_scalars`, `layer_metrics/<metric>_layer_<l>`, with the population
+appended to the metric name for frames and tokens records and selected extras
+as `<metric>_<extra>`; `tensorboard_sink` writes them through
+`torch.utils.tensorboard`. CSV and JSON sinks keep every field and extra, and
+any callable of `(records, step)` is accepted.
 
 ## 4b. Which layers, and when
 

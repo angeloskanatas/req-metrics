@@ -6,8 +6,8 @@ layer's output, and hands the per-layer tensors to compute(); the same records
 come out as in a post-hoc run, so curves logged during training are directly
 comparable with curves computed on stored embeddings. OnlineBuffer hooks the
 same modules during the ordinary training forward passes and keeps the most
-recent rows, at no extra cost, as a collapse indicator on the training-time
-representation. Which modules are layers, how a block output becomes one
+recent rows, without extra forward passes, as a collapse indicator on the
+training-time representation. Which modules are layers, how a block output becomes one
 vector per clip, and how an augmented view is drawn are arguments.
 """
 
@@ -160,6 +160,29 @@ def metric_key_prefix(record: Record) -> tuple[str, str]:
     return "layer_metrics", "profiles"
 
 
+def metric_key(record: Record) -> str:
+    """The logging name of a record's metric: "/" replaced by "_", and the population appended unless "pooled"."""
+    name = record.metric.replace("/", "_")
+    return name if record.population in (None, "pooled") else f"{name}_{record.population}"
+
+
+def layer_scalars(rec: Records, extras: Sequence[str] = ()) -> dict[str, float]:
+    """Logging scalars of the single-layer records: <prefix>/<metric>_layer_<l>, and
+    <prefix>/<metric>_<extra>_layer_<l> for each named numeric extra. Non-finite values are skipped."""
+    out: dict[str, float] = {}
+    for r in rec:
+        if r.layer_b is not None:
+            continue
+        stem = f"{metric_key_prefix(r)[0]}/{metric_key(r)}"
+        if r.value == r.value:
+            out[f"{stem}_layer_{r.layer}"] = r.value
+        for e in extras:
+            v = r.extras.get(e)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
+                out[f"{stem}_{e}_layer_{r.layer}"] = float(v)
+    return out
+
+
 class OnlineBuffer:
     """Ring buffers of pooled block outputs captured from the training forward passes.
 
@@ -167,9 +190,10 @@ class OnlineBuffer:
     forward into a per-layer buffer of the most recent n_items rows, and compute() runs point
     metrics on them. This measures the training-time representation (augmented inputs,
     dropout, masking, moving weights), so use it as a collapse indicator and LayerMonitor for
-    comparable curves. Records carry extras["source"] = "training-batches". Eval-mode forwards
-    are ignored; gradient checkpointing duplicates rows; buffers are read at the smallest filled
-    count, which stochastic depth lowers.
+    comparable curves. Records carry extras["source"] = "training-batches". Every train-mode
+    forward of the hooked modules enters the buffer, so an encoder run on two inputs per step
+    (e.g. context and target) mixes both; eval-mode forwards are ignored; gradient checkpointing
+    duplicates rows; buffers are read at the smallest filled count, which stochastic depth lowers.
 
     Args:
         layer_modules: Modules whose outputs are the layers, in depth order.
@@ -312,33 +336,40 @@ def jacobian_products(
     pool: Pooler,
     *,
     num_probes: int = 32,
+    power_iters: int = 5,
     seed: int = 0,
 ) -> dict[int, Tensor]:
-    """Jacobian-vector products of every module's readout with random orthonormal input directions.
+    """Randomized range-finder sketches of the Jacobian of every module's readout.
 
-    For each input, k orthonormal directions in input space come from the QR decomposition
-    of a seeded Gaussian draw (Chung and Kim, 2026, App. D). One forward-mode pass per
-    direction (torch.func.jvp) returns the products of all modules, so a sweep costs k
-    forward-mode passes over the batch whatever the number of layers.
+    Chung and Kim (2026, Sec. 4.1 and App. F) estimate the leading singular values of the
+    Jacobian J of a readout with respect to the input by randomized range finding (Halko et
+    al., 2011): Y = J Omega for k orthonormal input directions Omega per input (QR of a seeded
+    Gaussian draw), power_iters rounds of subspace iteration, Q an orthonormal basis of Y, and
+    B = Q^T J, whose singular values estimate the k largest of J. The paper uses k = 32 and 5
+    rounds. The first products Y come from one forward-mode pass per direction for all modules;
+    each round and the final B take k forward-mode (J v) or reverse-mode (J^T u) passes per
+    module. Inputs in a batch must not interact (eval-mode normalization).
 
     Args:
-        forward: Runs the model on x so the modules fire; the products are taken with respect to x.
+        forward: Runs the model on x so the modules fire; derivatives are taken with respect to x.
         x: Inputs, (B, ...).
         modules: Modules whose outputs are read out, in depth order.
         pool: Readout applied to each module output, as in the sweep.
         num_probes: Directions k per input, capped at the input size.
+        power_iters: Rounds of subspace iteration.
         seed: Probe seed.
 
     Returns:
-        Module index -> (B, k, D) products, D the flattened readout size.
+        Module index -> (B, k, M) rows of B = Q^T J, M the input size; k is capped at the readout size.
     """
-    from torch.func import jvp
+    from torch.func import jvp, vjp
 
     b, size = x.shape[0], x[0].numel()
     k = min(num_probes, size)
     gen = torch.Generator().manual_seed(seed)
-    q = [torch.linalg.qr(torch.randn(size, k, generator=gen, dtype=torch.float64))[0].T for _ in range(b)]
-    probes = torch.stack(q).to(dtype=x.dtype, device=x.device).reshape(b, k, *x.shape[1:])
+    omega = torch.stack(
+        [torch.linalg.qr(torch.randn(size, k, generator=gen, dtype=torch.float64))[0].T for _ in range(b)]
+    )
 
     def readouts(inp: Tensor) -> tuple[Tensor, ...]:
         out: dict[int, Tensor] = {}
@@ -356,13 +387,31 @@ def jacobian_products(
             raise RuntimeError(f"modules {missing} did not run in the forward pass")
         return tuple(out[i].reshape(b, -1) for i in range(len(modules)))
 
-    columns: dict[int, list[Tensor]] = {i: [] for i in range(len(modules))}
+    def orth(rows: Tensor) -> Tensor:  # (B, r, n) -> orthonormal rows spanning the same space
+        return torch.linalg.qr(rows.double().transpose(1, 2))[0].transpose(1, 2)
+
+    def apply_j(v: Tensor) -> tuple[Tensor, ...]:  # (B, r, M) -> per module (B, r, D_i)
+        cols = [jvp(readouts, (x,), (v[:, j].to(x.dtype).reshape(x.shape),))[1] for j in range(v.shape[1])]
+        return tuple(torch.stack([c[i] for c in cols], dim=1) for i in range(len(modules)))
+
+    out: dict[int, Tensor] = {}
     with _forward_mode_attention():
-        for j in range(k):
-            _, tangents = jvp(readouts, (x,), (probes[:, j],))
-            for i, t in enumerate(tangents):
-                columns[i].append(t.detach())
-    return {i: torch.stack(c, dim=1) for i, c in columns.items()}
+        outputs, pullback = vjp(readouts, x)
+
+        def apply_jt(i: int, u: Tensor) -> Tensor:  # (B, r, D_i) -> (B, r, M) for module i
+            rows = []
+            for j in range(u.shape[1]):
+                cot = tuple(u[:, j].to(o.dtype) if m == i else torch.zeros_like(o) for m, o in enumerate(outputs))
+                rows.append(pullback(cot)[0].reshape(b, -1))
+            return torch.stack(rows, dim=1)
+
+        y = apply_j(omega)
+        for i in range(len(modules)):
+            q = orth(y[i])
+            for _ in range(power_iters):
+                q = orth(apply_j(orth(apply_jt(i, q)))[i])
+            out[i] = apply_jt(i, q).detach()
+    return out
 
 
 class LayerMonitor:
@@ -378,7 +427,8 @@ class LayerMonitor:
             for "frames" and "tokens". The pooling must be parameter-free.
         pool_kwargs: Keyword arguments of make_pooler for a named readout.
         metrics: Registry names of point or trajectory metrics; all of one input kind.
-        n_items: Clips of the monitoring set to use; the loader is consumed until reached.
+        n_items: Clips of the monitoring set to use; the loader is consumed until reached. With
+            population "tokens", also the cap on the pooled frames passed to compute().
         population: "pooled", "frames" or "tokens", matching what pool returns; the frames and
             tokens populations need clips of equal length within a sweep (batches are concatenated).
         params: Metric name -> estimator keyword arguments.
@@ -386,15 +436,21 @@ class LayerMonitor:
         view_metrics: Registry names of view metrics to compute when `augment` is given.
         augment: augment(batch, generator) -> batch; applied on q extra passes over the
             loader to build (q, N, D) views per layer. Keep the loader order fixed across passes.
+            The views should follow the objective's positive construction (Thilak et al., 2024):
+            when positives differ by random crops, pass a view_loader to sweep() that draws them.
         q: Views per clip for the view metrics.
         view_spec: Description of the view construction, recorded with the view records.
         views_in_train_mode: Run the q augmented passes with the model in train mode, for
             objectives whose positives come from stochasticity inside the model, such as token
             masking; the views then follow the objective's own positive construction (Thilak et
-            al., 2024). Set dropout to zero, or it adds to the views.
+            al., 2024). Set dropout to zero, or it adds to the views. Buffers such as BatchNorm
+            running statistics are restored after these passes.
         jacobian_items: Inputs from the start of the monitoring set on which the Jacobian
-            effective rank of every layer's readout is computed; 0 disables it.
+            effective rank of every layer's readout is computed; 0 disables it. Chung and Kim
+            (2026) use 100 inputs.
         jacobian_probes: Random orthonormal input directions per input (32 in Chung and Kim, 2026).
+        jacobian_power_iters: Rounds of subspace iteration (5 in Chung and Kim, 2026); each
+            costs 2 * jacobian_probes passes per layer (see jacobian_products).
         jacobian_input: Maps a batch input to the tensor the Jacobian is taken with respect to,
             without differentiation (e.g. waveform to spectrogram); default the input itself.
         jacobian_forward: Runs the model on that tensor; default the sweep's forward.
@@ -416,11 +472,12 @@ class LayerMonitor:
         corpus: str | None = None,
         view_metrics: Sequence[str] = (),
         augment: Callable[[Any, torch.Generator], Any] | None = None,
-        q: int = 2,
+        q: int = 10,
         view_spec: ViewSpec | None = None,
         views_in_train_mode: bool = False,
         jacobian_items: int = 0,
         jacobian_probes: int = 32,
+        jacobian_power_iters: int = 5,
         jacobian_input: Callable[[Tensor], Tensor] | None = None,
         jacobian_forward: Callable[[Tensor], Any] | None = None,
         seed: int = 0,
@@ -438,6 +495,7 @@ class LayerMonitor:
         self.view_spec = view_spec or (ViewSpec(source="objective", q=q, seed=seed) if augment is not None else None)
         self.views_in_train_mode = views_in_train_mode
         self.jacobian_items, self.jacobian_probes = jacobian_items, jacobian_probes
+        self.jacobian_power_iters = jacobian_power_iters
         self.jacobian_input, self.jacobian_forward = jacobian_input, jacobian_forward
         self.seed = seed
         self.history: list[tuple[int, Records]] = []
@@ -489,6 +547,7 @@ class LayerMonitor:
         step: int,
         sinks: Sequence[Callable[[Records, int], None]] = (),
         module: nn.Module | None = None,
+        view_loader: Iterable | None = None,
     ) -> Records:
         """Collect representations, compute metrics, record the step, and pass the records to the sinks.
 
@@ -499,21 +558,26 @@ class LayerMonitor:
             sinks: Callables receiving (records, step): csv_sink, json_sink, tensorboard_sink,
                 wandb_sink, or any callable of your own.
             module: The model forward runs, when forward is not itself a module.
+            view_loader: Iterable read by the q augmented passes instead of loader: the same clips
+                in the same order, e.g. a DataLoader whose dataset draws a random crop per item
+                while loader is a cached list of one draw.
 
         The model (module, or forward when it is a module) and the hooked layers run in eval
         mode, except the augmented passes with views_in_train_mode; every submodule's previous
         mode is restored afterwards.
         """
-        reads_twice = (self.view_metrics and self.augment is not None) or self.jacobian_items > 0
-        if reads_twice and iter(loader) is loader:
+        views = bool(self.view_metrics) and self.augment is not None
+        if ((views and view_loader is None) or self.jacobian_items > 0) and iter(loader) is loader:
             raise ValueError("view metrics and the Jacobian read the loader again; pass a list or a DataLoader")
+        if views and view_loader is not None and self.q > 1 and iter(view_loader) is view_loader:
+            raise ValueError("the q view passes read view_loader q times; pass a list or a DataLoader")
         model = module if module is not None else (forward if isinstance(forward, nn.Module) else None)
         roots = ([model] if model is not None else []) + list(self.layer_modules)
         modes = [(m, m.training) for root in roots for m in root.modules()]
         for root in roots:
             root.eval()
         try:
-            return self._sweep(forward, loader, step, sinks, roots)
+            return self._sweep(forward, loader, step, sinks, roots, view_loader)
         finally:
             for m, was_training in modes:
                 m.training = was_training
@@ -525,6 +589,7 @@ class LayerMonitor:
         step: int,
         sinks: Sequence[Callable[[Records, int], None]],
         roots: Sequence[nn.Module],
+        view_loader: Iterable | None = None,
     ) -> Records:
         layers = self.collect(forward, loader)
         rec = compute(
@@ -540,13 +605,21 @@ class LayerMonitor:
             if self.population != "pooled":
                 raise ValueError("view metrics need population='pooled'")
             passes = []
+            saved = (
+                {id(b): (b, b.clone()) for root in roots for b in root.buffers()} if self.views_in_train_mode else {}
+            )
             for root in roots if self.views_in_train_mode else ():
                 root.train()
-            for p in range(self.q):
-                gen = torch.Generator().manual_seed(self.seed + p)
-                passes.append(self.collect(forward, loader, augment=self.augment, generator=gen))
-            for root in roots:
-                root.eval()
+            try:
+                for p in range(self.q):
+                    gen = torch.Generator().manual_seed(self.seed + p)
+                    source = view_loader if view_loader is not None else loader
+                    passes.append(self.collect(forward, source, augment=self.augment, generator=gen))
+            finally:
+                for root in roots:
+                    root.eval()
+                for buf, value in saved.values():
+                    buf.copy_(value)
             view_layers = {l: torch.stack([passes[p][l] for p in range(self.q)], dim=0) for l in passes[0]}
             rec.extend(
                 compute(
@@ -583,7 +656,7 @@ class LayerMonitor:
             x = self.jacobian_input(x)
         products = jacobian_products(
             self.jacobian_forward or forward, x, self.layer_modules, self.pool, num_probes=self.jacobian_probes,
-            seed=self.seed,
+            power_iters=self.jacobian_power_iters, seed=self.seed,
         )  # fmt: skip
         return compute(products, ["jacobian_effective_rank"], population=self.population, seed=self.seed, **self.labels)
 
@@ -650,7 +723,8 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
 
     Records stamped with the epoch and the global step (as the Lightning callback
     does) are written to epoch_<e>_step_<s>.json, so epoch and step schedules never
-    share a file name; training-batch records get the prefix online_.
+    share a file name; training-batch records get the prefix online_, and records of
+    the frames or tokens population the population name.
     """
     directory = Path(directory)
 
@@ -658,6 +732,8 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
         directory.mkdir(parents=True, exist_ok=True)
         ex = rec[0].extras if len(rec) else {}
         prefix = "online_" if ex.get("source") == "training-batches" else ""
+        if len(rec) and rec[0].population not in (None, "pooled"):
+            prefix += f"{rec[0].population}_"
         if "epoch" in ex and "global_step" in ex:
             name = f"{prefix}epoch_{ex['epoch']}_step_{ex['global_step']}.json"
         else:
@@ -667,23 +743,19 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
     return sink
 
 
-def tensorboard_sink(log_dir: str | Path) -> Callable[[Records, int], None]:
-    """Write layer_metrics/<metric>/layer_<l> scalars to TensorBoard event files (torch.utils.tensorboard).
+def tensorboard_sink(log_dir: str | Path, extras: Sequence[str] = ()) -> Callable[[Records, int], None]:
+    """Write the layer_scalars of every sweep to TensorBoard event files (torch.utils.tensorboard).
 
     The x value is the global step when the records carry one, else the step argument.
+    extras names numeric extras logged next to the values, e.g. ("frechet_var",).
     """
     from torch.utils.tensorboard import SummaryWriter
 
     writer = SummaryWriter(str(log_dir))
 
     def sink(rec: Records, step: int) -> None:
-        for r in rec:
-            if r.layer_b is None and r.value == r.value:
-                writer.add_scalar(
-                    f"{metric_key_prefix(r)[0]}/{r.metric.replace('/', '_')}/layer_{r.layer}",
-                    r.value,
-                    _x_step(rec, step),
-                )
+        for key, value in layer_scalars(rec, extras).items():
+            writer.add_scalar(key, value, _x_step(rec, step))
         writer.flush()
 
     return sink
@@ -711,6 +783,7 @@ def wandb_sink(
     line_series: bool = True,
     step_metric: str = "monitor/step",
     history: Sequence[tuple[int, Records]] | None = None,
+    extras: Sequence[str] = (),
 ) -> Callable[[Records, int], None]:
     """Log to Weights & Biases: layer_metrics/<metric>_layer_<l> scalars and profiles/<metric> line series
     (online_metrics/ and online_profiles/ for training-batch records).
@@ -723,6 +796,7 @@ def wandb_sink(
     "_" in keys. Uses the active run unless one is given. With history (a
     LayerMonitor's or OnlineBuffer's .history), every profile plot shows all sweeps so
     far, one line per step, so the depth profile's evolution is read off one chart.
+    extras names numeric extras logged next to the values, e.g. ("frechet_var",).
     """
     state = {"defined": False}
 
@@ -735,15 +809,12 @@ def wandb_sink(
             for key in ("layer_metrics/*", "profiles/*", "online_metrics/*", "online_profiles/*"):
                 target.define_metric(key, step_metric=step_metric)
             state["defined"] = True
-        log: dict[str, Any] = {step_metric: _x_step(rec, step)}
-        for r in rec:
-            if r.layer_b is None and r.value == r.value:  # skip nan
-                log[f"{metric_key_prefix(r)[0]}/{r.metric.replace('/', '_')}_layer_{r.layer}"] = r.value
+        log: dict[str, Any] = {step_metric: _x_step(rec, step), **layer_scalars(rec, extras)}
         if line_series and len(rec):
             profile_prefix = metric_key_prefix(rec[0])[1]
             for metric in sorted({r.metric for r in rec if r.layer_b is None}):
                 xs, ys, keys = _profile_series(rec, history, metric)
-                log[f"{profile_prefix}/{metric.replace('/', '_')}"] = wandb.plot.line_series(
+                log[f"{profile_prefix}/{metric_key(rec.where(metric=metric)[0])}"] = wandb.plot.line_series(
                     xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                 )
         target.log(log)

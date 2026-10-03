@@ -229,6 +229,64 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(modes, [False] * 3 + [True] * 6)  # 3 batches plain, then 2 views x 3 batches
         self.assertFalse(model.training)
 
+    def test_train_mode_views_restore_batchnorm_statistics(self):
+        model = nn.Sequential(nn.Linear(16, 16), nn.BatchNorm1d(16)).eval()
+        before = {k: v.clone() for k, v in model.state_dict().items()}
+        mon = rq.LayerMonitor(
+            [model[1]],
+            pool=lambda out: out,
+            metrics=["effective_rank"],
+            view_metrics=["lidar"],
+            augment=lambda x, g: x + 0.1 * torch.randn(x.shape, generator=g),
+            q=2,
+            n_items=120,
+            views_in_train_mode=True,
+        )
+        mon.sweep(model, loader(), step=0)
+        for k, v in model.state_dict().items():
+            self.assertTrue(torch.equal(v, before[k]), msg=k)
+
+    def test_view_passes_read_the_view_loader(self):
+        firsts = []
+        mon = rq.LayerMonitor(
+            self.model.blocks,
+            pool="mean",
+            metrics=["effective_rank"],
+            view_metrics=["lidar"],
+            augment=lambda x, g: firsts.append(float(x[0, 0])) or x + 0.1 * torch.randn(x.shape, generator=g),
+            q=2,
+            n_items=120,
+        )
+        live = loader(seed=1)  # stands in for a DataLoader that redraws the crops
+        mon.sweep(self.model, loader(), step=0, view_loader=live)
+        self.assertEqual(firsts, [float(b[0][0, 0]) for b in live] * 2)
+        with self.assertRaisesRegex(ValueError, "view_loader q times"):
+            mon.sweep(self.model, loader(), step=1, view_loader=iter(live))
+
+    def test_keys_separate_populations_and_carry_extras(self):
+        pooled = rq.LayerMonitor(self.model.blocks, pool="mean", metrics=["intrinsic_dimension/mlid"], n_items=120,
+                                 params={"intrinsic_dimension/mlid": {"k": 16}})  # fmt: skip
+        frames = rq.LayerMonitor(self.model.blocks, pool="frames", metrics=["effective_rank"], n_items=120,
+                                 population="frames")  # fmt: skip
+        keys = rq.layer_scalars(pooled.sweep(self.model, loader(), step=0), extras=("frechet_var",))
+        self.assertIn("layer_metrics/intrinsic_dimension_mlid_layer_0", keys)
+        self.assertIn("layer_metrics/intrinsic_dimension_mlid_frechet_var_layer_0", keys)
+        self.assertIn(
+            "layer_metrics/effective_rank_frames_layer_0", rq.layer_scalars(frames.sweep(self.model, loader(), 0))
+        )
+        with tempfile.TemporaryDirectory() as d:
+            frames.sweep(self.model, loader(), step=3, sinks=[rq.json_sink(d)])
+            self.assertTrue((Path(d) / "frames_step_3.json").exists())
+
+    def test_dead_layer_logs_zero_effective_rank(self):
+        model = nn.Sequential(nn.Linear(16, 16), nn.ReLU())
+        nn.init.zeros_(model[0].weight)
+        nn.init.constant_(model[0].bias, -1.0)  # every unit dead: exact zeros
+        rec = rq.LayerMonitor([model[1]], pool=lambda out: out, metrics=["effective_rank"], n_items=120).sweep(
+            model, loader(), step=0
+        )
+        self.assertEqual(rq.layer_scalars(rec), {"layer_metrics/effective_rank_layer_0": 0.0})
+
     def test_view_metrics_reject_a_one_shot_loader(self):
         mon = rq.LayerMonitor(
             self.model.blocks,

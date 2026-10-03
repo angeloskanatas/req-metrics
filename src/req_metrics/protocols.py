@@ -1,8 +1,7 @@
 """Named protocols: the metric set, variants and parameters of a published analysis.
 
 A protocol is data, not code: lists of (metric, params) per input kind, the
-fixed sample size, and notes on what the original record files left
-unrecorded. Protocols are named after their paper (first author and year, as
+fixed sample size, and notes quoting the paper's protocol. Protocols are named after their paper (first author and year, as
 a citation key) and looked up with get(); compute() is called once per input
 kind with the matching names and params.
 """
@@ -21,7 +20,7 @@ class Protocol:
         paper: Title, venue and identifier of the paper.
         pooled, frames, views, shifted: (metric, params) pairs per input kind.
         n_items: Clips per model in the published analysis.
-        notes: Protocol facts and fields the original records left unrecorded.
+        notes: The paper's protocol statements.
     """
 
     name: str
