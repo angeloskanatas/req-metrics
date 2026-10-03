@@ -5,11 +5,11 @@ from enum import Enum
 
 
 class InputKind(str, Enum):
-    """What an estimator consumes. Shapes use N clips, T frames, D dims, q views."""
+    """What an estimator consumes. Shapes use N samples, T tokens, D dims, q views."""
 
     POINTS = "points"  # (N, D)
-    TRAJECTORY = "trajectory"  # (T, D), time-ordered frames of one clip
-    VIEWS = "views"  # (q, N, D), q augmented views of the same N clips
+    TRAJECTORY = "trajectory"  # (T, D), time-ordered tokens of one sample
+    VIEWS = "views"  # (q, N, D), q augmented views of the same N samples
     SHIFTED = "shifted"  # (N, D) plus {semitones: (N, D)} transposed copies
     TOKENS = "tokens"  # (N, T, D)
     PAIR = "pair"  # two point clouds (N, D_a), (N, D_b) describing the same N items

@@ -45,26 +45,26 @@ class TokenHealthTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rq.token_gram_drift(self.tokens, self.tokens[:100])
 
-    def test_pipeline_frames_and_tokens_populations(self):
+    def test_pipeline_sample_and_population_levels(self):
         clips = {0: [self.outliers, self.tokens, self.tokens], 1: [self.tokens] * 3}
-        rec = rq.compute(clips, ["token_norm_outliers", "token_cosine"], population="frames")
+        rec = rq.compute(clips, ["token_norm_outliers", "token_cosine"], level="sample")
         self.assertAlmostEqual(rec.where(metric="token_norm_outliers", layer=0)[0].value, 0.05 / 3, places=9)
-        pooled = rq.compute(clips, ["token_norm_outliers"], population="tokens")
+        pooled = rq.compute(clips, ["token_norm_outliers"], level="population")
         self.assertAlmostEqual(pooled.where(layer=0)[0].value, 10 / 600, places=9)  # against the pooled median
         with self.assertRaises(ValueError):
-            rq.compute({0: self.tokens}, ["token_cosine"], population="pooled")
+            rq.compute({0: self.tokens}, ["token_cosine"], level="sequence")
         for n in ("token_norm_outliers", "token_cosine", "cls_patch_cosine", "token_gram_drift"):
             self.assertIn(n, rq.list_metrics())
 
-    def test_token_fields_run_per_clip_under_the_tokens_population(self):
+    def test_token_fields_run_per_sample_at_the_population_level(self):
         g = torch.Generator().manual_seed(3)
         clips = []
         for _ in range(5):
             cls = torch.randn(1, 32, generator=g)  # each clip's patches follow its own class token
             clips.append(torch.cat([cls, cls + 0.3 * torch.randn(16, 32, generator=g)]))
         want = sum(rq.cls_patch_cosine(c).value for c in clips) / len(clips)
-        for population in ("frames", "tokens"):
-            rec = rq.compute({0: clips}, ["cls_patch_cosine"], population=population)
+        for level in ("sample", "population"):
+            rec = rq.compute({0: clips}, ["cls_patch_cosine"], level=level)
             self.assertAlmostEqual(rec[0].value, want, places=9)
 
 
@@ -81,13 +81,13 @@ class EmbeddingNormAndMixedKindsTests(unittest.TestCase):
         self.assertLess(r.extras["cv"], 0.15)
         self.assertIn("embedding_norm", rq.list_metrics())
 
-    def test_mixed_per_clip_kinds_in_one_frames_call(self):
+    def test_mixed_token_kinds_in_one_sample_level_call(self):
         g = torch.Generator().manual_seed(1)
         clips = {0: [torch.randn(80, 12, generator=g).cumsum(0) for _ in range(6)]}
         rec = rq.compute(
             clips,
             ["effective_rank", "trajectory_curvature", "token_norm_outliers", "embedding_norm"],
-            population="frames",
+            level="sample",
         )
         self.assertEqual(
             sorted(r.metric for r in rec),

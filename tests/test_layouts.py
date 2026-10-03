@@ -42,10 +42,10 @@ class LayoutTests(unittest.TestCase):
             rq.stack_clips([torch.randn(4, 3), torch.randn(5, 3)])
         self.assertEqual(tuple(rq.stack_clips([torch.randn(4, 3), torch.randn(4, 3)]).shape), (2, 4, 3))
 
-    def test_grid_trajectory_feeds_frames_population(self):
+    def test_grid_trajectory_feeds_the_sample_level(self):
         g = torch.Generator().manual_seed(0)
         clips = {0: [rq.grid_to_trajectory(torch.randn(4, 30, 6, generator=g).cumsum(1)) for _ in range(8)]}
-        rec = rq.compute(clips, ["trajectory_curvature"], population="frames", pooling="freq-concat")
+        rec = rq.compute(clips, ["trajectory_curvature"], level="sample", pooling="freq-concat")
         self.assertEqual(rec[0].dim, 24)
         self.assertEqual(rec[0].pooling, "freq-concat")
 

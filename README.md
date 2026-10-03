@@ -52,15 +52,15 @@ recorded through the `model` and `pooling` labels.
 ```python
 import req_metrics as rq
 
-layers = {0: z0, 1: z1, 2: z2}                      # (N, D) pooled embeddings per layer, rows = clips
+layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per clip (sequence level)
 rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
                  n=10000, seed=42, model="my-encoder", pooling="time-mean")
 rec.profile("effective_rank")                        # [(layer, value), ...]
 rec.to_csv("my-encoder.csv")                         # or to_json, to_pandas
 
-frames = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) per clip, time-ordered
-rq.compute(frames, ["trajectory_curvature", "effective_rank"], population="frames", n=2000)  # per clip, averaged
-rq.compute(frames, ["effective_rank"], population="tokens", n=10000)  # frames of all clips as one cloud
+tokens = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) frames or patches per clip
+rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)  # per clip, averaged
+rq.compute(tokens, ["effective_rank"], level="population", n=10000)  # tokens of all clips as one cloud
 
 views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same clips
 rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
@@ -73,7 +73,7 @@ rq.compute_pairs(layers, metric="cka")              # or "svcca"; A and B can al
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
 rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
 p = rq.protocols.get("kanatas2026")                 # metric variants and parameters of a published protocol
-rq.compute(layers, p.names("pooled"), params=p.params("pooled"), n=p.n_items)
+rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n=p.n_items)
 ```
 
 Single estimators are plain functions returning `MetricResult(value, extras)`:
@@ -119,7 +119,7 @@ read downstream, as RankMe and LiDAR do, and `rq.top_layers` ranks the layers of
 one run. The direction is an argument because a metric's sign depends on the
 task family and the training paradigm.
 
-`pool` is `cls`, `mean`, `max`, `last`, `frames`, a grid readout (`gap`,
+`pool` is `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`,
 `freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with
 `pool_kwargs={"grid": (F, T)}`) or any parameter-free callable; `augment` is any
 callable you supply. Sinks are `csv_sink`, `json_sink`, `tensorboard_sink`,
@@ -186,7 +186,7 @@ companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
 
 req-metrics collects these families in one registry with recorded protocol and
 provenance, shares the singular spectrum and the neighbor table across
-estimators, separates the population a metric sees from the estimator, and
+estimators, separates the level a metric is computed at from the estimator, and
 produces the same records during training and post hoc, for every layer.
 
 ## Development

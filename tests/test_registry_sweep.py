@@ -22,7 +22,7 @@ class RegistrySweepTests(unittest.TestCase):
         x = torch.randn(600, 24) @ torch.diag(torch.linspace(1, 0.1, 24))
         self._assert_clean(rq.compute({0: x, 1: 2 * x + 1}, names, n=600, params=SMALL))
 
-    def test_point_metrics_on_frames_and_tokens(self):
+    def test_point_metrics_at_sample_and_population_levels(self):
         names = [
             m
             for m in rq.list_metrics()
@@ -30,21 +30,21 @@ class RegistrySweepTests(unittest.TestCase):
             and m not in ("intrinsic_dimension/mst", "local_rectifiability")
         ]  # slow per clip
         clips = [torch.randn(80, 16) for _ in range(6)]
-        self._assert_clean(rq.compute({0: clips}, names, population="frames", n=6, params=SMALL))
-        self._assert_clean(rq.compute({0: clips}, names, population="tokens", n=400, params=SMALL))
+        self._assert_clean(rq.compute({0: clips}, names, level="sample", n=6, params=SMALL))
+        self._assert_clean(rq.compute({0: clips}, names, level="population", n=400, params=SMALL))
 
     def test_trajectory_and_token_metrics(self):
         traj = [torch.cumsum(torch.randn(60, 16), dim=0) for _ in range(5)]
         names = [m for m in rq.list_metrics() if rq.get_metric(m).inputs == rq.InputKind.TRAJECTORY]
-        self._assert_clean(rq.compute({0: traj}, names, population="frames"))
+        self._assert_clean(rq.compute({0: traj}, names, level="sample"))
         toks = [torch.randn(40, 16) for _ in range(5)]
         names = [
             m for m in rq.list_metrics() if rq.get_metric(m).inputs == rq.InputKind.TOKENS and m != "cls_patch_cosine"
         ]
-        self._assert_clean(rq.compute({0: toks}, names, population="tokens"))
+        self._assert_clean(rq.compute({0: toks}, names, level="population"))
         self._assert_clean(
             rq.compute(
-                {0: toks}, ["cls_patch_cosine"], population="tokens", params={"cls_patch_cosine": {"n_prefix": 1}}
+                {0: toks}, ["cls_patch_cosine"], level="population", params={"cls_patch_cosine": {"n_prefix": 1}}
             )
         )
 

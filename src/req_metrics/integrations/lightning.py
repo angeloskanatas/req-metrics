@@ -58,9 +58,9 @@ class LayerMonitorCallback(_Base):
             a sequence of modules, or None to find the main block list of the called module automatically.
         pool: A readout name (see make_pooler) or a callable; pool_kwargs carries its options, e.g.
             {"grid": (F, T)} for the grid readouts of spectrogram-patch encoders.
-        population: "pooled", "frames" or "tokens".
+        level: "sequence", "sample" or "population".
         n_items: Monitoring-set size, drawn once from the training dataset with seed.
-        n_tokens: Pooled frames for population "tokens"; see LayerMonitor.
+        n_tokens: Tokens drawn at the population level; see LayerMonitor.
         every_n_epochs: Sweep period in epochs (None disables epoch sweeps); a sweep also runs at
             the start of training.
         model_attr: Attribute of the LightningModule to call on the input (e.g. "backbone");
@@ -106,7 +106,7 @@ class LayerMonitorCallback(_Base):
         *,
         layers: str | Sequence[nn.Module] | None = None,
         pool: str | Pooler = "mean",
-        population: str = "pooled",
+        level: str = "sequence",
         n_items: int = 5000,
         n_tokens: int | None = None,
         every_n_epochs: int | None = 1,
@@ -150,7 +150,7 @@ class LayerMonitorCallback(_Base):
         self.online_n_items = online_n_items if online_n_items is not None else n_items
         self.online_device = online_device
         self.online: OnlineBuffer | None = None
-        self.metrics, self.layers, self.pool, self.population = list(metrics), layers, pool, population
+        self.metrics, self.layers, self.pool, self.level = list(metrics), layers, pool, level
         self.n_items, self.every_n_epochs, self.model_attr = n_items, every_n_epochs, model_attr
         self.n_tokens = n_tokens
         self.batch_input = batch_input or (lambda b: b[0] if isinstance(b, (tuple, list)) else b)
@@ -190,7 +190,7 @@ class LayerMonitorCallback(_Base):
                 pool_kwargs=self.pool_kwargs,
                 n_items=self.n_items,
                 n_tokens=self.n_tokens,
-                population=self.population,
+                level=self.level,
                 params=self.params,
                 view_metrics=self.view_metrics,
                 augment=self.augment,

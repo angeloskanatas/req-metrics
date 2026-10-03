@@ -21,10 +21,10 @@ applies across metrics.
 
   | Family | Input the estimator sees | Readouts and precedent |
   |---|---|---|
-  | spectral, relational, intrinsic dimension, local geometry | a point cloud `(N, D)` | one vector per clip (class token for ViTs and global average pooling for CNNs in Arputharaj et al. 2026; backbone output in RankMe and LiDAR; time mean in Kanatas et al. 2026; frequency-concatenated or partitioned means for 2D audio encoders), or the token cloud of a clip (Skean et al. 2025 prompt entropy), or frames after a trajectory layout |
-  | trajectory curvature | a time-ordered `(T, D)` sequence per clip | frame encoders directly; 2D encoders through the frequency-concatenated or frequency-mean trajectory |
-  | token fields | the patch tokens of one clip, class token kept for `cls_patch_cosine` | Darcet et al. 2024, Marouani et al. 2026, DINOv3 |
-  | views and equivariance | one vector per clip and per view or shift | pooled embeddings in Thilak et al. 2024 and Wang and Isola 2020; for pitch, a frequency-preserving readout keeps the quantity the probe must find |
+  | spectral, relational, intrinsic dimension, local geometry | a point cloud `(N, D)` | one vector per sample (class token for ViTs and global average pooling for CNNs in Arputharaj et al. 2026; backbone output in RankMe and LiDAR; time mean in Kanatas et al. 2026; frequency-concatenated or partitioned means for 2D audio encoders), the tokens of one sample (Skean et al. 2025 prompt entropy) or of all samples (Razzhigaev et al. 2024), or the time steps of a trajectory layout |
+  | trajectory curvature | a time-ordered `(T, D)` sequence per sample | frame encoders directly; 2D encoders through the frequency-concatenated or frequency-mean trajectory |
+  | token fields | the patch tokens of one sample, class token kept for `cls_patch_cosine` | Darcet et al. 2024, Marouani et al. 2026, DINOv3 |
+  | views and equivariance | one vector per sample and per view or shift | pooled embeddings in Thilak et al. 2024 and Wang and Isola 2020; for pitch, a frequency-preserving readout keeps the quantity the probe must find |
 - Readouts: label-free metrics take parameter-free readouts only: class
   token, mean of patch tokens, their concatenation, max, the last token of a
   causal decoder, frequency-concatenated time mean (MSM-MAE, Riou et al.
@@ -41,7 +41,7 @@ applies across metrics.
   `l2` arguments define what it applies; the registry holds their defaults, the
   pipeline applies them before building the shared spectrum, and every record
   stores the preprocessing actually applied.
-- Population (`pooled`, `frames`, `tokens`) is a pipeline argument, not a
+- The level (`sequence`, `sample`, `population`) is a pipeline argument, not a
   property of the estimator; see Section 2.
 - Citations name author, year and venue; arXiv ids are given once per metric.
   "Published protocol" means the configuration behind the reported numbers of
@@ -57,70 +57,85 @@ applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
 | Manifold | dimension: intrinsic_dimension (TwoNN), intrinsic_dimension/gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, frames, views, shifts, pairs, tokens, Jacobian sketches |
+| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
 registry covers all of them except condition number and DSE (rejected, with reasons,
-in Section 6) and adds the frame, view, shift, pair and token families that
+in Section 6) and adds the trajectory, view, shift, pair and token families that
 single-vector studies cannot express.
 
-### Populations
+### Levels
 
-The population decides which vectors form the point cloud; the estimator does not
-change.
+The level decides which vectors form the point cloud; the estimator does not change.
+The inputs are vectors the caller extracted: one per sample, or the tokens of each
+sample (the frames of a 1D encoder, the patches of a 2D one).
 
-- `pooled`: one vector per clip (token or time mean, class token, final token, or a
-  grid readout). The setting of RankMe, LiDAR, Arputharaj et al. (2026) and Kanatas
-  et al. (2026), and of the layer-wise intrinsic-dimension studies of Valeriani et
-  al. (2023, token mean) and Cheng et al. (2025, ICLR, last token). With several
-  clips per track, a clip's nearest neighbors can be clips of its own track (the
-  regime effect described under `tokens`); `group_ids` keeps one clip per track, as
-  Kanatas et al. (2026) did.
-- `frames`: each clip's own frames or patches form one cloud; the estimator runs per
-  clip and the values are aggregated (mean of the finite values; std, median, min,
-  max and the count of failures in the extras). Viswanathan et al. (2025) estimate
-  the intrinsic dimension of each prompt's 1,024 tokens and average over prompts;
-  Pedashenko et al. (2026, EACL) do the same per text; Skean et al. (2025) compute
-  prompt entropy on the tokens of one prompt; trajectory curvature (Hosseini and
-  Fedorenko, 2023) and DINOv3's Gram anchoring are per sample by definition. The
-  value describes the clip's own manifold: a neighbor estimator here sees temporally
-  adjacent frames.
-- `tokens`: the frames of all clips form one cloud, from which n tokens are drawn at
-  random. This is the population of the anisotropy literature, where pairs of token
-  vectors are drawn across a corpus (Ethayarajh, 2019; Godey et al., 2024; Timkey
-  and van Schijndel, 2021); of Razzhigaev et al. (2024), who compute anisotropy and
-  TwoNN on batches of at least 4,096 vectors from different contexts, shuffled
-  before batching for TwoNN, and average over batches; of Ruppik et al. (2025,
-  NeurIPS), who pool the tokens of thousands of sequences, deduplicate them and draw
-  a fixed number; and of the global effective rank of Whetten et al. (2025), over
-  all frames of about an hour of audio. For neighbor estimators the number of clips
-  sets the regime (Osman, Baroni and Macocco, 2026): with N points from c clips,
-  about m = N / c per clip, the k neighbors of a point can all be frames of its own
-  clip while k < m (the local regime, close to the frames reading) and must reach
-  other clips once k >= m (the global regime). The transition at c = N / k adds a
-  spurious peak to layer profiles and reverses the dependence on c; the argument
-  assumes, as they verify for words, that a clip's frames lie closer to each other
-  than to other clips' frames. Compare such values at equal N, k and clip count.
-  Records of this population carry `n_clips`, and those of the neighbor estimators
-  `same_clip_fraction`, the mean share of a point's neighbors behind the value that
-  are frames of its own clip (their Sec. 5 diagnostic): near 1 in the local regime,
-  near 1 / c without clip structure. Repeated draws with different seeds give the
-  batch spread of Razzhigaev et al.; class, register and first-position tokens can
-  distort such a cloud (Timkey and van Schijndel, 2021, report cosine above 0.99
-  between position-0 tokens), so strip them first (`layouts.strip_prefix_tokens`, or
-  `n_prefix` with the "frames" readout). Token-field metrics whose definition pairs
-  tokens within one clip (`cls_patch_cosine`, `token_cosine`; registry `per_clip`)
-  run per clip here too, while `token_norm_outliers` reads the pooled tokens, as
-  Darcet et al. (2024) set their cutoff from a pooled norm histogram.
+- `sequence`: one vector per sample, `layers[l]` of shape `(N, D)` (token or time
+  mean, class token, final token, or a grid readout). The setting of RankMe, LiDAR,
+  Arputharaj et al. (2026) and Kanatas et al. (2026), who call these sequence-level
+  metrics, and of the layer-wise intrinsic-dimension studies of Valeriani et al.
+  (2023, token mean) and Cheng et al. (2025, ICLR, last token). Sample sizes:
+  `docs/DESIGN.md`, section 6. With several clips per track, a clip's nearest
+  neighbors can be clips of its own track (the regime effect described under
+  `population`); `group_ids` keeps one clip per track, as Kanatas et al. (2026) did.
+- `sample`: each sample's tokens form one cloud, `layers[l]` a sequence of
+  `(T_i, D)` tensors; the estimator runs per sample and the values are aggregated
+  (mean of the finite values; std, median, min, max and the count of failures in the
+  extras). Viswanathan et al. (2025) estimate the intrinsic dimension of each
+  prompt's 1,024 tokens and average over prompts; Pedashenko et al. (2026, EACL) do
+  the same per text; Skean et al. (2025) compute prompt entropy on the tokens of one
+  prompt; Sadok and Alameda-Pineda (2026) compute their speech metrics per sample
+  and then average; trajectory curvature (Hosseini and Fedorenko, 2023) and DINOv3's
+  Gram anchoring are per sample by definition. The value describes the sample's own
+  manifold, so a neighbor estimator here sees temporally adjacent frames, and it
+  depends on the token count T_i: a spectrum has at most min(T_i, D) nonzero values,
+  and Pedashenko et al. exclude texts shorter than 150 tokens, where the variance of
+  their estimates is high. Compare at equal T_i, that is, equal duration and token
+  rate.
+- `population`: the tokens of all samples form one cloud, `layers[l]` a sequence of
+  `(T_i, D)` tensors, from which n tokens are drawn at random. This is the setting
+  of the anisotropy literature, where pairs of token vectors are drawn across a
+  corpus (Ethayarajh, 2019; Godey et al., 2024; Timkey and van Schijndel, 2021); of
+  Razzhigaev et al. (2024), who compute anisotropy and TwoNN on batches of at least
+  4,096 vectors from different contexts, shuffled before batching for TwoNN, and
+  average over batches; of Ruppik et al. (2025, NeurIPS), who pool the tokens of
+  7,000 to 10,000 sequences, deduplicate them and draw 60,000; and of the global
+  effective rank of Whetten et al. (2025), over all frames of about an hour of
+  audio. Spectral metrics need n above D, as at the sequence level. For neighbor
+  estimators the number of samples sets the regime (Osman, Baroni and Macocco,
+  2026): with n points from c samples, about m = n / c per sample, the k neighbors
+  of a point can all be tokens of its own sample while k < m (the local regime,
+  close to the sample level) and must reach other samples once k >= m (the global
+  regime). The transition at c = n / k adds a spurious peak to layer profiles and
+  reverses the dependence on c; the argument assumes, as they verify for words, that
+  a sample's tokens lie closer to each other than to other samples' tokens. TwoNN
+  reads two neighbors, so its value is in the global regime only up to two tokens
+  per sample (n <= 2c), and mLID at k = 64 up to 64. Compare such values at equal n,
+  k and sample count. Records of this level carry `n_samples`, and those of the
+  neighbor estimators `same_sample_fraction`, the mean share of a point's neighbors
+  behind the value that are tokens of its own sample (their Sec. 5 diagnostic): near
+  1 in the local regime, near 1 / c without sample structure. Repeated draws with
+  different seeds give the batch spread of Razzhigaev et al.; class, register and
+  first-position tokens can distort such a cloud (Timkey and van Schijndel, 2021,
+  report cosine above 0.99 between position-0 tokens), so strip them first
+  (`layouts.strip_prefix_tokens`, or `n_prefix` with the `tokens` readout).
+  Token-field metrics whose definition pairs tokens within one sample
+  (`cls_patch_cosine`, `token_cosine`; registry `per_sample`) run per sample here
+  too, while `token_norm_outliers` reads the population tokens, as Darcet et al.
+  (2024) set their cutoff from a pooled norm histogram.
 
 Rosina Fernandez, Guillaume and Wisniewski (2025) compare the cosine similarity of
 frame pairs from the same recording and from different recordings and find the two
-distributions similar; no other study cited compares the frames and tokens readings
-of one estimator on the same data. Viswanathan et al. (2025, App. D) find that
-token-level and prompt-level intrinsic dimension follow different trends, and Osman
-et al. (2026) that pooled neighbor estimates change regime with the number of items,
-so the population is part of the protocol and is recorded with every value.
+distributions similar; no other study cited compares the sample and population
+levels of one estimator on the same data. Viswanathan et al. (2025, App. D) find
+that token-level and prompt-level intrinsic dimension follow different trends, and
+Osman et al. (2026) that pooled neighbor estimates change regime with the number of
+items, so the level is part of the protocol and is recorded with every value. The
+papers' own names differ: Pasad et al. (2023) call pooled frames frame-level,
+Kanatas et al. (2026) call per-clip token sequences frame-level, and Hosseini et al.
+(2026) call a per-sequence average sequence-level; the levels here are named by how
+the vectors are grouped.
 
 ## 3. Verification against reference implementations
 
@@ -144,7 +159,7 @@ implementation deviates from the published definition, the docstring says so.
   raised the entropy by 13 to 22 percent on audio foundation-model states; the
   Gram matrix is not clamped here. RankMe-t (Aldeneh et al., 2024) is the
   effective rank of time-summed clip vectors; for clips of equal length this is the
-  effective rank of the mean-pooled population, since the two differ by one global
+  effective rank of the mean-pooled vectors, since the two differ by one global
   scale.
 - Neighbor group. TwoNN and GRIDE follow DADApy step for step and reproduce
   its solver to machine precision (estimates and Fisher errors at every scale,
@@ -190,21 +205,21 @@ implementation deviates from the published definition, the docstring says so.
 `protocols.get("kanatas2026")` pins the variants and parameters per input kind. The
 canonical set:
 
-| metric | estimator / variant | preprocessing | population | views |
+| metric | estimator / variant | preprocessing | level | views |
 |---|---|---|---|---|
-| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | pooled | 1 |
-| effective_rank | singular spectrum, largest 2048 values | center | pooled | 1 |
-| anisotropy | spectral | center + L2 | pooled | 1 |
-| trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames | 1 |
-| lidar | delta 1e-6, n and nq denominators, largest 2048 eigenvalues | none (LDA centers) | pooled | 10 |
-| infonce | temperature 0.3 | center + L2 | pooled | 2 |
-| pte | linear probe, omega 7, phase distance | none | pooled | 1 + 11 shifts |
+| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | sequence | 1 |
+| effective_rank | singular spectrum, largest 2048 values | center | sequence | 1 |
+| anisotropy | spectral | center + L2 | sequence | 1 |
+| trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | sample | 1 |
+| lidar | delta 1e-6, n and nq denominators, largest 2048 eigenvalues | none (LDA centers) | sequence | 10 |
+| infonce | temperature 0.3 | center + L2 | sequence | 2 |
+| pte | linear probe, omega 7, phase distance | none | sequence | 1 + 11 shifts |
 
 10,000 clips of 15 seconds, one per track; pooled vectors are time means for
 encoders and the final-token state for autoregressive decoders.
 
 Every record written here carries metric and variant, estimator parameters,
-preprocessing, population and pooling label, number of views, number of items, seed,
+preprocessing, level and pooling label, number of views, number of items, seed,
 representation width and the library version. PTE is trained with a linear probe on
 10,000 clips; the cross-power distance that includes the magnitude is in the extras
 of every run next to the phase distance.

@@ -29,13 +29,11 @@ class DeviceAgreementTests(unittest.TestCase):
     def test_compute_device_argument_matches_the_cpu(self):
         g = torch.Generator().manual_seed(1)
         clips = {l: [torch.randn(50, 8, generator=g).cumsum(0) for _ in range(30)] for l in range(2)}
-        for population, n in (("frames", 10), ("tokens", 600)):
-            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension"], population=population, n=n)
-            gpu = rq.compute(
-                clips, ["effective_rank", "intrinsic_dimension"], population=population, n=n, device="cuda"
-            )
+        for level, n in (("sample", 10), ("population", 600)):
+            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension"], level=level, n=n)
+            gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension"], level=level, n=n, device="cuda")
             for a, b in zip(cpu, gpu, strict=True):
-                self.assertAlmostEqual(a.value, b.value, delta=1e-6 * max(1.0, abs(a.value)), msg=population)
+                self.assertAlmostEqual(a.value, b.value, delta=1e-6 * max(1.0, abs(a.value)), msg=level)
 
     def test_monitor_view_passes_run_per_layer_on_the_model_device(self):
         model = torch.nn.Sequential(torch.nn.Linear(8, 8), torch.nn.Linear(8, 8)).cuda()

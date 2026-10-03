@@ -21,18 +21,18 @@ class Record:
         layer: Layer index; layer_b is set only for two-layer comparisons.
         depth: Layer index over the largest provided index, in [0, 1].
         model: Label of the representation source.
-        population: "pooled", "frames" or "tokens".
+        level: "sequence", "sample" or "population".
         pooling: Label of how pooled vectors were formed ("time-mean", "final-token").
         corpus: Label of the input clips.
-        n_items: Clips (or tokens) the estimator saw after subsetting.
+        n_items: Samples (tokens at the population level) the estimator saw after subsetting.
         dim: Representation width.
-        n_views: Views per clip for view metrics; shifts for PTE.
+        n_views: Views per sample for view metrics; shifts for PTE.
         preprocess: The preprocessing applied, as text.
         params: Estimator parameters that differ from or pin the defaults.
         views: ViewSpec description, if any. shifts: ShiftSpec description, if any.
         seed: Subsampling seed.
         tags: Registry tags of the metric.
-        extras: The estimator's secondary quantities, plus aggregation fields for frames.
+        extras: The estimator's secondary quantities, plus aggregation fields at the sample level.
     """
 
     metric: str
@@ -41,7 +41,7 @@ class Record:
     layer_b: int | None = None
     depth: float | None = None
     model: str | None = None
-    population: str = "pooled"
+    level: str = "sequence"
     pooling: str | None = None
     corpus: str | None = None
     n_items: int | None = None
@@ -71,7 +71,7 @@ _CSV_FIELDS = [
     "depth",
     "metric",
     "value",
-    "population",
+    "level",
     "pooling",
     "corpus",
     "n_items",
@@ -133,6 +133,18 @@ def atlas_name(r: Record) -> tuple[str, str]:
     return metric, variant
 
 
+_OLD_LEVELS = {"pooled": "sequence", "frames": "sample", "tokens": "population"}
+
+
+def _upgrade(row: dict[str, Any]) -> dict[str, Any]:
+    """Record fields of a stored row; rows written before the population field was renamed are mapped."""
+    row = {**row, "tags": tuple(row.get("tags", ()))}
+    if "population" in row:
+        old = row.pop("population")
+        row["level"] = _OLD_LEVELS.get(old, old)
+    return row
+
+
 class Records:
     """A list of Record with filters and writers; iterable and indexable."""
 
@@ -172,9 +184,9 @@ class Records:
 
     @classmethod
     def from_json(cls, path: str | Path) -> Records:
-        """Read records written by to_json."""
+        """Read records written by to_json, including those of development versions with a population field."""
         rows = json.loads(Path(path).read_text())
-        return cls(Record(**{**r, "tags": tuple(r.get("tags", ()))}) for r in rows)
+        return cls(Record(**_upgrade(r)) for r in rows)
 
     def to_csv(self, path: str | Path) -> Path:
         """Flat CSV with params, views, shifts and extras serialized as JSON strings."""

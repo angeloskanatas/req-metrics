@@ -2,7 +2,7 @@
 
 Estimators are pure functions on tensors that return a MetricResult. The
 registry records, for each metric, its input contract, canonical preprocessing
-and source citation. Populations (pooled, frames, tokens) and I/O belong to the
+and source citation. Levels (sequence, sample, population) and I/O belong to the
 pipeline, not to the estimators.
 """
 

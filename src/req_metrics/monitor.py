@@ -82,13 +82,13 @@ def make_pooler(
     """A pooling callable from a name, for (B, L, D) block outputs.
 
     Sequence readouts: "cls" (token 0), "mean" (over all tokens), "max", "last" (the
-    final token, for causal decoders), "frames" (no pooling; the (B, T, D) tokens after
-    the first `n_prefix`, for the frames and tokens populations). Grid readouts, for
+    final token, for causal decoders), "tokens" (no pooling; the (B, T, D) tokens after
+    the first `n_prefix`, for the sample and population levels). Grid readouts, for
     spectrogram-patch encoders whose L tokens are an (F, T) grid given as `grid`: "gap"
     (mean over patches), "freq_concat_mean" (frequency patches concatenated, then the
     mean over time, (B, F * D); the readout of MSM-MAE and M2D), "partitioned" (block
     means over freq_chunks x time_chunks regions, Gu et al., 2026), "freq_concat" (the
-    (B, T, F * D) trajectory for the frames population) and "freq_mean" (the (B, T, D)
+    (B, T, F * D) trajectory for the sample level) and "freq_mean" (the (B, T, D)
     trajectory). The grid readouts are the batched form of the functions in `layouts`.
 
     Args:
@@ -96,7 +96,7 @@ def make_pooler(
         grid: (F, T) patch counts of the grid readouts; the first `n_prefix` tokens are dropped.
         time_axis: 1 when tokens are ordered frequency-major (index f * T + t), 0 when
             time-major (index t * F + f).
-        n_prefix: Leading class or register tokens to drop before "frames" or a grid readout.
+        n_prefix: Leading class or register tokens to drop before "tokens" or a grid readout.
         freq_chunks, time_chunks: Block counts of "partitioned".
     """
     if callable(pool):
@@ -109,7 +109,7 @@ def make_pooler(
         return lambda out: out.amax(dim=1) if out.ndim == 3 else out
     if pool == "last":
         return lambda out: out[:, -1] if out.ndim == 3 else out
-    if pool == "frames":
+    if pool == "tokens":
         return lambda out: out[:, n_prefix:] if out.ndim == 3 else out
     if pool in ("gap", "freq_concat_mean", "partitioned", "freq_concat", "freq_mean"):
         if grid is None:
@@ -161,9 +161,9 @@ def metric_key_prefix(record: Record) -> tuple[str, str]:
 
 
 def metric_key(record: Record) -> str:
-    """The logging name of a record's metric: "/" replaced by "_", and the population appended unless "pooled"."""
+    """The logging name of a record's metric: "/" replaced by "_", and the level appended unless "sequence"."""
     name = record.metric.replace("/", "_")
-    return name if record.population in (None, "pooled") else f"{name}_{record.population}"
+    return name if record.level in (None, "sequence") else f"{name}_{record.level}"
 
 
 def layer_scalars(rec: Records, extras: Sequence[str] = ()) -> dict[str, float]:
@@ -292,7 +292,7 @@ class OnlineBuffer:
         rec = compute(
             layers,
             list(metrics),
-            population="pooled",
+            level="sequence",
             seed=seed,
             params=params,
             model=model,
@@ -421,21 +421,21 @@ class LayerMonitor:
     Args:
         layer_modules: Modules whose forward outputs are the layers, in depth order
             (e.g. the blocks of a transformer or the stages of a CNN).
-        pool: A readout name (see make_pooler: "cls", "mean", "max", "last", "frames", and the
+        pool: A readout name (see make_pooler: "cls", "mean", "max", "last", "tokens", and the
             grid readouts "gap", "freq_concat_mean", "partitioned", "freq_concat", "freq_mean" with
             pool_kwargs such as grid=(F, T)), or a callable mapping one block output to a
-            tensor: (B, D) one vector per clip for population "pooled", or (B, T, D) frames
-            for "frames" and "tokens". The pooling must be parameter-free.
+            tensor: (B, D) one vector per sample at the sequence level, or (B, T, D) tokens at
+            the sample and population levels. The pooling must be parameter-free.
         pool_kwargs: Keyword arguments of make_pooler for a named readout.
         metrics: Registry names of point or trajectory metrics; all of one input kind.
-        n_items: Clips of the monitoring set to use; the loader is consumed until reached. The
-            frames and tokens populations hold every clip's frames (on the CPU), so a few hundred
-            clips is the usual scale there. The q view passes are also held on the CPU; metrics
+        n_items: Samples of the monitoring set to use; the loader is consumed until reached. The
+            sample and population levels hold every sample's tokens (on the CPU), so a few hundred
+            samples is the usual scale there. The q view passes are also held on the CPU; metrics
             run on the device of the hooked layers, one layer at a time.
-        n_tokens: For population "tokens", the pooled frames drawn for the point metrics; None
-            uses all frames of the n_items clips.
-        population: "pooled", "frames" or "tokens", matching what pool returns; the frames and
-            tokens populations need clips of equal length within a sweep (batches are concatenated).
+        n_tokens: At the population level, the tokens drawn for the point metrics; None uses all
+            tokens of the n_items samples.
+        level: "sequence", "sample" or "population", matching what pool returns; the sample and
+            population levels need samples of equal length within a sweep (batches are concatenated).
         params: Metric name -> estimator keyword arguments.
         model, pooling, corpus: Labels written into every record.
         view_metrics: Registry names of view metrics to compute when `augment` is given.
@@ -473,7 +473,7 @@ class LayerMonitor:
         pool_kwargs: Mapping[str, Any] | None = None,
         n_items: int = 10000,
         n_tokens: int | None = None,
-        population: str = "pooled",
+        level: str = "sequence",
         params: Mapping[str, Mapping[str, Any]] | None = None,
         model: str | None = None,
         pooling: str | None = None,
@@ -495,7 +495,7 @@ class LayerMonitor:
         self.metrics = list(metrics)
         self.n_items = n_items
         self.n_tokens = n_tokens
-        self.population = population
+        self.level = level
         self.params = {k: dict(v) for k, v in (params or {}).items()}
         self.labels: dict[str, Any] = {"model": model, "pooling": pooling, "corpus": corpus}
         self.view_metrics = list(view_metrics)
@@ -517,12 +517,12 @@ class LayerMonitor:
         augment: Callable[[Any, torch.Generator], Any] | None = None,
         generator: torch.Generator | None = None,
     ) -> dict[int, Any]:
-        """One pass over the loader with hooks: layer index -> pooled (N, D) tensor or list of (T_i, D) frames.
+        """One pass over the loader with hooks: layer index -> (N, D) tensor or list of (T_i, D) token tensors.
 
-        Frames and augmented passes are kept on the CPU; clean pooled passes on the layers' device.
+        Token and augmented passes are kept on the CPU; clean sequence-level passes on the layers' device.
         """
         buffers: dict[int, list[Tensor]] = {i: [] for i in range(len(self.layer_modules))}
-        on_device = self.population == "pooled" and augment is None
+        on_device = self.level == "sequence" and augment is None
 
         def make_hook(i: int):
             def hook(module, inputs, output):
@@ -550,7 +550,7 @@ class LayerMonitor:
             if not chunks:
                 continue
             cat = torch.cat(chunks, dim=0)[: self.n_items]
-            layers[i] = cat if self.population == "pooled" else [c for c in cat]  # frames: list of (T, D)
+            layers[i] = cat if self.level == "sequence" else [c for c in cat]  # tokens: list of (T, D)
         return layers
 
     @torch.no_grad()
@@ -610,16 +610,16 @@ class LayerMonitor:
         rec = compute(
             layers,
             self.metrics,
-            population=self.population,
-            n=self.n_tokens if self.population == "tokens" else self.n_items,
+            level=self.level,
+            n=self.n_tokens if self.level == "population" else self.n_items,
             seed=self.seed,
             params=self.params,
             device=device,
             **self.labels,
         )
         if self.view_metrics and self.augment is not None:
-            if self.population != "pooled":
-                raise ValueError("view metrics need population='pooled'")
+            if self.level != "sequence":
+                raise ValueError("view metrics need level='sequence'")
             passes = []
             saved = (
                 {id(b): (b, b.clone()) for root in roots for b in root.buffers()} if self.views_in_train_mode else {}
@@ -678,7 +678,7 @@ class LayerMonitor:
             self.jacobian_forward or forward, x, self.layer_modules, self.pool, num_probes=self.jacobian_probes,
             power_iters=self.jacobian_power_iters, seed=self.seed,
         )  # fmt: skip
-        return compute(products, ["jacobian_effective_rank"], population=self.population, seed=self.seed, **self.labels)
+        return compute(products, ["jacobian_effective_rank"], level=self.level, seed=self.seed, **self.labels)
 
     def profiles(self, metric: str) -> dict[int, list[tuple[int, float]]]:
         """step -> [(layer, value), ...] for one metric across all sweeps so far."""
@@ -706,7 +706,7 @@ def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
                         "layer_b",
                         "metric",
                         "value",
-                        "population",
+                        "level",
                         "pooling",
                         "n_items",
                         "dim",
@@ -724,7 +724,7 @@ def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
                         r.layer_b,
                         r.metric,
                         r.value,
-                        r.population,
+                        r.level,
                         r.pooling,
                         r.n_items,
                         r.dim,
@@ -743,8 +743,8 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
 
     Records stamped with the epoch and the global step (as the Lightning callback
     does) are written to epoch_<e>_step_<s>.json, so epoch and step schedules never
-    share a file name; training-batch records get the prefix online_, and records of
-    the frames or tokens population the population name.
+    share a file name; training-batch records get the prefix online_, and records at the
+    sample or population level the level name.
     """
     directory = Path(directory)
 
@@ -752,8 +752,8 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
         directory.mkdir(parents=True, exist_ok=True)
         ex = rec[0].extras if len(rec) else {}
         prefix = "online_" if ex.get("source") == "training-batches" else ""
-        if len(rec) and rec[0].population not in (None, "pooled"):
-            prefix += f"{rec[0].population}_"
+        if len(rec) and rec[0].level not in (None, "sequence"):
+            prefix += f"{rec[0].level}_"
         if "epoch" in ex and "global_step" in ex:
             name = f"{prefix}epoch_{ex['epoch']}_step_{ex['global_step']}.json"
         else:

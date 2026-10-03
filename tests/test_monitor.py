@@ -1,4 +1,4 @@
-"""LayerMonitor on a toy stack of blocks: pooled and frames populations, views, sinks, Lightning adapter."""
+"""LayerMonitor on a toy stack of blocks: sequence and sample levels, views, sinks, Lightning adapter."""
 
 import json
 import tempfile
@@ -58,12 +58,12 @@ class MonitorTests(unittest.TestCase):
         mon.sweep(self.model, loader(), step=1)
         self.assertEqual(sorted(mon.profiles("effective_rank")), [0, 1])
 
-    def test_frames_population_and_trajectory_metric(self):
+    def test_sample_level_and_trajectory_metric(self):
         mon = rq.LayerMonitor(
-            self.model.blocks, pool=lambda out: out, metrics=["trajectory_curvature"], n_items=60, population="frames"
+            self.model.blocks, pool=lambda out: out, metrics=["trajectory_curvature"], n_items=60, level="sample"
         )
         rec = mon.sweep(self.model, loader(), step=3)
-        self.assertEqual(rec[0].population, "frames")
+        self.assertEqual(rec[0].level, "sample")
         self.assertEqual(rec[0].extras["n_items"], 60)
 
     def test_views_from_augment_callable(self):
@@ -263,26 +263,26 @@ class MonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "view_loader q times"):
             mon.sweep(self.model, loader(), step=1, view_loader=iter(live))
 
-    def test_keys_separate_populations_and_carry_extras(self):
+    def test_keys_separate_levels_and_carry_extras(self):
         pooled = rq.LayerMonitor(self.model.blocks, pool="mean", metrics=["intrinsic_dimension/mlid"], n_items=120,
                                  params={"intrinsic_dimension/mlid": {"k": 16}})  # fmt: skip
-        frames = rq.LayerMonitor(self.model.blocks, pool="frames", metrics=["effective_rank"], n_items=120,
-                                 population="frames")  # fmt: skip
+        sample = rq.LayerMonitor(self.model.blocks, pool="tokens", metrics=["effective_rank"], n_items=120,
+                                 level="sample")  # fmt: skip
         keys = rq.layer_scalars(pooled.sweep(self.model, loader(), step=0), extras=("frechet_var",))
         self.assertIn("layer_metrics/intrinsic_dimension_mlid_layer_0", keys)
         self.assertIn("layer_metrics/intrinsic_dimension_mlid_frechet_var_layer_0", keys)
         self.assertIn(
-            "layer_metrics/effective_rank_frames_layer_0", rq.layer_scalars(frames.sweep(self.model, loader(), 0))
+            "layer_metrics/effective_rank_sample_layer_0", rq.layer_scalars(sample.sweep(self.model, loader(), 0))
         )
         with tempfile.TemporaryDirectory() as d:
-            frames.sweep(self.model, loader(), step=3, sinks=[rq.json_sink(d)])
-            self.assertTrue((Path(d) / "frames_step_3.json").exists())
+            sample.sweep(self.model, loader(), step=3, sinks=[rq.json_sink(d)])
+            self.assertTrue((Path(d) / "sample_step_3.json").exists())
 
-    def test_tokens_population_caps_pooled_frames_separately(self):
-        mon = rq.LayerMonitor(self.model.blocks, pool="frames", metrics=["effective_rank"], n_items=40,
-                              n_tokens=100, population="tokens")  # fmt: skip
+    def test_population_level_caps_tokens_separately(self):
+        mon = rq.LayerMonitor(self.model.blocks, pool="tokens", metrics=["effective_rank"], n_items=40,
+                              n_tokens=100, level="population")  # fmt: skip
         rec = mon.sweep(self.model, loader(), step=0)
-        self.assertEqual({r.n_items for r in rec}, {100})  # 40 clips x 12 frames pooled, 100 drawn
+        self.assertEqual({r.n_items for r in rec}, {100})  # 40 samples x 12 tokens pooled, 100 drawn
 
     def test_dead_layer_logs_zero_effective_rank(self):
         model = nn.Sequential(nn.Linear(16, 16), nn.ReLU())

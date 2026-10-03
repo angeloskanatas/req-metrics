@@ -2,15 +2,15 @@
 
 Inputs are plain tensors keyed by layer index; how they were produced is left
 to the caller and is recorded through the labels and the ViewSpec and
-ShiftSpec objects. Populations:
+ShiftSpec objects. Levels:
 
-- "pooled": layers[l] is (N, D), one vector per clip.
-- "frames": layers[l] is a sequence of (T_i, D) tensors, one per clip; point
-  metrics run per clip and are aggregated, trajectory metrics run per clip.
-- "tokens": layers[l] is a sequence of (T_i, D) tensors; the frames of all clips
-  are pooled into one point cloud, subsampled to n tokens.
-- Token-field metrics take the same per-clip inputs; those whose definition pairs
-  tokens within a clip (registry per_clip) run per clip under "tokens" as well.
+- "sequence": layers[l] is (N, D), one vector per sample.
+- "sample": layers[l] is a sequence of (T_i, D) token tensors, one per sample; point
+  and trajectory metrics run on each sample's tokens and are aggregated.
+- "population": layers[l] is a sequence of (T_i, D) token tensors; the tokens of all
+  samples form one point cloud, subsampled to n tokens.
+- Token-field metrics take the same per-sample inputs; those whose definition pairs
+  tokens within a sample (registry per_sample) run per sample at the population level too.
 View metrics take layers[l] of shape (q, N, D); PTE takes layers[l] = (z, shifted).
 """
 
@@ -102,19 +102,21 @@ def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence
     return idx
 
 
-def _pooled_tokens(clips: Sequence[Any], clip_idx: np.ndarray, n: int | None, seed: int) -> tuple[Tensor, Tensor]:
-    """At most n tokens drawn at random from the selected clips, and the clip of each token.
+def _population_tokens(
+    samples: Sequence[Any], sample_idx: np.ndarray, n: int | None, seed: int
+) -> tuple[Tensor, Tensor]:
+    """At most n tokens drawn at random from the selected samples, and the sample of each token.
 
-    No clip is concatenated with the others before the draw.
+    No sample is concatenated with the others before the draw.
     """
-    lengths = np.array([len(clips[i]) for i in clip_idx])
+    lengths = np.array([len(samples[i]) for i in sample_idx])
     offsets = np.concatenate([[0], np.cumsum(lengths)])
     flat = choose_indices(int(offsets[-1]), n, seed)  # sorted global token indices
     owner = np.searchsorted(offsets, flat, side="right") - 1
     parts = []
     for j in np.unique(owner):
         rows = torch.from_numpy(flat[owner == j] - offsets[j])
-        parts.append(_tensor(clips[clip_idx[j]])[rows])
+        parts.append(_tensor(samples[sample_idx[j]])[rows])
     return torch.cat(parts), torch.from_numpy(owner)
 
 
@@ -144,7 +146,7 @@ def _run(spec: MetricSpec, args: tuple, kwargs: Mapping[str, Any]) -> tuple[floa
 
 
 def _aggregate(
-    values: list[float], extras_list: list[dict[str, Any]], keep_per_clip: bool
+    values: list[float], extras_list: list[dict[str, Any]], keep_per_sample: bool
 ) -> tuple[float, dict[str, Any]]:
     vals = np.array([v for v in values if np.isfinite(v)], dtype=float)
     out: dict[str, Any] = {"n_items": len(values), "n_failed": int(len(values) - vals.size)}
@@ -157,10 +159,10 @@ def _aggregate(
                 "max": float(vals.max()),
             }
         )
-    if keep_per_clip:
-        out["per_clip"] = [float(v) for v in values]
+    if keep_per_sample:
+        out["per_sample"] = [float(v) for v in values]
     numeric = [e for e in extras_list if e and "error" not in e]
-    if numeric:  # per-clip extras shared by every clip are averaged under their own names
+    if numeric:  # per-sample extras shared by every sample are averaged under their own names
         for key in set.intersection(*(set(e) for e in numeric)):
             vals_k = [e[key] for e in numeric if isinstance(e[key], (int, float)) and not isinstance(e[key], bool)]
             if len(vals_k) == len(numeric) and key not in out:
@@ -213,7 +215,7 @@ def _points_sweep(
     Metrics with a registry max_items (or an entry in limits) see a seeded subsample
     of at most that many rows, with their own spectrum or neighbor table; the count
     used is written to extras["n_items_used"]. With groups (one id per row), the
-    neighbor-table estimators also report extras["same_clip_fraction"], the mean share
+    neighbor-table estimators also report extras["same_sample_fraction"], the mean share
     of a point's neighbors behind the value that share its group.
     """
     out: dict[str, tuple[float, dict]] = {}
@@ -266,7 +268,7 @@ def _points_sweep(
                 out[spec.name][1]["n_distinct"] = int(xu.shape[0])
             if gu is not None and "error" not in out[spec.name][1]:
                 k_value = _neighbor_count(spec, kw, 1)
-                out[spec.name][1]["same_clip_fraction"] = _same_group_fraction(nb.indices, gu, k_value)
+                out[spec.name][1]["same_sample_fraction"] = _same_group_fraction(nb.indices, gu, k_value)
         else:
             out[spec.name] = _run(spec, (xs,), kw)
         if n_used < x.shape[0]:
@@ -278,7 +280,7 @@ def compute(
     layers: Mapping[int, Any],
     metrics: Sequence[str],
     *,
-    population: str = "pooled",
+    level: str = "sequence",
     n: int | None = None,
     seed: int = 0,
     group_ids: Sequence | None = None,
@@ -288,32 +290,34 @@ def compute(
     corpus: str | None = None,
     views: ViewSpec | None = None,
     shifts: ShiftSpec | None = None,
-    keep_per_clip: bool = False,
+    keep_per_sample: bool = False,
     limits: Mapping[str, int] | None = None,
     device: str | torch.device | None = None,
 ) -> Records:
     """Compute metrics for every layer and return one Record per (layer, metric).
 
     Args:
-        layers: Layer index -> data. Point metrics: (N, D) for "pooled", a sequence of
-            (T_i, D) for "frames" and "tokens". View metrics: (q, N, D). PTE: (z, {k: z_k}).
-            Jacobian effective rank: (B, k, M) Jacobian sketches (see jacobian_products).
+        layers: Layer index -> data. Point metrics: (N, D) at the sequence level, a sequence
+            of (T_i, D) token tensors at the sample and population levels. View metrics:
+            (q, N, D). PTE: (z, {k: z_k}). Jacobian effective rank: (B, k, M) Jacobian
+            sketches (see jacobian_products).
         metrics: Registry names. All must share one input kind per call.
-        population: "pooled", "frames" or "tokens" (point and trajectory metrics only).
-        n: Keep at most n clips chosen at random with seed, the same for every layer; for
-            "tokens", at most n pooled tokens for the point metrics.
+        level: "sequence", "sample" or "population" (point, trajectory and token-field
+            metrics; the other input kinds are sequence level).
+        n: Keep at most n samples chosen at random with seed, the same for every layer; at
+            the population level, at most n tokens for the point metrics.
         seed: Subsampling seed, recorded.
-        group_ids: One id per clip; one random clip per group is kept before subsampling.
+        group_ids: One id per sample; one random sample per group is kept before subsampling.
         params: Metric name -> estimator keyword arguments; recorded in the records.
         model, pooling, corpus: Labels recorded verbatim.
         views: ViewSpec describing how view stacks were built (view metrics).
         shifts: ShiftSpec describing the pitch-shifted copies (PTE).
-        keep_per_clip: For "frames", keep every clip's value in extras["per_clip"].
+        keep_per_sample: At the sample level, keep every sample's value in extras["per_sample"].
         limits: Metric name -> cap on the items that estimator sees (overrides the registry
             max_items); a seeded subsample is drawn above the cap and recorded in
             extras["n_items_used"].
-        device: Device the estimators run on; each layer, clip or pooled token cloud is moved
-            there after subsetting, one at a time. Default: the device of the inputs.
+        device: Device the estimators run on; each layer, sample or population token cloud is
+            moved there after subsetting, one at a time. Default: the device of the inputs.
 
     Returns:
         Records, one row per (layer, metric), failures recorded as nan with an error message.
@@ -322,10 +326,10 @@ def compute(
     params = {k: dict(v) for k, v in (params or {}).items()}
     specs = [get_metric(m) for m in metrics]
     kinds = {s.inputs for s in specs}
-    per_clip_kinds = {InputKind.POINTS, InputKind.TRAJECTORY, InputKind.TOKENS}
-    if len(kinds) != 1 and not kinds <= per_clip_kinds:
+    token_kinds = {InputKind.POINTS, InputKind.TRAJECTORY, InputKind.TOKENS}
+    if len(kinds) != 1 and not kinds <= token_kinds:
         raise ValueError(f"metrics of mixed input kinds in one call: {sorted(k.value for k in kinds)}")
-    kind = kinds.pop() if len(kinds) == 1 else InputKind.TRAJECTORY  # mixed per-clip kinds: handled per metric below
+    kind = kinds.pop() if len(kinds) == 1 else InputKind.TRAJECTORY  # mixed token kinds: handled per metric below
     layer_ids = sorted(layers)
     if not layer_ids:
         raise ValueError("layers is empty: no layer tensors were given")
@@ -342,7 +346,7 @@ def compute(
                 layer=layer,
                 depth=depths[layer],
                 model=model,
-                population=population,
+                level=level,
                 pooling=pooling,
                 corpus=corpus,
                 n_items=n_items,
@@ -397,9 +401,9 @@ def compute(
                 record(spec, l, value, extras, int(j.shape[0]), int(j.shape[-1]))
         return _warn_failed(records)
 
-    if population == "pooled":
+    if level == "sequence":
         if any(s.inputs in (InputKind.TRAJECTORY, InputKind.TOKENS) for s in specs):
-            raise ValueError("trajectory and token-field metrics need population='frames' or 'tokens'")
+            raise ValueError("trajectory and token-field metrics need level='sample' or 'population'")
         first = _tensor(layers[layer_ids[0]])
         counts = {l: int(_tensor(layers[l]).shape[0]) for l in layer_ids}
         if len(set(counts.values())) > 1:
@@ -411,48 +415,48 @@ def compute(
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
         return _warn_failed(records)
 
-    def per_clip(clips: Sequence[Any], clip_specs: list[MetricSpec], idx: np.ndarray, l: int) -> None:
-        """Run clip_specs on every selected clip and record their aggregates."""
-        per_metric: dict[str, tuple[list[float], list[dict]]] = {s.name: ([], []) for s in clip_specs}
-        point_specs = [s for s in clip_specs if s.inputs == InputKind.POINTS]
-        other_specs = [s for s in clip_specs if s.inputs != InputKind.POINTS]
+    def per_sample(samples: Sequence[Any], sample_specs: list[MetricSpec], idx: np.ndarray, l: int) -> None:
+        """Run sample_specs on every selected sample's tokens and record their aggregates."""
+        per_metric: dict[str, tuple[list[float], list[dict]]] = {s.name: ([], []) for s in sample_specs}
+        point_specs = [s for s in sample_specs if s.inputs == InputKind.POINTS]
+        other_specs = [s for s in sample_specs if s.inputs != InputKind.POINTS]
         for i in idx:
-            c = _to(_tensor(clips[i]), dev)
+            c = _to(_tensor(samples[i]), dev)
             results = _points_sweep(c, point_specs, params, seed, limits) if point_specs else {}
             results.update({s.name: _run(s, (c,), params.get(s.name, {})) for s in other_specs})
             for name, (value, extras) in results.items():
                 per_metric[name][0].append(value)
                 per_metric[name][1].append(extras)
-        dim = int(_tensor(clips[idx[0]]).shape[-1])
+        dim = int(_tensor(samples[idx[0]]).shape[-1])
         for name, (values, extras_list) in per_metric.items():
-            value, extras = _aggregate(values, extras_list, keep_per_clip)
+            value, extras = _aggregate(values, extras_list, keep_per_sample)
             record(get_metric(name), l, value, extras, len(idx), dim)
 
-    if population == "tokens":
+    if level == "population":
         if any(s.inputs == InputKind.TRAJECTORY for s in specs):
-            raise ValueError("trajectory metrics need population='frames'")
-        pooled_specs = [s for s in specs if not s.per_clip]
-        clip_specs = [s for s in specs if s.per_clip]  # their definition pairs tokens within a clip
-        clip_idx = choose_indices(len(layers[layer_ids[0]]), None, seed, group_ids)
+            raise ValueError("trajectory metrics need level='sample'")
+        pooled_specs = [s for s in specs if not s.per_sample]
+        sample_specs = [s for s in specs if s.per_sample]  # their definition pairs tokens within a sample
+        sample_idx = choose_indices(len(layers[layer_ids[0]]), None, seed, group_ids)
         for l in layer_ids:
             if pooled_specs:
-                x, owner = _pooled_tokens(layers[l], clip_idx, n, seed)
+                x, owner = _population_tokens(layers[l], sample_idx, n, seed)
                 x = _to(x, dev)
-                n_clips = int(torch.unique(owner).numel())
+                n_samples = int(torch.unique(owner).numel())
                 for name, (value, extras) in _points_sweep(x, pooled_specs, params, seed, limits, owner).items():
-                    extras["n_clips"] = n_clips
+                    extras["n_samples"] = n_samples
                     record(get_metric(name), l, value, extras, int(x.shape[0]), int(x.shape[-1]))
-            if clip_specs:
-                per_clip(layers[l], clip_specs, clip_idx, l)
+            if sample_specs:
+                per_sample(layers[l], sample_specs, sample_idx, l)
         return _warn_failed(records)
 
-    if population == "frames":
+    if level == "sample":
         idx = choose_indices(len(layers[layer_ids[0]]), n, seed, group_ids)
         for l in layer_ids:
-            per_clip(layers[l], specs, idx, l)
+            per_sample(layers[l], specs, idx, l)
         return _warn_failed(records)
 
-    raise ValueError(f"unknown population {population!r}")
+    raise ValueError(f"unknown level {level!r}")
 
 
 def _rank_table_rows(x_b: Tensor, rows: Tensor) -> Tensor:
@@ -534,7 +538,7 @@ def compute_pairs(
                         layer_b=lb,
                         depth=depths[la],
                         model=model if model_b is None else f"{model}->{model_b}",
-                        population="pooled",
+                        level="sequence",
                         pooling=pooling,
                         corpus=corpus,
                         n_items=n_items,
@@ -579,7 +583,7 @@ def compute_pairs(
                     layer_b=lb,
                     depth=depths[la],
                     model=model if model_b is None else f"{model}->{model_b}",
-                    population="pooled",
+                    level="sequence",
                     pooling=pooling,
                     corpus=corpus,
                     n_items=n_items,
@@ -665,7 +669,7 @@ def _closed_form_pairs(
                     layer_b=lb,
                     depth=depths[la],
                     model=model if model_b is None else f"{model}->{model_b}",
-                    population="pooled",
+                    level="sequence",
                     pooling=pooling,
                     corpus=corpus,
                     n_items=len(idx),

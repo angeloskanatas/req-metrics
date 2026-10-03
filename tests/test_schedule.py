@@ -45,9 +45,9 @@ class ItemCapTests(unittest.TestCase):
         again = rq.compute({0: x}, ["effective_rank"], limits={"effective_rank": 100})
         self.assertEqual(again[0].value, by["effective_rank"].value)  # the subsample is seeded
 
-    def test_limits_apply_to_tokens(self):
+    def test_limits_apply_at_the_population_level(self):
         clips = [torch.randn(50, 8) for _ in range(4)]
-        rec = rq.compute({0: clips}, ["effective_rank"], population="tokens", limits={"effective_rank": 60})
+        rec = rq.compute({0: clips}, ["effective_rank"], level="population", limits={"effective_rank": 60})
         self.assertEqual(rec[0].extras["n_items_used"], 60)
 
 

@@ -19,8 +19,7 @@ def grid_to_trajectory(grid: Tensor, *, time_axis: int = 1, mode: str = "freq_co
 
     "freq_concat" concatenates the F frequency patches of each time step into (T, F * D), the
     readout of MSM-MAE (Niizumi et al., 2022, arXiv:2204.12260, Sec. 3.3); "freq_mean" averages
-    them into (T, D). The result is a valid input for trajectory metrics and the "frames"
-    population.
+    them into (T, D). The result is a valid input for trajectory metrics at the sample level.
 
     Args:
         grid: One clip's tokens (F, T, D) with time on `time_axis`, class tokens removed.
@@ -41,7 +40,7 @@ def grid_to_trajectory(grid: Tensor, *, time_axis: int = 1, mode: str = "freq_co
 
 
 def grid_to_tokens(grid: Tensor) -> Tensor:
-    """All patches of a (F, T, D) grid as one (F * T, D) token cloud, for the "tokens" population."""
+    """All patches of a (F, T, D) grid as one (F * T, D) token cloud, for the sample and population levels."""
     if grid.ndim != 3:
         raise ValueError(f"expected (F, T, D), got shape {tuple(grid.shape)}")
     return grid.reshape(-1, grid.shape[-1])
@@ -112,5 +111,5 @@ def stack_clips(clips: Sequence[Tensor]) -> Tensor:
     """Stack equal-length per-clip tensors into one batch tensor along a new first axis."""
     shapes = {tuple(c.shape) for c in clips}
     if len(shapes) != 1:
-        raise ValueError(f"clips have different shapes {sorted(shapes)}; keep them as a list for the frames population")
+        raise ValueError(f"clips have different shapes {sorted(shapes)}; keep them as a list for the sample level")
     return torch.stack(list(clips), dim=0)

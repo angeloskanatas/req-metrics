@@ -17,7 +17,7 @@ a named variant.
 
 Estimators are plain functions on tensors with no model, audio or framework code.
 Inputs are declared by kind (points, trajectory, views, shifted copies, tokens,
-pairs) and populations (pooled, frames, tokens) are a pipeline argument, not a
+pairs) and the level (sequence, sample, population) is a pipeline argument, not a
 property of the estimator. Readouts must be parameter-free, because metrics on
 label-trained poolers would measure the probe. Augmented views and pitch-shifted
 copies are inputs the caller builds with their own encoder and augmentation
@@ -32,19 +32,19 @@ Spectrogram-patch encoders yield an (F, T, D) token grid per clip. The layout is
 chosen explicitly and recorded in the `pooling` label: `grid_to_trajectory`
 concatenates the frequency patches of each time step into a (T, F * D) trajectory
 (the frequency-preserving readout of MSM-MAE), `grid_to_tokens` flattens all patches
-for the "tokens" population, and `grid_to_pooled` gives one vector per clip by
-`gap`, `freq_concat_mean` (frequency-concatenated time mean) or block-`partitioned`
-means. All readouts are parameter-free: metrics on label-trained poolers would
-measure the probe, not the representation. Frame-sequence encoders need nothing:
-their (T, D) output is already a trajectory, pooled by `frame_tokens_to_pooled`
-(time mean, or the last token for causal decoders). A 2D grid therefore has three
-valid readings and the record says which was used: the patch cloud (all patches as
-points, the vision convention for token-level geometry), the frequency-concatenated
-trajectory (time steps as points in F * D dimensions, which keeps the frequency axis
-that tonal tasks need) and one pooled vector per clip. Point metrics accept all
-three; the trajectory curvature needs a time-ordered sequence; the token-field
-metrics read the patch cloud of one clip. During training the same readouts are
-available by name through `make_pooler`.
+into the token set of the sample and population levels, and `grid_to_pooled` gives
+one vector per clip by `gap`, `freq_concat_mean` (frequency-concatenated time mean)
+or block-`partitioned` means. All readouts are parameter-free: metrics on
+label-trained poolers would measure the probe, not the representation.
+Frame-sequence encoders need nothing: their (T, D) output is already a trajectory,
+pooled by `frame_tokens_to_pooled` (time mean, or the last token for causal
+decoders). A 2D grid therefore has three valid readings and the record says which
+was used: the patch cloud (all patches as points, the vision convention for
+token-level geometry), the frequency-concatenated trajectory (time steps as points
+in F * D dimensions, which keeps the frequency axis that tonal tasks need) and one
+pooled vector per clip. Point metrics accept all three; the trajectory curvature
+needs a time-ordered sequence; the token-field metrics read the patch cloud of one
+clip. During training the same readouts are available by name through `make_pooler`.
 
 ## 3. Efficiency
 
@@ -56,29 +56,29 @@ estimator that reads them. Spectra, kNN and LDA run in float64;
 double precision. In float64 the matmul expansion of pairwise distances is used, in
 float32 the direct path, because the expansion loses the small distances that ratio
 estimators depend on. Computation runs on the device of the inputs, or on
-`compute(..., device=)`, to which each layer, clip or pooled token cloud is moved
-after subsetting, one at a time; MPS maps to the CPU, since it has no float64.
-Frames and tokens populations take per-clip sequences, so a corpus of memory-mapped
-clips is read clip by clip, and the pooled token cloud is drawn before any clip is
-concatenated. The information-imbalance matrix builds one rank table per layer and
-gathers it for every other layer, O(L N^2 D) instead of O(L^2 N^2 D). GRIDE needs a
-neighbor table with `range_max` neighbors, so keep that modest unless reproducing
-the published ID row at 8,192. Sharding over layers, models or partitions belongs to
-the caller, which composes with any scheduler. Estimators whose cost grows faster
-than N log N (the MST dimension, local rectifiability, DiME) carry a `max_items` cap
-in the registry; `compute(..., limits=)` overrides it per metric. Above the cap the
-pipeline draws a seeded subsample, builds that subsample's own spectrum or neighbor
-table, and records the count in `extras["n_items_used"]` next to the population
-size. Cost classes rather than timings, since wall-clock numbers depend on the
-machine and on BLAS threading. Spectral metrics are one SVD per (layer,
-preprocessing). The neighbor-based estimators share one chunked kNN table, O(N^2 D),
-as does uniformity. The MST dimension builds dense distance matrices over subsamples
-up to N (O(N^2) memory); DiME eigendecomposes N x N Gram matrices for each of its
-re-pairings (O(N^3)); local rectifiability is linear in N per anchor set but
-repeated over scales. Those three carry item caps. Gaussianity computes all three
-statistics on every call, with one Kolmogorov-Smirnov test per random direction.
-View metrics scale with q and PTE trains a probe. `scripts/benchmark.py` measures
-every registered metric on the machine at hand.
+`compute(..., device=)`, to which each layer, sample or population token cloud is
+moved after subsetting, one at a time; MPS maps to the CPU, since it has no float64.
+The sample and population levels take per-sample token sequences, so a corpus of
+memory-mapped clips is read clip by clip, and the population token cloud is drawn
+before any clip is concatenated. The information-imbalance matrix builds one rank
+table per layer and gathers it for every other layer, O(L N^2 D) instead of O(L^2
+N^2 D). GRIDE needs a neighbor table with `range_max` neighbors, so keep that modest
+unless reproducing the published ID row at 8,192. Sharding over layers, models or
+partitions belongs to the caller, which composes with any scheduler. Estimators
+whose cost grows faster than N log N (the MST dimension, local rectifiability, DiME)
+carry a `max_items` cap in the registry; `compute(..., limits=)` overrides it per
+metric. Above the cap the pipeline draws a seeded subsample, builds that subsample's
+own spectrum or neighbor table, and records the count in `extras["n_items_used"]`
+next to the full size. Cost classes rather than timings, since wall-clock numbers
+depend on the machine and on BLAS threading. Spectral metrics are one SVD per
+(layer, preprocessing). The neighbor-based estimators share one chunked kNN table,
+O(N^2 D), as does uniformity. The MST dimension builds dense distance matrices over
+subsamples up to N (O(N^2) memory); DiME eigendecomposes N x N Gram matrices for
+each of its re-pairings (O(N^3)); local rectifiability is linear in N per anchor set
+but repeated over scales. Those three carry item caps. Gaussianity computes all
+three statistics on every call, with one Kolmogorov-Smirnov test per random
+direction. View metrics scale with q and PTE trains a probe. `scripts/benchmark.py`
+measures every registered metric on the machine at hand.
 
 ## 4. Monitoring
 
@@ -115,8 +115,8 @@ sink passes `step=`; `wandb_sink` logs a `monitor/step` metric and binds
 `layer_metrics/*`, `profiles/*` and the `online_*` families to it with
 `define_metric`, and the Lightning path follows `WandbLogger.log_metrics` (the
 `trainer/global_step` key). Every scalar sink uses the keys of `layer_scalars`,
-`layer_metrics/<metric>_layer_<l>`, with the population appended to the metric name
-for frames and tokens records and selected extras as `<metric>_<extra>`;
+`layer_metrics/<metric>_layer_<l>`, with the level appended to the metric name for
+sample and population records and selected extras as `<metric>_<extra>`;
 `tensorboard_sink` writes them through `torch.utils.tensorboard`. CSV and JSON sinks
 keep every field and extra, and any callable of `(records, step)` is accepted.
 

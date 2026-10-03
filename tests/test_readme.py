@@ -41,9 +41,9 @@ class PostHocExampleTests(unittest.TestCase):
             self.assertEqual(len(rec.profile("effective_rank")), 3)
             with tempfile.TemporaryDirectory() as d:
                 rec.to_csv(Path(d) / "my-encoder.csv")
-            frames = {l: [torch.cumsum(torch.randn(40, 24), 0) for _ in range(10)] for l in range(2)}
-            rq.compute(frames, ["trajectory_curvature", "effective_rank"], population="frames", n=2000)
-            rq.compute(frames, ["effective_rank"], population="tokens", n=10000)
+            tokens = {l: [torch.cumsum(torch.randn(40, 24), 0) for _ in range(10)] for l in range(2)}
+            rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)
+            rq.compute(tokens, ["effective_rank"], level="population", n=10000)
             views = {l: torch.stack([z + 0.1 * torch.randn_like(z) for _ in range(10)]) for l, z in layers.items()}
             spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
             rq.compute(views, ["lidar", "infonce"], views=spec)
@@ -59,7 +59,9 @@ class PostHocExampleTests(unittest.TestCase):
             rq.convergence(z1, "effective_rank").to_markdown()
             self.assertEqual(len(rq.top_layers(rec, "intrinsic_dimension/gride", k=3)), 3)
             p = rq.protocols.get("kanatas2026")
-            self.assertEqual(_failed(rq.compute(layers, p.names("pooled"), params=p.params("pooled"), n=p.n_items)), [])
+            self.assertEqual(
+                _failed(rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n=p.n_items)), []
+            )
 
 
 class _Backbone(nn.Module):

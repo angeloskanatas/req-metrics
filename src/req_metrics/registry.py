@@ -39,9 +39,9 @@ class MetricSpec:
         max_items: Default cap on the items the estimator sees; the pipeline draws a
             seeded subsample above it and records the count. For estimators whose
             cost grows faster than N log N.
-        per_clip: The definition pairs tokens within one clip (a class token with its
-            patches, token pairs of one clip), so the estimator runs per clip under
-            the "tokens" population too, instead of on the pooled token cloud.
+        per_sample: The definition pairs tokens within one sample (a class token with its
+            patches, token pairs of one sample), so the estimator runs per sample at the
+            population level too, instead of on the population token cloud.
     """
 
     name: str
@@ -54,7 +54,7 @@ class MetricSpec:
     tags: tuple[str, ...] = ()
     cache: str | None = None
     max_items: int | None = None
-    per_clip: bool = False
+    per_sample: bool = False
 
 
 _REGISTRY: dict[str, MetricSpec] = {}
@@ -71,7 +71,7 @@ def register_metric(
     tags: tuple[str, ...] = (),
     cache: str | None = None,
     max_items: int | None = None,
-    per_clip: bool = False,
+    per_sample: bool = False,
 ) -> Callable[[Estimator], Estimator]:
     """Register an estimator under name. Re-registering a name is an error."""
 
@@ -89,7 +89,7 @@ def register_metric(
             tags=tuple(tags),
             cache=cache,
             max_items=max_items,
-            per_clip=per_clip,
+            per_sample=per_sample,
         )
         return fn
 

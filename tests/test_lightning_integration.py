@@ -275,8 +275,8 @@ class LightningPlugAndPlayTests(unittest.TestCase):
         self.assertTrue(torch.equal(rq.make_pooler("cls")(out), out[:, 0]))
         self.assertTrue(torch.equal(rq.make_pooler("last")(out), out[:, -1]))
         self.assertTrue(torch.allclose(rq.make_pooler("mean")(out), out.mean(1)))
-        self.assertTrue(torch.equal(rq.make_pooler("frames")(out), out))
-        self.assertTrue(torch.equal(rq.make_pooler("frames", n_prefix=1)(out), out[:, 1:]))
+        self.assertTrue(torch.equal(rq.make_pooler("tokens")(out), out))
+        self.assertTrue(torch.equal(rq.make_pooler("tokens", n_prefix=1)(out), out[:, 1:]))
         dl = rq.monitor_loader(
             torch.utils.data.TensorDataset(torch.arange(50.0).unsqueeze(1)), n_items=20, batch_size=8, seed=1
         )

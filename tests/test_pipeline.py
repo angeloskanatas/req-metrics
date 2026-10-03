@@ -1,6 +1,7 @@
-"""compute() over synthetic layers: caching equivalence, populations, subsetting, records I/O, protocol."""
+"""compute() over synthetic layers: caching equivalence, levels, subsetting, records I/O, protocol."""
 
 import inspect
+import json
 import math
 import tempfile
 import unittest
@@ -128,42 +129,42 @@ class FramesAndTokensTests(unittest.TestCase):
         g = torch.Generator().manual_seed(1)
         self.clips = {l: [torch.randn(60 + 5 * (i % 4), 8, generator=g).cumsum(0) for i in range(40)] for l in range(2)}
 
-    def test_frames_aggregate_per_clip(self):
-        rec = rq.compute(self.clips, ["trajectory_curvature"], population="frames", n=20, seed=0, keep_per_clip=True)
+    def test_sample_level_aggregates_per_sample(self):
+        rec = rq.compute(self.clips, ["trajectory_curvature"], level="sample", n=20, seed=0, keep_per_sample=True)
         r = rec.where(layer=0)[0]
         self.assertEqual(r.extras["n_items"], 20)
-        self.assertEqual(len(r.extras["per_clip"]), 20)
-        self.assertAlmostEqual(r.value, sum(r.extras["per_clip"]) / 20, places=9)
+        self.assertEqual(len(r.extras["per_sample"]), 20)
+        self.assertAlmostEqual(r.value, sum(r.extras["per_sample"]) / 20, places=9)
         self.assertAlmostEqual(r.value, math.pi / 2, delta=0.15)  # random walks
-        rec2 = rq.compute(self.clips, ["effective_rank"], population="frames", n=20)
-        self.assertEqual(rec2.where(layer=1)[0].population, "frames")
+        rec2 = rq.compute(self.clips, ["effective_rank"], level="sample", n=20)
+        self.assertEqual(rec2.where(layer=1)[0].level, "sample")
 
-    def test_tokens_pool_all_frames(self):
-        rec = rq.compute(self.clips, ["effective_rank"], population="tokens", n=1000)
+    def test_population_level_pools_all_tokens(self):
+        rec = rq.compute(self.clips, ["effective_rank"], level="population", n=1000)
         self.assertEqual(rec[0].n_items, 1000)
         with self.assertRaises(ValueError):
-            rq.compute(self.clips, ["trajectory_curvature"], population="tokens")
+            rq.compute(self.clips, ["trajectory_curvature"], level="population")
 
-    def test_tokens_records_carry_the_neighbor_regime(self):
+    def test_population_records_carry_the_neighbor_regime(self):
         g = torch.Generator().manual_seed(5)
         centers = 20 * torch.randn(30, 6, generator=g)
         tight = {0: [c + 0.01 * torch.randn(100, 6, generator=g) for c in centers]}
         mets = ["intrinsic_dimension", "intrinsic_dimension/mle", "effective_rank"]
-        by = {r.metric: r for r in rq.compute(tight, mets, population="tokens", n=3000)}
-        self.assertEqual(by["effective_rank"].extras["n_clips"], 30)
-        self.assertNotIn("same_clip_fraction", by["effective_rank"].extras)
-        self.assertEqual(by["intrinsic_dimension"].extras["same_clip_fraction"], 1.0)  # k = 2 < 100 frames per clip
-        self.assertEqual(by["intrinsic_dimension/mle"].extras["same_clip_fraction"], 1.0)  # k = 20 < 100
+        by = {r.metric: r for r in rq.compute(tight, mets, level="population", n=3000)}
+        self.assertEqual(by["effective_rank"].extras["n_samples"], 30)
+        self.assertNotIn("same_sample_fraction", by["effective_rank"].extras)
+        self.assertEqual(by["intrinsic_dimension"].extras["same_sample_fraction"], 1.0)  # k = 2 < 100 frames per clip
+        self.assertEqual(by["intrinsic_dimension/mle"].extras["same_sample_fraction"], 1.0)  # k = 20 < 100
         single = {0: [c.unsqueeze(0) for c in centers]}  # one frame per clip: every neighbor is another clip
-        rec = rq.compute(single, ["intrinsic_dimension"], population="tokens")
-        self.assertEqual(rec[0].extras["same_clip_fraction"], 0.0)
+        rec = rq.compute(single, ["intrinsic_dimension"], level="population")
+        self.assertEqual(rec[0].extras["same_sample_fraction"], 0.0)
 
     def test_device_argument_gives_the_same_records(self):
         mets = ["effective_rank", "intrinsic_dimension"]
-        for population, n in (("frames", 10), ("tokens", 500)):
-            base = rq.compute(self.clips, mets, population=population, n=n, seed=3)
-            moved = rq.compute(self.clips, mets, population=population, n=n, seed=3, device="cpu")
-            self.assertEqual([r.value for r in base], [r.value for r in moved], msg=population)
+        for level, n in (("sample", 10), ("population", 500)):
+            base = rq.compute(self.clips, mets, level=level, n=n, seed=3)
+            moved = rq.compute(self.clips, mets, level=level, n=n, seed=3, device="cpu")
+            self.assertEqual([r.value for r in base], [r.value for r in moved], msg=level)
 
 
 class ViewsShiftsPairsTests(unittest.TestCase):
@@ -235,6 +236,13 @@ class RecordsIOTests(unittest.TestCase):
             self.assertEqual(back[0].metric, rec[0].metric)
             self.assertEqual(back[0].tags, rec[0].tags)
             self.assertTrue(c.read_text().startswith("model,layer,layer_b,depth,metric,value"))
+            rows = json.loads(j.read_text())  # development versions stored a population field
+            for row, old in zip(rows, ("pooled", "frames", "tokens", "pooled"), strict=True):
+                row["population"] = old
+                del row["level"]
+            j.write_text(json.dumps(rows))
+            levels = [r.level for r in rq.Records.from_json(j)]
+            self.assertEqual(levels, ["sequence", "sample", "population", "sequence"])
         try:
             import pandas  # noqa: F401
 
@@ -255,8 +263,6 @@ class AtlasExportTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as d:
             p = rec.to_atlas_json(Path(d) / "metrics.json", model="toy", space="pooled embeddings")
-            import json
-
             payload = json.loads(p.read_text())
         self.assertEqual(payload["model"], "toy")
         self.assertEqual(payload["schema_version"], 1)
@@ -275,11 +281,11 @@ class AtlasExportTests(unittest.TestCase):
 class ProtocolTests(unittest.TestCase):
     def test_kanatas2026_is_consistent_with_the_registry(self):
         p = rq.protocols.get("kanatas2026")
-        for kind in ("pooled", "frames", "views", "shifted"):
+        for kind in ("sequence", "sample", "views", "shifted"):
             for name in p.names(kind):
                 rq.get_metric(name)
-        self.assertEqual(p.params("pooled")["intrinsic_dimension/gride"]["scale"], 8)
-        rec = rq.compute(pooled_layers(n=150, d=8), ["effective_rank", "anisotropy"], params=p.params("pooled"))
+        self.assertEqual(p.params("sequence")["intrinsic_dimension/gride"]["scale"], 8)
+        rec = rq.compute(pooled_layers(n=150, d=8), ["effective_rank", "anisotropy"], params=p.params("sequence"))
         self.assertEqual(rec[0].params, {"spectrum": "singular", "center": True, "max_eigenvalues": 2048})
 
 

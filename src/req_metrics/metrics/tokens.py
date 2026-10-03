@@ -25,7 +25,7 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
     Darcet et al. (2024, ICLR, arXiv:2309.16588) set an absolute cutoff (150 for DINOv2) from the
     norm histogram of the tokens of many images and note that it varies across models, so a token
     here is an outlier when its norm exceeds factor times the median of the tokens given: one
-    clip under the "frames" population, the pooled tokens under "tokens". The extras describe the
+    sample at the sample level, the population tokens at the population level. The extras describe the
     largest token's channel energies, after Jiang et al. (2025) and Sun et al. (2024).
 
     Args:
@@ -142,7 +142,7 @@ register_metric(
     preprocess=Preprocess(),
     citation=("marouani2026clspatch",),
     arxiv="2602.08626",
-    per_clip=True,
+    per_sample=True,
 )(token_cosine)
 register_metric(
     "cls_patch_cosine",
@@ -150,7 +150,7 @@ register_metric(
     preprocess=Preprocess(),
     citation=("marouani2026clspatch",),
     arxiv="2602.08626",
-    per_clip=True,
+    per_sample=True,
 )(cls_patch_cosine)
 register_metric(
     "token_gram_drift",
