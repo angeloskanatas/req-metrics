@@ -15,20 +15,15 @@ from torch import Tensor
 
 
 def grid_to_trajectory(grid: Tensor, *, time_axis: int = 1, mode: str = "freq_concat") -> Tensor:
-    """Time trajectory of a (F, T, D) patch grid: one vector per time step.
+    """Time trajectory of an (F, T, D) patch grid: one vector per time step.
 
-    mode="freq_concat" concatenates the F frequency patches of each time step into a
-    (T, F * D) vector, the frequency-preserving readout introduced by MSM-MAE
-    (Niizumi et al., 2022, arXiv:2204.12260, Sec. 3.3) and used by the
-    M2D-lineage audio JEPAs (Riou et al., 2024, arXiv:2405.08679), where it is
-    the default for frame-level tasks and the shipped probe input of their
-    released models; mode="freq_mean" averages the patches into (T, D). The
-    trajectory is then a valid input for trajectory metrics and for the
-    "frames" population.
+    "freq_concat" concatenates the F frequency patches of each time step into (T, F * D), the
+    readout of MSM-MAE (Niizumi et al., 2022, arXiv:2204.12260, Sec. 3.3); "freq_mean" averages
+    them into (T, D). The result is a valid input for trajectory metrics and the "frames"
+    population.
 
     Args:
-        grid: Tokens of one clip, shape (F, T, D) with time on `time_axis`
-            (0 or 1); any leading class token must already be removed.
+        grid: One clip's tokens (F, T, D) with time on `time_axis`, class tokens removed.
         time_axis: Which of the first two axes is time.
         mode: "freq_concat" or "freq_mean".
 

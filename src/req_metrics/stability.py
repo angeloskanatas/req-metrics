@@ -1,18 +1,8 @@
 """Sample-size diagnostics: does a metric value depend on how many items it saw?
 
-Label-free metrics converge at different rates. Entropic effective rank keeps
-rising with N (RankMe used 25,600 samples; Tsitsulin et al. 2023 need 16,384 for
-a 0.95 approximation factor); the plug-in participation ratio is biased by about
-PR/N (Chun et al. 2026); nearest-neighbor intrinsic-dimension estimates carry a
-few percent of subsample noise (Arputharaj et al. 2026 report 4.5% median within
-batches of 90% subsamples); anisotropy and alpha-ReQ depend on N only through
-the sampling noise of the covariance, small when N is much larger than D but not
-otherwise (at D/N = 0.3 the leading eigenvalue is inflated by sampling). The
-helper here follows the subsample protocol of Ansuini et al. (2019) and
-Arputharaj et al. (2026): recompute a metric on repeated random subsets at several
-fractions and report the mean, the relative spread and the relative change toward
-the full sample, so that N can be chosen per metric and per representation and
-compared cells are known to sit on the same footing.
+convergence() recomputes a metric on repeated random subsets at several fractions and
+reports the mean, the relative spread and the change toward the full sample, following the
+subsample protocol of Ansuini et al. (2019) and Arputharaj et al. (2026).
 """
 
 from __future__ import annotations

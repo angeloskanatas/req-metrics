@@ -11,17 +11,14 @@ Mean cosine similarity between distinct tokens of one clip.
 
 ## Definition, protocol and pitfalls
 
-The patch-to-patch similarity tracked by Marouani et al. (2026, ICLR,
-arXiv:2602.08626) around each block of a ViT, here on the layer output.
-Near 1 means the tokens are interchangeable (a collapsed field), near 0
-means they spread out. Computed exactly on up to n_tokens tokens sampled
-without replacement.
+Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. Exact on
+up to n_tokens tokens sampled without replacement.
 
 Args:
-    tokens: One clip's tokens, shape (T, D), class tokens removed.
+    tokens: One clip's tokens (T, D), class tokens removed.
     n_tokens: Tokens sampled when T exceeds it.
     seed: Sampling seed.
 
 Returns:
     value: mean off-diagonal cosine.
-    extras: n_tokens used.
+    extras: n_tokens.

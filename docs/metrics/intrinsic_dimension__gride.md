@@ -14,24 +14,16 @@ GRIDE intrinsic dimension at the 8th-neighbor scale.
 
 GRIDE intrinsic dimension at doubling neighbor scales.
 
-Denti et al. (2022, Scientific Reports; arXiv:2104.13832) generalize
-TwoNN to the ratio mu = r_n2 / r_n1 of the n2-th to the n1-th neighbor
-distance, whose density is d (mu^d - 1)^(n2-n1-1) / (mu^((n2-1)d+1)
-B(n2-n1, n1)) (their Eq. 13). The estimator maximizes the likelihood
-over all points at each scale (n1, n2) = (k, 2k) for k = 1, 2, 4, ... up
-to range_max, which traces the dimension as a function of the
-neighborhood size. This follows dadapy's reference implementation: the
-same ratio filter, bisection on the likelihood derivative, and
-Fisher-information standard error. The returned value is the estimate
-whose outer rank n2 equals scale; scale 8 is the ratio of the 8th to the 4th
-neighbor distance. Kanatas et al. (2026) report GRIDE profiles qualitatively
-consistent with TwoNN. Larger range_max
-needs a Neighbors table with that many neighbors per point.
+Denti et al. (2022, Scientific Reports, arXiv:2104.13832, Eq. 13): the maximum-likelihood
+dimension from the ratio of the n2-th to the n1-th neighbor distance, at (n1, n2) = (k, 2k)
+for k = 1, 2, 4, ... up to range_max. The value is the estimate at n2 = scale; scale 8 uses
+the 8th and 4th neighbors. Bisection on the likelihood derivative and Fisher-information
+errors follow DADApy.
 
 Args:
     x: Points (N, D), or a Neighbors table with k >= range_max.
-    scale: Outer neighbor rank n2 whose estimate is the value; a power of two.
-    range_max: Largest outer rank; log2(range_max) scales are computed.
+    scale: Outer neighbor rank of the returned estimate; a power of two.
+    range_max: Largest outer rank.
     d0, d1: Bisection bounds on the dimension.
     eps: Bisection precision.
 

@@ -1,8 +1,6 @@
 """Metrics that compare two representations of the same items.
 
-Rows of the two inputs must describe the same items in the same order; the
-representations may have different widths (different layers, models or
-feature subsets).
+Rows of the two inputs describe the same items in the same order; widths may differ.
 """
 
 from __future__ import annotations
@@ -39,27 +37,21 @@ def information_imbalance(
 ) -> MetricResult:
     """Information imbalance from representation A to representation B.
 
-    Glielmo et al. (2022, PNAS Nexus, arXiv:2104.15079), Eq. 2:
-    Delta(A -> B) = 2 <r_B | r_A = 1> / N, the mean rank in space B of each
-    point's nearest neighbor in space A, scaled so that identical spaces give
-    about 2/N and independent spaces about 1. Asymmetric: a small Delta(A -> B)
-    with a large Delta(B -> A) means A contains the information in B and more.
-    The k-neighbor generalization averages the ranks of the k nearest
-    A-neighbors, as in DADApy's implementation (Glielmo et al., 2022,
-    Patterns); k = 1 is the original definition. Ranks are exact and computed by
-    counting, so no N x N index table is stored; DADApy instead looks neighbors
-    up in a truncated table and draws a random rank for items beyond it.
+    Glielmo et al. (2022, PNAS Nexus, arXiv:2104.15079, Eq. 2): Delta(A -> B) = 2 <r_B | r_A = 1>
+    / N, the mean rank in B of each point's nearest neighbor in A; about 2/N for identical spaces
+    and 1 for independent ones. A small Delta(A -> B) with a large Delta(B -> A) means A contains
+    the information in B. k > 1 averages the ranks of the k nearest A-neighbors, as in DADApy.
+    Ranks are counted exactly, without an N x N table.
 
     Args:
-        x_a: Representation A, shape (N, D_a).
-        x_b: Representation B, shape (N, D_b), same items in the same order.
-        k: Number of nearest A-neighbors whose B-ranks are averaged.
-        neighbors_a: Precomputed Neighbors of A with at least k neighbors.
-        neighbors_b: Precomputed Neighbors of B with at least k neighbors (for the reverse direction).
+        x_a: Representation A, (N, D_a).
+        x_b: Representation B, (N, D_b).
+        k: Nearest A-neighbors whose B-ranks are averaged.
+        neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
     Returns:
         value: Delta(A -> B).
-        extras: reverse (Delta(B -> A)).
+        extras: reverse, Delta(B -> A).
     """
     if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
         raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
@@ -84,23 +76,14 @@ def _shared_neighbor_fraction(nn_a: Tensor, nn_b: Tensor) -> Tensor:
 def neighborhood_overlap(
     x_a: Tensor, x_b: Tensor, *, k: int = 30, neighbors_a: Neighbors | None = None, neighbors_b: Neighbors | None = None
 ) -> MetricResult:
-    """Neighborhood overlap: mean fraction of k nearest neighbors shared by two representations of the same items.
+    """Neighborhood overlap: mean fraction of the k nearest neighbors shared by two representations.
 
-    Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1):
-    chi_k(A, B) = (1/N) sum_i (1/k) sum_j A_ij B_ij for the k-nearest-neighbor
-    adjacency matrices of the two spaces, 1 when every point keeps its
-    neighbors and k/(N-1) in expectation for unrelated spaces. Between
-    consecutive layers it measures how much of the local neighbor structure a
-    layer rewires; Valeriani et al. (2023, NeurIPS, arXiv:2302.00294) use it to
-    locate the layers where transformers reorganize representations. Both
-    works use k = 30 for networks on ImageNet-scale data and report the trend
-    robust to k (Doimo App. A.2, Valeriani Fig. S5). Symmetric, label-free,
-    Euclidean neighbors, the point itself excluded; same convention as
-    DADApy's return_data_overlap. Complements the information imbalance, which
-    asks the directional question whether A's neighbors are B's near ranks.
+    Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1): 1 when every point
+    keeps its neighbors, k/(N-1) in expectation for unrelated spaces. Euclidean neighbors, the
+    point itself excluded; k = 30 as in Doimo et al. and Valeriani et al. (2023).
 
     Args:
-        x_a, x_b: (N, D_a) and (N, D_b), rows describing the same items.
+        x_a, x_b: (N, D_a) and (N, D_b).
         k: Neighborhood size.
         neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
@@ -156,26 +139,20 @@ def _cka_from_stats(a: tuple[Tensor, Tensor, Tensor], b: tuple[Tensor, Tensor, T
 
 
 def cka(x_a: Tensor, x_b: Tensor, *, debiased: bool = False) -> MetricResult:
-    """Linear centered kernel alignment between two representations of the same items.
+    """Linear centered kernel alignment.
 
-    Kornblith, Norouzi, Lee and Hinton (2019, ICML, arXiv:1905.00414), Table 1:
-    CKA = ||Y^T X||_F^2 / (||X^T X||_F ||Y^T Y||_F) for column-centered X (N, D_a)
-    and Y (N, D_b), the normalized HSIC of Eq. 4 with linear kernels. 1 for
-    representations equal up to an orthogonal map and an isotropic scaling; it is
-    not invariant to arbitrary invertible linear maps, which is what lets it
-    distinguish layers wider than N. The plug-in estimate is biased upward when N
-    is not large relative to the widths. debiased=True uses the unbiased HSIC
-    estimator of Song et al. (2007) in the feature-space form of the authors'
-    reference notebook; it reduces the bias, can be negative and needs N >= 4. Both
-    estimates are in the extras. Computed in float64 from the D x D cross-products
-    in O(N D_a D_b), without N x N Gram matrices.
+    Kornblith, Norouzi, Lee and Hinton (2019, ICML, arXiv:1905.00414, Table 1): ||Y^T X||_F^2 /
+    (||X^T X||_F ||Y^T Y||_F) for column-centered X and Y. Invariant to orthogonal maps and
+    isotropic scaling. The plug-in estimate is biased upward unless N is large relative to the
+    widths; debiased=True uses the unbiased HSIC estimator, as in the authors' notebook, which
+    can be negative and needs N >= 4. Computed from D x D cross-products in float64.
 
     Args:
-        x_a, x_b: (N, D_a) and (N, D_b), rows describing the same items.
+        x_a, x_b: (N, D_a) and (N, D_b).
         debiased: Return the debiased estimate.
 
     Returns:
-        value: CKA in [0, 1] (debiased: can fall slightly below 0).
+        value: CKA.
         extras: biased, debiased (nan for N < 4).
     """
     _check_pair(x_a, x_b)
@@ -194,30 +171,22 @@ def _svd_directions(x: Tensor, threshold: float) -> tuple[Tensor, int]:
 
 
 def svcca(x_a: Tensor, x_b: Tensor, *, threshold: float = 0.99) -> MetricResult:
-    """SVCCA similarity: mean canonical correlation between the leading SVD directions of two representations.
+    """SVCCA: mean canonical correlation between the leading SVD directions of two representations.
 
-    Raghu, Gilmer, Yosinski and Sohl-Dickstein (2017, NeurIPS, arXiv:1706.05806):
-    each representation is centered and reduced by SVD to the fewest directions
-    whose singular values sum to at least threshold of their total (App. A, the
-    99% rule on singular values), canonical correlation analysis between the two
-    reduced representations gives min(k_a, k_b) correlations, and their mean is the
-    similarity (Eq. 1, averaged over the aligned directions as in the reference
-    tutorial and in Kornblith et al., 2019, Table 1). The correlations are the
-    singular values of U_a^T U_b for the orthonormal bases of the kept directions,
-    which equals the covariance-based CCA of the reference code at epsilon = 0
-    without inverting covariance matrices. Invariant to invertible linear maps of
-    the kept subspaces, so it needs N well above the kept widths: the reference
-    tutorial asks for 5 to 10 times as many items as neurons, and as a kept width
-    approaches N any two representations score near 1 (Kornblith et al., 2019,
-    Theorem 1).
+    Raghu, Gilmer, Yosinski and Sohl-Dickstein (2017, NeurIPS, arXiv:1706.05806, Eq. 1, App. A):
+    each centered representation keeps the fewest directions whose singular values sum to
+    threshold of the total, and the value is the mean of the min(k_a, k_b) canonical
+    correlations between them, computed as the singular values of U_a^T U_b. Invariant to
+    invertible linear maps of the kept subspaces, so N must be well above the kept widths; as
+    they approach N, any two representations score near 1.
 
     Args:
-        x_a, x_b: (N, D_a) and (N, D_b), rows describing the same items.
-        threshold: Fraction of the summed singular values kept per representation.
+        x_a, x_b: (N, D_a) and (N, D_b).
+        threshold: Fraction of the summed singular values kept.
 
     Returns:
         value: mean canonical correlation in [0, 1].
-        extras: r2 (mean squared correlation), k_a, k_b (directions kept).
+        extras: r2 (mean squared correlation), k_a, k_b.
     """
     _check_pair(x_a, x_b)
     if not 0.0 < threshold <= 1.0:

@@ -1,12 +1,8 @@
 """Intrinsic-dimension estimators of a point cloud.
 
-TwoNN and GRIDE are ports of DADApy (Glielmo et al., 2022, Patterns;
-Copyright 2021-2023 The DADApy Authors, Apache License 2.0; see NOTICE),
-which produced the estimates of Kanatas et al. (2026): the same ratio filter, bisection on the
-likelihood derivative and Fisher-information error, rewritten on torch
-tensors over a shared Neighbors table. The Levina-Bickel MLE follows the
-paper's equations 8 and 9; mLID follows LDReg; the MST dimension follows
-IdEst's Algorithm 1. All but the MST estimator read from one Neighbors table.
+TwoNN and GRIDE are ports of DADApy (Glielmo et al., 2022, Patterns; Copyright 2021-2023
+The DADApy Authors, Apache License 2.0; see NOTICE) on torch tensors. All estimators but
+the MST dimension read from one shared Neighbors table.
 """
 
 from __future__ import annotations
@@ -37,24 +33,16 @@ def _unique_rows(x: Tensor) -> Tensor:
 def twonn(x: Tensor, *, mu_fraction: float = 0.9, algorithm: str = "base") -> MetricResult:
     """TwoNN intrinsic dimension from the ratio of second- to first-neighbor distance.
 
-    Facco et al. (2017, Scientific Reports): under local uniformity the ratio
-    mu = r_2 / r_1 is Pareto with shape d, so -log(1 - F(mu)) = d log mu. The
-    "base" algorithm sorts the ratios, keeps the lowest mu_fraction (the
-    paper discards the top 10 percent as unstable), sets the empirical CDF
-    to i/N, and fits a line through the origin by least squares; "ml" is the
-    closed-form maximum likelihood d = (N - 1) / sum(log mu). Exact
-    duplicate rows are removed first (DADApy keeps them unless
-    remove_identical_points is called; a duplicate gives r_1 = 0 and an
-    infinite ratio, and its neighbors a ratio of 1). The choice matters: on a
-    corpus with 13 duplicate clips among 990 the estimate differs by about 20
-    percent between the two conventions. extras["n_used"] records the count
-    after removal.
-    The intrinsic-dimension estimator of Kanatas et al. (2026).
+    Facco et al. (2017, Scientific Reports): under local uniformity mu = r_2 / r_1 is Pareto with
+    shape d. "base" fits -log(1 - F(mu)) = d log mu through the origin on the lowest mu_fraction
+    of the ratios (the paper discards the top 10 percent); "ml" is d = (N - 1) / sum(log mu).
+    Exact duplicate rows are removed first, which DADApy does not do by default; see
+    extras["n_used"].
 
     Args:
         x: Points (N, D).
         mu_fraction: Fraction of the smallest ratios kept in the fit.
-        algorithm: "base" (linear fit) or "ml" (maximum likelihood).
+        algorithm: "base" or "ml".
 
     Returns:
         value: estimated dimension.
@@ -122,24 +110,16 @@ def gride(
 ) -> MetricResult:
     """GRIDE intrinsic dimension at doubling neighbor scales.
 
-    Denti et al. (2022, Scientific Reports; arXiv:2104.13832) generalize
-    TwoNN to the ratio mu = r_n2 / r_n1 of the n2-th to the n1-th neighbor
-    distance, whose density is d (mu^d - 1)^(n2-n1-1) / (mu^((n2-1)d+1)
-    B(n2-n1, n1)) (their Eq. 13). The estimator maximizes the likelihood
-    over all points at each scale (n1, n2) = (k, 2k) for k = 1, 2, 4, ... up
-    to range_max, which traces the dimension as a function of the
-    neighborhood size. This follows dadapy's reference implementation: the
-    same ratio filter, bisection on the likelihood derivative, and
-    Fisher-information standard error. The returned value is the estimate
-    whose outer rank n2 equals scale; scale 8 is the ratio of the 8th to the 4th
-    neighbor distance. Kanatas et al. (2026) report GRIDE profiles qualitatively
-    consistent with TwoNN. Larger range_max
-    needs a Neighbors table with that many neighbors per point.
+    Denti et al. (2022, Scientific Reports, arXiv:2104.13832, Eq. 13): the maximum-likelihood
+    dimension from the ratio of the n2-th to the n1-th neighbor distance, at (n1, n2) = (k, 2k)
+    for k = 1, 2, 4, ... up to range_max. The value is the estimate at n2 = scale; scale 8 uses
+    the 8th and 4th neighbors. Bisection on the likelihood derivative and Fisher-information
+    errors follow DADApy.
 
     Args:
         x: Points (N, D), or a Neighbors table with k >= range_max.
-        scale: Outer neighbor rank n2 whose estimate is the value; a power of two.
-        range_max: Largest outer rank; log2(range_max) scales are computed.
+        scale: Outer neighbor rank of the returned estimate; a power of two.
+        range_max: Largest outer rank.
         d0, d1: Bisection bounds on the dimension.
         eps: Bisection precision.
 
@@ -170,16 +150,15 @@ def gride(
 def mle(x: Tensor | Neighbors, *, k_range: tuple[int, int] = (10, 20), unbiased: bool = False) -> MetricResult:
     """Levina-Bickel maximum-likelihood intrinsic dimension.
 
-    Levina and Bickel (2004, NeurIPS), Eq. 8: with T_j(x) the distance to
-    the j-th neighbor, m_k(x) = [ (1/(k-1)) sum_{j<k} log(T_k(x)/T_j(x)) ]^-1;
-    Eq. 9 averages m_k over all points and then over k from k1 to k2, which
-    they fix at 10 and 20. Dividing by k-2 instead of k-1 makes the per-point
-    estimate asymptotically unbiased (their remark after Eq. 8).
+    Levina and Bickel (2004, NeurIPS, Eqs. 8-9): m_k(x) = [(1/(k-1)) sum_{j<k} log(T_k(x) /
+    T_j(x))]^-1 from the neighbor distances T_j, averaged over points and over k in k_range
+    (10 to 20 in the paper). unbiased=True divides by k - 2, which they note is asymptotically
+    unbiased.
 
     Args:
         x: Points (N, D), or a Neighbors table with k >= k_range[1].
-        k_range: Inclusive range of neighbor counts averaged over.
-        unbiased: Use k-2 in the denominator.
+        k_range: Inclusive range of neighbor counts.
+        unbiased: Use k - 2 in the denominator.
 
     Returns:
         value: estimated dimension.
@@ -201,13 +180,9 @@ def mle(x: Tensor | Neighbors, *, k_range: tuple[int, int] = (10, 20), unbiased:
 def mlid(x: Tensor | Neighbors, *, k: int = 64) -> MetricResult:
     """Geometric mean of per-point local intrinsic dimension (mLID).
 
-    Per-point LID by the method of moments (Amsaleg et al., 2018, Data
-    Mining and Knowledge Discovery): LID_i = mu_k / (w_k - mu_k), with mu_k
-    the mean of the k-1 nearest distances and w_k the k-th. Aggregated as
-    the geometric mean, which LDReg (Huang et al., 2024, ICLR,
-    arXiv:2401.10474) motivates as the Frechet mean under the Fisher-Rao
-    metric; the variance of log LID is reported as the spread of local
-    dimensionality across points.
+    LID_i = mu_k / (w_k - mu_k) by the method of moments (Amsaleg et al., 2018), with mu_k the
+    mean of the k - 1 nearest distances and w_k the k-th; aggregated as the geometric mean, the
+    Frechet mean of LDReg (Huang et al., 2024, ICLR, arXiv:2401.10474).
 
     Args:
         x: Points (N, D), or a Neighbors table with at least k neighbors.
@@ -234,17 +209,12 @@ def mlid(x: Tensor | Neighbors, *, k: int = 64) -> MetricResult:
 
 
 def mst_dimension(x: Tensor, *, n_min: int | None = None, step: int | None = None, seed: int = 0) -> MetricResult:
-    """Intrinsic dimension from the scaling of minimum-spanning-tree length.
+    """Intrinsic dimension from the growth of minimum-spanning-tree length.
 
-    The MST dimension of Costa and Hero (2006), used by IdEst (Mordacq et
-    al., 2026, arXiv:2606.03338) as a probe-free proxy for linear-probe
-    accuracy. The total MST length of an n-point sample grows as
-    n^((d-1)/d); IdEst's Algorithm 1 draws subsamples of size n_min,
-    n_min + step, ... below N, computes each MST length, regresses log L on
-    log n, and returns d = 1 / (1 - slope). The MST length equals the total
-    zero-dimensional persistence, so this is also the PH_0 dimension. Each
-    MST is O(n^2) in memory, so IdEst caps N at 50,000 and this
-    implementation expects a few thousand points at most.
+    Costa and Hero (2006); IdEst (Mordacq et al., 2026, arXiv:2606.03338, Alg. 1). The MST
+    length of n points grows as n^((d-1)/d): log L is regressed on log n over subsamples of size
+    n_min, n_min + step, ... and d = 1 / (1 - slope). Each MST is O(n^2) in memory; use a few
+    thousand points.
 
     Args:
         x: Points (N, D).

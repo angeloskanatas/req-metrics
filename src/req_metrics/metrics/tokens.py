@@ -1,9 +1,7 @@
-"""Token-population health of one clip's token field (T, D): norm outliers, cosine structure, Gram drift.
+"""Token-field metrics of one clip's tokens (T, D), read before pooling.
 
-These read the token field of a transformer layer directly, before any pooling,
-and watch for the artifacts reported in vision and language transformers:
-high-norm outlier tokens, their concentration in a few channels, collapse of
-the pairwise cosine structure, and drift of that structure during training.
+High-norm outlier tokens, their channel concentration, the pairwise cosine structure, and its
+drift during training.
 """
 
 from __future__ import annotations
@@ -22,29 +20,22 @@ def _check_tokens(x: Tensor, min_tokens: int = 2) -> None:
 
 
 def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | None = None) -> MetricResult:
-    """Fraction of high-norm tokens, and how concentrated the largest token is in a few channels.
+    """Fraction of high-norm tokens, and the channel concentration of the largest one.
 
-    Darcet et al. (2024, ICLR, arXiv:2309.16588) find that large ViTs
-    repurpose a few low-information patches as high-norm tokens; they use an
-    absolute cutoff on the token norm (150 for DINOv2) and observe that the value
-    varies across models, so the default here is relative: a token is an
-    outlier when its norm exceeds factor times the median token norm. Jiang
-    et al. (2025, arXiv:2506.08010) trace the high norms to a sparse set of
-    "register neurons", and Sun et al. (2024, COLM, arXiv:2402.17762)
-    describe the analogous massive activations in language models as a few
-    channels orders of magnitude above the median. The extras therefore
-    report the participation ratio of the squared channel energies of the
-    highest-norm token (near 1 when one channel carries it, near D when the
-    energy is spread) and the share of its largest channel.
+    Darcet et al. (2024, ICLR, arXiv:2309.16588) report high-norm tokens with an absolute cutoff
+    (150 for DINOv2) that varies across models, so a token here is an outlier when its norm
+    exceeds factor times the median. The extras describe the largest token's channel energies,
+    after Jiang et al. (2025) and Sun et al. (2024).
 
     Args:
-        tokens: One clip's tokens, shape (T, D), class tokens removed.
-        factor: Relative cutoff on the median norm.
-        cutoff: Absolute norm cutoff overriding factor, as in Darcet et al.
+        tokens: One clip's tokens (T, D), class tokens removed.
+        factor: Cutoff relative to the median norm.
+        cutoff: Absolute cutoff overriding factor.
 
     Returns:
         value: fraction of outlier tokens.
-        extras: max_over_median, median_norm, max_norm, channel_participation_ratio, top1_channel_mass.
+        extras: max_over_median, median_norm, max_norm, channel_participation_ratio,
+            top1_channel_mass.
     """
     _check_tokens(tokens)
     x = tokens.double()
@@ -68,20 +59,17 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
 def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> MetricResult:
     """Mean cosine similarity between distinct tokens of one clip.
 
-    The patch-to-patch similarity tracked by Marouani et al. (2026, ICLR,
-    arXiv:2602.08626) around each block of a ViT, here on the layer output.
-    Near 1 means the tokens are interchangeable (a collapsed field), near 0
-    means they spread out. Computed exactly on up to n_tokens tokens sampled
-    without replacement.
+    Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. Exact on
+    up to n_tokens tokens sampled without replacement.
 
     Args:
-        tokens: One clip's tokens, shape (T, D), class tokens removed.
+        tokens: One clip's tokens (T, D), class tokens removed.
         n_tokens: Tokens sampled when T exceeds it.
         seed: Sampling seed.
 
     Returns:
         value: mean off-diagonal cosine.
-        extras: n_tokens used.
+        extras: n_tokens.
     """
     _check_tokens(tokens)
     x = tokens.double()
@@ -97,18 +85,15 @@ def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> Metric
 def cls_patch_cosine(tokens_with_cls: Tensor, *, n_prefix: int = 1) -> MetricResult:
     """Mean cosine between the class token(s) and the patch tokens of one clip.
 
-    Marouani et al. (2026, ICLR, arXiv:2602.08626) show that [CLS] and patch
-    tokens diverge at specific layers inside each block although they share
-    the same operators, and that disentangling them improves dense features.
-    Pass the token sequence with its leading class token(s) as the model
-    emits it; the mean is over all (class, patch) pairs.
+    Marouani et al. (2026, ICLR, arXiv:2602.08626) show class and patch tokens diverging at
+    specific layers.
 
     Args:
-        tokens_with_cls: One clip's full token sequence, shape (n_prefix + T, D).
-        n_prefix: Number of leading class or register tokens.
+        tokens_with_cls: The clip's full token sequence (n_prefix + T, D).
+        n_prefix: Leading class or register tokens.
 
     Returns:
-        value: mean cosine between class and patch tokens.
+        value: mean cosine over (class, patch) pairs.
         extras: std over patches.
     """
     _check_tokens(tokens_with_cls, min_tokens=n_prefix + 1)
@@ -119,22 +104,16 @@ def cls_patch_cosine(tokens_with_cls: Tensor, *, n_prefix: int = 1) -> MetricRes
 
 
 def token_gram_drift(tokens: Tensor, reference: Tensor) -> MetricResult:
-    """Squared Frobenius distance between the cosine Gram matrices of two token fields of the same clip.
+    """Drift of a clip's token cosine Gram matrix against a reference field.
 
-    The quantity DINOv3's Gram anchoring regularizes (Simeoni et al., 2025,
-    arXiv:2508.10104, Sec. 4): with X_S and X_G the (P, d) L2-normalized
-    local features of the current and of a reference model, the loss is
-    ||X_S X_S^T - X_G X_G^T||_F^2, which pins the similarity structure while
-    letting the features move. Divided by P^2 here so clips of different
-    length are comparable. As a monitor, the reference is an earlier sweep of
-    the same model; rising drift late in training together with weakening
-    dense probes is the degradation signature that motivated the loss. A
-    two-field metric: call it directly with the two token fields; compute()
-    and compute_pairs() do not route it.
+    DINOv3's Gram anchoring term (Simeoni et al., 2025, arXiv:2508.10104, Sec. 4): ||X_S X_S^T -
+    X_G X_G^T||_F^2 on L2-normalized tokens, divided by P^2 here so clips of different length
+    compare. As a monitor, the reference is an earlier sweep of the same model. Called directly;
+    compute() and compute_pairs() do not route it.
 
     Args:
-        tokens: Current token field, shape (T, D).
-        reference: Reference token field of the same clip, shape (T, D_ref).
+        tokens: Current token field (T, D).
+        reference: Reference field of the same clip (T, D_ref).
 
     Returns:
         value: mean squared difference of the two cosine Gram matrices.

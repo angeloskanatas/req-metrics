@@ -1,11 +1,9 @@
 """Pitch-transposition equivariance (PTE) of a layer, scored on the circle of fifths.
 
-Introduced in Kanatas et al. (2026, ISMIR, arXiv:2608.14819) as a frozen-
-representation diagnostic adapted from the cross-power spectral density
-objective of STONE (Kong et al., 2024, ISMIR); the algebra of that objective
-is in Lostanlen et al. (2025, IEEE Signal Processing Letters), whose Theorem
-III.2 shows that for omega coprime with 12 its global minima are exactly the
-pairs of key-signature profiles related by a shift of k pitch classes.
+Kanatas et al. (2026, ISMIR, arXiv:2608.14819), adapted from the cross-power spectral density
+objective of STONE (Kong et al., 2024, ISMIR); Lostanlen et al. (2025, IEEE SPL, Thm. III.2)
+show that for omega coprime with 12 its minima are the key profiles related by a k-pitch-class
+shift.
 """
 
 from __future__ import annotations
@@ -111,45 +109,25 @@ def pte(
     seed: int = 42,
     device: torch.device | str | None = None,
 ) -> MetricResult:
-    """Pitch-transposition equivariance of a layer: PTE = 1 - d/2 on held-out clips.
+    """Pitch-transposition equivariance: PTE = 1 - d/2 on held-out clips.
 
-    A probe h maps a clip's representation to a 12-bin softmax key profile,
-    projected onto the circle of fifths by the DFT at omega = 7. Applied
-    independently to a clip and its k-semitone audio transposition, the
-    cross-power of the two projections should have phase -2 pi omega k / 12
-    for an equivariant layer; the probe is trained toward that target over
-    all shifts, and scored on held-out clips by d, the root-mean-square
-    chordal distance between the unit-normalized cross-power and its target
-    (score="phase", the definition of Kanatas et al. (2026)), or by the distance of the
-    raw cross-power including its magnitude (score="cpsd"). PTE = 1 - d/2 in
-    [0, 1]: 1 means transposition-equivariant tonal content is linearly
-    decodable, about 0.29 means random phase. Protocol of Kanatas et al. (2026): a
-    linear probe, 10,000 clips split 70/15/15 by clip before shifting, 11 nonzero
-    shifts, Adam at 1e-3, up to 200 epochs with early stopping. The remaining
-    defaults here are weight decay 1e-3, batches of 256 (clip, shift) pairs with
-    mixed shifts, early stopping after 15 flat epochs and the best validation state
-    restored. The MLP probe (probe="mlp") uses
-    Xavier initialization, an asymmetric output bias and softmax temperature
-    0.5, which break the uniform-softmax fixed
-    point where the gradient vanishes (the mitigation of Theorem III.2's
-    caveat that the objective's convexity does not transfer to network
-    weights).
-
-    Read PTE together with mean_abs_cpsd: a probe whose cross-power magnitude
-    stays near zero never left the uniform softmax, and its phase error is then
-    noise rather than a measurement. The metric measures transport along the pitch
-    axis, not tonal content per se. The phase distance of the definition and the
-    distance of the raw cross-power (the STONE loss, magnitude included) are both
-    in the extras of every run; `score` chooses which one is the value.
+    A probe maps each representation to a 12-bin softmax key profile, projected on the circle of
+    fifths (DFT bin omega = 7). Trained on (clip, k-semitone transposition) pairs so the
+    cross-power of the two projections has phase -2 pi omega k / 12, it is scored by d, the RMS
+    chordal distance of the unit-normalized cross-power to that target (score="phase"), or of the
+    raw cross-power (score="cpsd"). 1 means equivariant tonal content is linearly decodable,
+    about 0.29 random phase. Clips are split before shifting. Read with mean_abs_cpsd: a probe
+    whose cross-power stays near zero never left the uniform softmax. The MLP probe uses Xavier
+    initialization, an asymmetric output bias and temperature 0.5 to leave that fixed point.
 
     Args:
-        z: Unshifted representations, shape (N, D).
-        shifted: Map from semitone shift k (nonzero integers) to representations, each (N, D),
-            rows aligned with z. Positive k means the audio was shifted up in pitch.
-        probe: "linear" (paper) or "mlp".
-        score: "phase" (paper) or "cpsd".
+        z: Representations of the original clips (N, D).
+        shifted: Semitone shift k (nonzero) -> representations (N, D), rows aligned with z;
+            positive k raises the pitch.
+        probe: "linear" or "mlp".
+        score: "phase" or "cpsd".
         hidden_units: MLP widths.
-        temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear probe.
+        temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear one.
         epochs, lr, weight_decay, batch_size, patience: Training protocol.
         val_fraction, test_fraction: Clip-level split fractions.
         seed: Split and initialization seed.
@@ -157,8 +135,8 @@ def pte(
 
     Returns:
         value: PTE from the chosen distance.
-        extras: phase_rmse, cpsd_rmse, mean_abs_cpsd, val_rmse,
-            train_rmse, epochs_trained, rmse_k{k} per shift, n_train, n_test.
+        extras: phase_rmse, cpsd_rmse, mean_abs_cpsd, val_rmse, train_rmse, epochs_trained,
+            rmse_k{k} per shift, n_train, n_test.
     """
     if z.ndim != 2:
         raise ValueError(f"expected (N, D), got shape {tuple(z.shape)}")

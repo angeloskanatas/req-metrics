@@ -1,15 +1,10 @@
-"""Label-free selection rules on records: across runs or checkpoints at one layer, and across layers within a run.
+"""Label-free selection rules on records: across runs at one layer, and across layers of a run.
 
-The published rules differ in what they compare. RankMe (Garrido et al., 2023) and
-LiDAR (Thilak et al., 2024) select the hyperparameter configuration with the highest
-value, computed on the representation that will be used downstream, with ties broken
-by the hyperparameter value. Aldeneh et al. (2024) find that effective rank tracks
-downstream performance across checkpoints within a layer but cannot rank layers
-against each other, so runs are compared at the same layer here. Kanatas et al.
-(2026) rank the layers of one model by a metric and probe the top three. The
-direction of a metric depends on the task family and the training paradigm (both
-that paper and Arputharaj et al., 2026, report sign reversals), so it is an argument
-of these functions, not a property of the metric.
+RankMe (Garrido et al., 2023) and LiDAR (Thilak et al., 2024) select the configuration with
+the highest value on the representation used downstream. Aldeneh et al. (2024) find that
+effective rank orders checkpoints within a layer but not layers, so runs are compared at one
+layer. Kanatas et al. (2026) rank the layers of a model and probe the top three. A metric's
+direction depends on the task family and paradigm, so it is an argument.
 """
 
 from __future__ import annotations
@@ -68,14 +63,13 @@ def rank_runs(
 def top_layers(
     records: Records, metric: str, k: int = 3, *, direction: str = "max", target: float | None = None
 ) -> list[int]:
-    """The k layers of one run ranked by a metric, best first: the proxy-ranked shortlist of Kanatas et al. (2026).
+    """The k layers of one run ranked by a metric, best first.
 
     Args:
         records: One run's records.
         metric: Registry name.
         k: Number of layers to return.
-        direction: The metric's correlation sign for the task family, "max" or "min", or
-            "target" with `target`.
+        direction: "max", "min", or "target" with `target`.
         target: Preferred value for direction="target".
 
     Returns:

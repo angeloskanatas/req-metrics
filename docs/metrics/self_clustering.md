@@ -11,26 +11,16 @@ Self-clustering score: excess squared cosine over a uniform spherical cloud.
 
 ## Definition, protocol and pitfalls
 
-Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562,
-Def. 3.5): for L2-normalized rows W, the pairwise dot-product mass
-Q = sum_ij (w_i . w_j)^2 is compared with its expectation for N points
-uniform on the sphere, N + N(N-1)/D, and with its maximum N^2 at complete
-collapse: SelfCluster = (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a
-uniform cloud and 1 for a single point. The paper writes Q as the Frobenius
-norm of W W^T; the expectation and maximum it states are those of the squared
-norm, which is what is used here so that collapse gives exactly 1. Computed
-through the D x D second-moment matrix, ||W^T W||_F^2 = ||W W^T||_F^2, in
-O(N D^2) (the reformulation of Arputharaj et al., 2026, TMLR). Arputharaj et
-al. report it as a reliable negative predictor of accuracy for
-self-supervised vision models, uninformative for supervised ones, and
-anti-correlated at -0.999 with diffusion spectral entropy under
-L2-normalization. The paper found its sign on graph embeddings consistent
-where spectral metrics flipped.
+Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562, Def. 3.5): with Q
+the sum of squared cosines over all pairs of L2-normalized rows,
+(Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a uniform cloud and 1 for a single point.
+The paper writes Q as a Frobenius norm but states the expectation and maximum of its
+square, which is used here. Computed from the D x D second-moment matrix in O(N D^2).
 
 Args:
     x: Points (N, D).
-    center: Mean-center before normalizing (off in the source paper).
+    center: Mean-center before normalizing.
 
 Returns:
-    value: SelfCluster, 0 (uniform) to 1 (collapsed).
+    value: score, 0 (uniform) to 1 (collapsed).
     extras: mean_squared_cosine over distinct pairs, and its uniform value 1/D.

@@ -11,30 +11,18 @@ Matrix-based Renyi entropy of the trace-normalized Gram matrix.
 
 ## Definition, protocol and pitfalls
 
-Sanchez Giraldo, Rao and Principe (2015, IEEE Trans. Inf. Theory) define
-S_alpha(K) = log(sum_i lambda_i^alpha) / (1 - alpha) on the eigenvalues
-of K / tr(K); alpha = 1 is the von Neumann entropy. Skean et al. (2025,
-ICML, Eq. 1) apply it to the Gram matrix K = Z Z^T of a prompt's token
-states ("prompt entropy") and of a dataset's mean-pooled states
-("dataset entropy"); with a population argument these are the frames and
-pooled populations. The nonzero eigenvalues of Z Z^T are the squared
-singular values of Z, so the entropy is computed from the spectrum
-without forming an N x N matrix. The Gram matrix is not clamped: the
-reference implementation zero-clamps negative entries, which is not a
-numerical safeguard and inflated the entropy by 13 to 22 percent on audio
-foundation-model states. The reference library's alpha = 2 shortcut
-divides the squared Frobenius norm by N^2, which assumes a kernel matrix
-with unit diagonal; on a trace-normalized Gram matrix it overstates the
-entropy by exactly 2 log N. The entropy here is computed from the
-eigenvalues for every alpha. Not centered by default, following the papers;
-with center=True and alpha = 1 it equals the normalized entropy of
-effective_rank(spectrum="variance").
+Sanchez Giraldo, Rao and Principe (2015, IEEE Trans. Inf. Theory); Skean et al. (2025, ICML,
+arXiv:2502.02013, Eq. 1). S_alpha = log(sum lambda_i^alpha) / (1 - alpha) over the
+eigenvalues of K / tr(K) with K = Z Z^T; alpha = 1 is the von Neumann entropy. Computed from
+the singular values of Z, without the N x N matrix. Uncentered by default, as in the papers;
+with center=True and alpha = 1 it equals effective_rank's normalized entropy under
+spectrum="variance".
 
 Args:
-    x: Points (N, D), or a Spectrum of already preprocessed points.
-    alpha: Renyi order; 1.0 gives von Neumann entropy.
-    normalization: "max" divides by log min(N, D); "logN", "logD", "raw".
-    center: Mean-center before the Gram matrix (off in the papers).
+    x: Points (N, D), or a Spectrum of preprocessed points.
+    alpha: Renyi order.
+    normalization: "max" divides by log min(N, D); "logN", "logD" or "raw".
+    center: Mean-center before the Gram matrix.
 
 Returns:
     value: normalized entropy.

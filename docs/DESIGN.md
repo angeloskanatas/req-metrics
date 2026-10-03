@@ -155,8 +155,10 @@ deviation (Chen and He, 2021), the bias-corrected participation ratio (Chun et
 al., 2026), neighborhood overlap (Doimo et al., 2020), the intrinsic-dimension
 caveats of Schulte and Rügamer (2026) as card text, the taxonomy and the
 alpha-ReQ fit-range caveat of Arputharaj et al. (2026), the k-means inertia and
-Davies-Bouldin index of Whetten et al. (2025), and linear CKA (Kornblith et al.,
-2019) and SVCCA (Raghu et al., 2017) as layer-pair metrics. Not adopted: the
+Davies-Bouldin index of Whetten et al. (2025), linear CKA (Kornblith et al.,
+2019) and SVCCA (Raghu et al., 2017) as layer-pair metrics, and the Jacobian
+effective rank of Chung and Kim (2026), which needs the model and is therefore
+computed by the monitor. Not adopted: the
 condition number and coherence of Tsitsulin et al. (sign reversals across
 datasets, and a correlation with accuracy that Arputharaj et al. trace to OLS
 conditioning), diffusion spectral entropy (Liao et al., 2024; a bandwidth in
@@ -166,18 +168,18 @@ collinearity with self-clustering), the layer-pair measures of Jiang et al.
 structure estimator of Dai et al. (2025), whose paper and released code
 define different quantities, and the
 parameter- and representation-prediction probes of Plachouras et al. (2025),
-which train a probe for every layer, transformation and evaluation, and the
-Jacobian effective rank of Chung and Kim (2026), which needs the model and its
-inputs rather than representations. The
+which train a probe for every layer, transformation and evaluation. The
 reasons are in `docs/METRICS.md`, section 6.
 
 ## 6. Sample size
 
 N is part of the protocol. Entropic effective rank keeps rising with N
 (RankMe used 25,600 samples; 10,000 gives over 95 percent of the asymptote at
-width 2048), the plug-in participation ratio is biased by about PR/N,
-nearest-neighbor ID estimates carry a few percent of subsample noise, and
-even anisotropy moves when N is not much larger than D. `convergence()`
+width 2048; Tsitsulin et al., 2023, need 16,384 for a 0.95 approximation), the
+plug-in participation ratio is biased by about PR/N, nearest-neighbor ID
+estimates carry a few percent of subsample noise (4.5 percent median over 90
+percent subsamples in Arputharaj et al., 2026), and even anisotropy moves when N
+is not much larger than D, because sampling inflates the leading eigenvalue. `convergence()`
 recomputes a metric on repeated subsets at several fractions through the same
 preprocessing and caches as `compute()`, so N can be chosen per metric and
 cells compared at unequal N can be recognized. Published values are not

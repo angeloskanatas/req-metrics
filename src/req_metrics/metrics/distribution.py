@@ -23,45 +23,27 @@ def _directions(d: int, m: int, seed: int, like: Tensor) -> Tensor:
 def gaussianity(
     x: Tensor, *, method: str = "epps_pulley", num_directions: int = 256, seed: int = 0, center: bool = True
 ) -> MetricResult:
-    """Distance of the point cloud from an isotropic Gaussian via 1-D projections.
+    """Distance of the point cloud from an isotropic Gaussian along random 1-D projections.
 
-    SIGReg from LeJEPA (Balestriero and LeCun, 2025, arXiv:2511.08544)
-    projects the embeddings onto random unit directions and compares each
-    univariate marginal with N(0, 1); by Cramer-Wold, matching every
-    marginal matches the joint. "epps_pulley" follows their reference
-    implementation exactly: the empirical characteristic function on a
-    17-point grid over [-5, 5], squared deviation from exp(-t^2/2) weighted
-    by the same Gaussian, trapezoid-integrated, then multiplied by N (Epps
-    and Pulley, 1983, Biometrika). Here the per-sample statistic (divided
-    by N) is reported so values are comparable across sample counts; the
-    LeJEPA-scale total is in the extras. The cloud is centered but not
-    rescaled, so on raw encoder features the statistic mixes scale with
-    shape; read layer trends within a run. "ks" is the mean
-    Kolmogorov-Smirnov distance of the same projections from N(0, 1), one of
-    the univariate tests LeJEPA compares. "swd" follows VISReg (Wu et al.,
-    2026, arXiv:2606.02572, Algorithm 1), which separates three effects:
-    center = mean squared coordinate of the mean, scale = mean squared
-    deviation of the per-dimension standard deviation from 1, shape = mean
-    squared 2-Wasserstein distance between the sorted projections of the
-    standardized cloud and the standard-normal quantiles i/(N+1); shape stays
-    informative under scale drift. All three statistics use the same
-    directions and are in the extras of every call; method chooses the value.
-    LeJEPA argues that an isotropic Gaussian is the embedding distribution that
-    minimizes downstream prediction risk (their Sec. 3); their label-free model
-    selection (Sec. 6.2) uses the full training loss of LeJEPA runs, not this
-    statistic measured on other encoders.
+    All statistics use the same num_directions random directions; method chooses the value.
+    "epps_pulley" is SIGReg's statistic (Balestriero and LeCun, 2025, arXiv:2511.08544): the
+    weighted squared deviation of the empirical characteristic function from exp(-t^2/2) on 17
+    points over [-5, 5], divided by N here so values compare across N. "ks" is the mean
+    Kolmogorov-Smirnov distance from N(0, 1). "swd" is the shape term of VISReg (Wu et al., 2026,
+    arXiv:2606.02572, Alg. 1) on the standardized cloud, insensitive to scale drift. LeJEPA
+    argues the isotropic Gaussian is optimal for downstream risk (Sec. 3); its model selection
+    (Sec. 6.2) uses the LeJEPA training loss, not this statistic on other encoders.
 
     Args:
         x: Points (N, D).
-        method: "epps_pulley", "ks" or "swd" (the VISReg shape distance).
-        num_directions: Number of random unit directions (LeJEPA default 256).
-        seed: Seed for the directions.
-        center: Mean-center before projecting for "epps_pulley" and "ks"; "swd" always
-            standardizes.
+        method: "epps_pulley", "ks" or "swd".
+        num_directions: Random unit directions.
+        seed: Seed of the directions.
+        center: Mean-center before projecting ("swd" always standardizes).
 
     Returns:
         value: the chosen statistic; lower is closer to an isotropic Gaussian.
-        extras: epps_pulley, epps_pulley_total, ks, swd_shape, swd_center, swd_scale.
+        extras: epps_pulley, epps_pulley_total (times N), ks, swd_shape, swd_center, swd_scale.
     """
     if method not in ("epps_pulley", "ks", "swd"):
         raise ValueError(f"unknown method {method!r}")
@@ -98,15 +80,11 @@ def gaussianity(
 
 
 def sparsity(x: Tensor) -> MetricResult:
-    """Fraction of active entries and a Hoyer-type l1/l2 density ratio.
+    """Sparsity: Hoyer-type l1/l2 density and the fraction of active entries.
 
-    Rectified LpJEPA (Kuang et al., 2026, arXiv:2602.01456, appendix):
-    m_l0 = E[||x||_0] / D, the fraction of nonzero entries, 0 for all-zero
-    vectors and 1 for fully dense ones; m_l1 = E[||x||_1^2 / ||x||_2^2] / D,
-    which is 1/D for a one-hot vector and 1 for a dense vector with equal
-    magnitudes. Pre-activation transformer states are dense, so m_l0 is
-    informative only after a rectifying nonlinearity; m_l1 varies
-    continuously and is the returned value.
+    Kuang et al. (2026, arXiv:2602.01456, appendix): m_l1 = E[||x||_1^2 / ||x||_2^2] / D, from
+    1/D for a one-hot vector to 1 for equal magnitudes; m_l0 = E[||x||_0] / D, informative only
+    after a rectifying nonlinearity.
 
     Args:
         x: Points (N, D).
@@ -130,18 +108,13 @@ def sparsity(x: Tensor) -> MetricResult:
 
 
 def embedding_norm(x: Tensor) -> MetricResult:
-    """Mean Euclidean norm of the representations, with its spread.
+    """Mean Euclidean norm of the representations.
 
-    Draganov et al. (2025, arXiv:2502.09252) show that although cosine-based
-    self-supervised objectives embed on a hypersphere, the norms of the
-    pre-normalization embeddings govern convergence rates and encode the
-    network's confidence, with smaller norms on unexpected samples. Tracked
-    per layer during training the mean norm is a convergence monitor; the
-    coefficient of variation separates a few outlier clips from a uniform
-    rescaling. Take the representation before any L2 normalization.
+    Draganov et al. (2025, arXiv:2502.09252): pre-normalization norms govern convergence and
+    shrink on unexpected samples. Take the representation before any L2 normalization.
 
     Args:
-        x: Representations, shape (N, D).
+        x: Representations (N, D).
 
     Returns:
         value: mean norm.

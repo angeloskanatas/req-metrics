@@ -14,39 +14,24 @@ from req_metrics.registry import register_metric
 def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", normalize: str = "none") -> MetricResult:
     """Mean turning angle between successive displacement vectors of a frame trajectory.
 
-    Discrete curvature of a trajectory (Henaff, Goris and Simoncelli, 2019,
-    Nature Neuroscience; Hosseini and Fedorenko, 2023, NeurIPS): with
-    displacements v_t = z_{t+k} - z_t, the angle c_t = arccos(v_t . v_{t+k} /
-    |v_t||v_{t+k}|) in [0, pi], averaged over t. Zero for a straight
-    trajectory, invariant to the scale of the representation, and the
-    definition of Kanatas et al. (2026). Reference values for
-    k = 1: independent frames give 2pi/3 (120 degrees) and a random walk pi/2.
-
-    convention="abs" folds the range to [0, pi/2] by taking the absolute
-    cosine, as widely used implementations do (Skean et al., 2025, ICML), which
-    maps the anti-persistent regime (angles above pi/2) onto the persistent one.
-    On the anti-persistent branch the folded reading is a rank reversal of the
-    signed one, so values and correlation signs are not comparable across
-    conventions.
-    normalize="path_length" divides each
-    angle by the sum of the two displacement lengths (RECURVE, Shin et al.,
-    2024, NeurIPS, Definition 3.2), the turning rate per unit length used for
-    boundary detection; it is no longer scale-free. All three readings come from the same
-    angles and are in the extras of every call; convention and normalize only
-    choose the value. The extras also report the mean cosine itself, the
-    "straightness" maximized by Niu et al. (2024, NeurIPS) and Wang et al.
-    (2026, ICML).
+    Henaff, Goris and Simoncelli (2019, Nature Neuroscience); Hosseini and Fedorenko (2023,
+    NeurIPS). With v_t = z_{t+k} - z_t, c_t = arccos(v_t . v_{t+k} / |v_t| |v_{t+k}|) in [0, pi],
+    averaged over t: 0 for a straight trajectory, pi/2 for a random walk, 2pi/3 for independent
+    frames (k = 1). convention="abs" folds angles to [0, pi/2], as in Skean et al. (2025); above
+    pi/2 the folded reading reverses the ranking, so the conventions are not comparable.
+    normalize="path_length" divides each angle by the two step lengths (RECURVE, Shin et al.,
+    2024, Def. 3.2) and is not scale-free. All readings are in the extras.
 
     Args:
-        z: One clip's frames, shape (T, D), time-ordered; T >= 2k + 1.
-        k: Frame gap of the displacement vectors; the angle spans 2k frames.
-        convention: "signed" (angle in [0, pi]) or "abs" (folded to [0, pi/2]).
+        z: One clip's frames (T, D), time-ordered; T >= 2k + 1.
+        k: Frame gap of the displacements.
+        convention: "signed" or "abs".
         normalize: "none" or "path_length".
 
     Returns:
-        value: mean curvature in radians (or radians per unit length).
-        extras: signed and abs (both conventions, radians) with signed_degrees and abs_degrees,
-            path_length_normalized (the RECURVE reading), mean_cos, n_angles, n_zero_steps.
+        value: mean curvature in radians (per unit length when normalized).
+        extras: signed, abs, signed_degrees, abs_degrees, path_length_normalized, mean_cos,
+            n_angles, n_zero_steps.
     """
     if z.ndim != 2:
         raise ValueError(f"expected (T, D), got shape {tuple(z.shape)}")

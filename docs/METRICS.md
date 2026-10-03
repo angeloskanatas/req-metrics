@@ -56,7 +56,7 @@ covers what applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
 | Manifold | dimension: intrinsic_dimension (TwoNN), intrinsic_dimension/gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields) | points, frames, views, shifts, pairs, tokens |
+| Not in that taxonomy | clustering: cluster_quality (k-means, pooled or frames); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (frames); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, frames, views, shifts, pairs, tokens, Jacobian-vector products |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -83,7 +83,13 @@ docstring says so.
   i/(N+1); RankMe's 25,600 samples; Chung and Kim's isotropy score
   1 - lambda_1 / sum(lambda). reptrix computes RankMe through PCA, which
   centers, while the RankMe paper does not center; both conventions are
-  exposed and the default is stated on the card.
+  exposed and the default is stated on the card. RankMe's epsilon inside the
+  logarithm is omitted, so zero singular values contribute nothing. The
+  reference matrix-entropy code clamps negative Gram entries to zero, which
+  raised the entropy by 13 to 22 percent on audio foundation-model states; the
+  Gram matrix is not clamped here. RankMe-t (Aldeneh et al., 2024) is the
+  effective rank of the pooled population under mean pooling, up to a per-clip
+  scale that the effective rank ignores.
 - Neighbor group. TwoNN and GRIDE follow DADApy step for step and reproduce
   its solver to machine precision (estimates and Fisher errors at every scale,
   checked by loading DADApy's own likelihood functions on the same ratios).
@@ -100,9 +106,10 @@ docstring says so.
   90 degrees, regular polygon exact). Zero-length steps are excluded and
   counted rather than scored as 90 degrees.
 - View group. LiDAR reproduces the analysis code of Kanatas et al. (2026) to
-  2e-14 with their biased denominators and delta 1e-6; the default follows
-  Thilak et al.'s unbiased estimates and the delta 1e-4 of the Skean et al.
-  (2025) analysis code. InfoNCE matches to 1e-9. DiME's joint entropy matches
+  2e-14 with delta 1e-6; the default delta 1e-4 is that of the Skean et al.
+  (2025) analysis code. Thilak et al. state unbiased estimates without giving
+  denominators; the choice leaves the value unchanged. InfoNCE matches to 1e-9
+  on two views; with more views it averages the two-view loss over view pairs. DiME's joint entropy matches
   repitl to 1e-15; unlike that analysis code, it never swaps the N x N Gram
   Hadamard product for D x D covariances when N > D, since the two differ
   (single-matrix entropies agree, Hadamard products do not).
@@ -127,7 +134,7 @@ kind. The canonical set:
 
 | metric | estimator / variant | preprocessing | population | views |
 |---|---|---|---|---|
-| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale also computed | none | pooled | 1 |
+| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | pooled | 1 |
 | effective_rank | singular spectrum | center | pooled | 1 |
 | anisotropy | spectral | center + L2 | pooled | 1 |
 | trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | frames | 1 |
@@ -285,3 +292,18 @@ In their study the two correlate with recognition in opposite directions, so
 they are read together and compared at the same layer, N and k. Full-batch
 Lloyd iterations with a seed replace the paper's mini-batch k-means, so values
 are reproducible.
+
+## 10. jacobian_effective_rank
+
+Chung and Kim (2026, arXiv:2602.03282, Eq. 1): the participation ratio
+(sum s_i)^2 / sum s_i^2 of the singular values of J(x) v_1, ..., J(x) v_k, the
+products of a readout's input-output Jacobian with k random orthonormal input
+directions, averaged over inputs; at most k. Their protocol (App. D) uses 32
+directions and 100 noise images on the final embedding. `LayerMonitor` computes
+it on the first `jacobian_items` inputs of the monitoring set, for the readout of
+every hooked layer, with one forward-mode pass per direction for all layers;
+`jacobian_input` sets the tensor the Jacobian is taken with respect to (a
+spectrogram rather than the waveform, for instance). Values are comparable at
+equal k, inputs and readout. Chung and Kim find the measure predictive of
+compositional binding and state that it is not a universal quality measure.
+

@@ -189,6 +189,46 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual([r.value for r in first], [r.value for r in second])  # no dropout noise
         self.assertTrue(model.training and model[1].training and not model[3].training)
 
+    def test_jacobian_in_a_sweep_leaves_the_online_buffer_untouched(self):
+        model = nn.Sequential(nn.Linear(16, 16), nn.GELU(), nn.Linear(16, 16))
+        buf = rq.OnlineBuffer([model[0], model[2]], pool=lambda out: out, n_items=200)
+        buf.attach()
+        mon = rq.LayerMonitor(
+            [model[0], model[2]], pool=lambda out: out, metrics=["effective_rank"], n_items=120, jacobian_items=6
+        )
+        try:
+            rec = mon.sweep(model, loader(), step=0)
+        finally:
+            buf.detach()
+        jer = [r for r in rec if r.metric == "jacobian_effective_rank"]
+        self.assertEqual([r.layer for r in jer], [0, 1])
+        self.assertTrue(all(1.0 <= r.value <= 16.0 and r.n_items == 6 for r in jer))
+        self.assertEqual(buf.seen.get(0, 0), 0)  # eval-mode passes are not training batches
+
+    def test_views_in_train_mode_switch_only_the_augmented_passes(self):
+        modes = []
+
+        class Probe(nn.Module):
+            def forward(self, x):
+                modes.append(self.training)
+                return x
+
+        model = nn.Sequential(Probe(), nn.Linear(16, 16))
+        model.eval()
+        mon = rq.LayerMonitor(
+            [model[1]],
+            pool=lambda out: out,
+            metrics=["effective_rank"],
+            view_metrics=["lidar"],
+            augment=lambda x, g: x + 0.1 * torch.randn(x.shape, generator=g),
+            q=2,
+            n_items=120,
+            views_in_train_mode=True,
+        )
+        mon.sweep(model, loader(), step=0)
+        self.assertEqual(modes, [False] * 3 + [True] * 6)  # 3 batches plain, then 2 views x 3 batches
+        self.assertFalse(model.training)
+
     def test_view_metrics_reject_a_one_shot_loader(self):
         mon = rq.LayerMonitor(
             self.model.blocks,
@@ -199,13 +239,13 @@ class MonitorTests(unittest.TestCase):
             q=2,
             n_items=120,
         )
-        with self.assertRaisesRegex(ValueError, "not an iterator"):
+        with self.assertRaisesRegex(ValueError, "read the loader again"):
             mon.sweep(self.model, iter(loader()), step=0)
 
     def test_compute_warns_when_an_estimator_fails(self):
         views = {0: torch.randn(3, 200, 8)}
         with self.assertWarns(RuntimeWarning):
-            rec = rq.compute(views, ["infonce"])  # infonce takes exactly two views
+            rec = rq.compute(views, ["dime"])  # dime takes exactly two views
         self.assertIn("error", rec[0].extras)
 
     def test_compute_rejects_layers_of_unequal_length(self):

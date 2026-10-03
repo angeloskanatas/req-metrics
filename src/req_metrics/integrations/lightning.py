@@ -59,8 +59,11 @@ class LayerMonitorCallback(_Base):
             tuple or list and passes a tensor through.
         loader: Optional callable (trainer, pl_module) -> iterable replacing the automatic
             monitoring subset.
-        view_metrics, augment, q, view_spec: View metrics computed from q augmented passes
-            with augment(batch, generator); see LayerMonitor.
+        view_metrics, augment, q, view_spec, views_in_train_mode: View metrics computed from q
+            augmented passes with augment(batch, generator); see LayerMonitor.
+        jacobian_items, jacobian_probes, jacobian_input, jacobian_forward: Jacobian effective
+            rank of every layer's readout on the first jacobian_items monitoring inputs; see
+            LayerMonitor. Off by default.
         params, model, pooling, corpus: Forwarded to LayerMonitor and recorded.
         online: Also hook the training forward passes into an OnlineBuffer and compute
             online_metrics (default: the same point metrics) on the most recent online_n_items
@@ -99,6 +102,11 @@ class LayerMonitorCallback(_Base):
         augment: Callable | None = None,
         q: int = 2,
         view_spec: ViewSpec | None = None,
+        views_in_train_mode: bool = False,
+        jacobian_items: int = 0,
+        jacobian_probes: int = 32,
+        jacobian_input: Callable[[Any], Any] | None = None,
+        jacobian_forward: Callable[[Any], Any] | None = None,
         params=None,
         model: str | None = None,
         pooling: str | None = None,
@@ -131,6 +139,9 @@ class LayerMonitorCallback(_Base):
         self._loader_fn = loader
         self._loader: Iterable[Any] | None = None
         self.view_metrics, self.augment, self.q, self.view_spec = list(view_metrics), augment, q, view_spec
+        self.views_in_train_mode = views_in_train_mode
+        self.jacobian_items, self.jacobian_probes = jacobian_items, jacobian_probes
+        self.jacobian_input, self.jacobian_forward = jacobian_input, jacobian_forward
         self.labels: dict[str, Any]
         self.params, self.labels = (
             params,
@@ -163,6 +174,11 @@ class LayerMonitorCallback(_Base):
                 augment=self.augment,
                 q=self.q,
                 view_spec=self.view_spec,
+                views_in_train_mode=self.views_in_train_mode,
+                jacobian_items=self.jacobian_items,
+                jacobian_probes=self.jacobian_probes,
+                jacobian_input=self.jacobian_input,
+                jacobian_forward=self.jacobian_forward,
                 seed=self.seed,
                 **self.labels,
             )
@@ -259,7 +275,7 @@ class LayerMonitorCallback(_Base):
 
                 torch.cuda.empty_cache()
             forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
-            rec = self.monitor.sweep(forward, _Inputs(self._loader, self.batch_input), epoch, ())
+            rec = self.monitor.sweep(forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target)
             self._stamp(trainer, rec)
             for sink in self._sinks(trainer):
                 sink(rec, epoch)

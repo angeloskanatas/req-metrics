@@ -7,20 +7,22 @@ Keep a Changelog; versions follow Semantic Versioning.
 
 First release in preparation.
 
-- 35 label-free representation metrics in eleven groups: spectral (effective rank, matrix-based
-  entropy, alpha-ReQ, anisotropy, participation ratio with the bias corrections of Chun et al.,
-  eigenvalue early enrichment), intrinsic dimension (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST
-  dimension), local geometry (kNN curvature, local rectifiability), relational (cosine anisotropy,
+- 36 label-free metrics in twelve groups: spectral (effective rank, matrix-based entropy,
+  alpha-ReQ, anisotropy, participation ratio with the bias corrections of Chun et al., eigenvalue
+  early enrichment), intrinsic dimension (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST dimension),
+  local geometry (kNN curvature, local rectifiability), relational (cosine anisotropy,
   self-clustering, uniformity, normalized standard deviation), clustering (k-means inertia and
   Davies-Bouldin index), distribution (Gaussianity, sparsity, embedding norm), trajectory
-  curvature, view metrics (LiDAR, InfoNCE, DiME, alignment), pitch-transposition equivariance,
-  layer-pair metrics (information imbalance, neighborhood overlap, CKA, SVCCA) and token-field
-  metrics. Each is registered with its input contract, canonical preprocessing and citation.
+  curvature, view metrics (LiDAR, InfoNCE over any number of views, DiME, alignment),
+  pitch-transposition equivariance, layer-pair metrics (information imbalance, neighborhood
+  overlap, CKA, SVCCA), token-field metrics and the Jacobian effective rank. Each is registered
+  with its input contract, canonical preprocessing and citation.
 - Pipeline: `compute()` over pooled vectors, per-clip frames or token clouds, with shared spectra
   and neighbor tables, seeded subsetting and per-metric item caps; `compute_pairs()`; `Records`
   with JSON, CSV and pandas export; `convergence()` sample-size curves; selection rules across runs
   and layers (`rank_runs`, `top_layers`); parameter-free readouts for token grids and frame
   sequences; `protocols.get("kanatas2026")`.
-- Monitoring: `LayerMonitor` on a fixed seeded subset in eval mode, `OnlineBuffer` over training
-  batches, CSV, JSON, TensorBoard and Weights & Biases sinks, and a PyTorch Lightning callback with
-  epoch and step schedules.
+- Monitoring: `LayerMonitor` on a fixed seeded subset in eval mode, view passes in train mode for
+  objectives whose positives come from masking inside the model, the Jacobian effective rank of
+  every layer's readout, `OnlineBuffer` over training batches, CSV, JSON, TensorBoard and Weights &
+  Biases sinks, and a PyTorch Lightning callback with epoch and step schedules.

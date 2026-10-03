@@ -23,6 +23,7 @@ from req_metrics.metrics.compare import cka, information_imbalance, neighborhood
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.distribution import embedding_norm, gaussianity, sparsity
 from req_metrics.metrics.equivariance import pte
+from req_metrics.metrics.functional import jacobian_effective_rank
 from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
 from req_metrics.metrics.relational import anisotropy_cosine, normalized_std, self_clustering, uniformity
 from req_metrics.metrics.spectral import (
@@ -40,6 +41,7 @@ from req_metrics.monitor import (
     LayerMonitor,
     OnlineBuffer,
     csv_sink,
+    jacobian_products,
     json_sink,
     make_pooler,
     metric_key_prefix,
@@ -136,6 +138,8 @@ __all__ = [
     "cka",
     "svcca",
     "cluster_quality",
+    "jacobian_effective_rank",
+    "jacobian_products",
     "rank_runs",
     "top_layers",
     "value_at",

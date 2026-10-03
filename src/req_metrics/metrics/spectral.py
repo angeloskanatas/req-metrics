@@ -1,12 +1,7 @@
 """Spectral metrics: functions of the singular spectrum of a point cloud.
 
-Effective rank, matrix-based entropy, alpha-ReQ, spectral anisotropy and
-eigenvalue early enrichment are read off one Spectrum, so a pipeline computes the SVD once per layer and
-preprocessing choice and passes the Spectrum instead of the tensor.
-
-Every estimator applies its canonical preprocessing itself when given a
-tensor, so a direct call reproduces the published definition; when given a
-Spectrum it trusts that the caller preprocessed the data the same way.
+All are read off one Spectrum, so the pipeline computes the SVD once per layer and
+preprocessing. Given a tensor, each estimator applies its canonical preprocessing.
 """
 
 from __future__ import annotations
@@ -45,46 +40,32 @@ def _normalize_entropy(h: float, normalization: str, n: int, d: int) -> float:
     return h / denom if denom > 0 else float("nan")
 
 
-def effective_rank(x: Tensor | Spectrum, *, spectrum: str = "singular", center: bool = True) -> MetricResult:
+def effective_rank(
+    x: Tensor | Spectrum, *, spectrum: str = "singular", center: bool = True, max_eigenvalues: int | None = None
+) -> MetricResult:
     """Effective rank: exponential of the Shannon entropy of the normalized spectrum.
 
-    Roy and Vetterli (2007, EUSIPCO) define it on the singular values,
-    p_k = s_k / sum(s), erank = exp(-sum p_k log p_k), bounded by 1 and the
-    rank. RankMe (Garrido et al., 2023, ICML) uses the same quantity as a
-    label-free predictor of linear-probe accuracy and for hyperparameter
-    selection, computed on 25,600 samples; their appendix shows convergence
-    in the number of samples for 2048-dimensional outputs, so N should be an
-    order of magnitude above D. RankMe-t (Aldeneh et al., 2024) is the same
-    quantity on frame sequences summed over time, one vector per utterance,
-    which is the pooled population with mean pooling up to a per-clip scale
-    that the effective rank ignores. Skean et al. (2025, ICML) and the reptrix
-    library normalize the eigenvalues of the covariance instead (s_k^2),
-    which weights the leading directions more heavily; pass
-    spectrum="variance" for that convention. Both conventions come from the
-    same spectrum, so the other one is always in the extras. With
-    spectrum="variance", normalized_entropy is the spectral entropy of NerVE
-    (Jha et al., 2026, arXiv:2603.06922, Eq. 1).
-
-    The matrix is mean-centered before the SVD. RankMe as published does
-    not center; the reptrix reference implementation does, through PCA.
-    Centering changes conclusions: on autoregressive decoders the
-    uncentered spectrum is dominated by the mean direction and the
-    layer-wise correlation with downstream accuracy changes sign. RankMe's
-    epsilon inside the logarithm is omitted; zero singular values contribute
-    zero entropy exactly.
+    Roy and Vetterli (2007, EUSIPCO); RankMe (Garrido et al., 2023, ICML, arXiv:2210.02885).
+    p_k = s_k / sum(s) over the singular values, or s_k^2 / sum(s^2) with spectrum="variance"
+    (Skean et al., 2025). Centered by default: on autoregressive decoders the uncentered
+    spectrum is dominated by the mean direction. RankMe uses 25,600 samples; N should be well
+    above D.
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points.
-        spectrum: "singular" (Roy-Vetterli, RankMe) or "variance" (Skean, reptrix).
+        x: Points (N, D), or a Spectrum of preprocessed points.
+        spectrum: "singular" or "variance".
         center: Mean-center before the SVD.
+        max_eigenvalues: Keep only the largest singular values, as a truncated PCA does.
 
     Returns:
         value: effective rank in [1, min(N, D)].
-        extras: entropy, normalized_entropy (over log min(N, D)), normalized_rank = value / D
-            (RankMe* of Tsitsulin et al., 2023, the fraction of the width in use), and the
-            effective rank under the other spectrum convention.
+        extras: entropy; normalized_entropy, over log min(N, D) (with spectrum="variance", the
+            spectral entropy of Jha et al., 2026, Eq. 1); normalized_rank, value / D; and the
+            effective rank under the other convention.
     """
     s = _spectrum(x, Preprocess(center=center))
+    if max_eigenvalues is not None and s.singular_values.numel() > max_eigenvalues:
+        s = Spectrum(singular_values=s.singular_values[:max_eigenvalues], n=s.n, d=s.d)
     h = _renyi_entropy(s.normalized(spectrum), 1.0)
     h_other = _renyi_entropy(s.normalized("variance" if spectrum == "singular" else "singular"), 1.0)
     h_max = math.log(min(s.n, s.d))
@@ -104,30 +85,18 @@ def matrix_entropy(
 ) -> MetricResult:
     """Matrix-based Renyi entropy of the trace-normalized Gram matrix.
 
-    Sanchez Giraldo, Rao and Principe (2015, IEEE Trans. Inf. Theory) define
-    S_alpha(K) = log(sum_i lambda_i^alpha) / (1 - alpha) on the eigenvalues
-    of K / tr(K); alpha = 1 is the von Neumann entropy. Skean et al. (2025,
-    ICML, Eq. 1) apply it to the Gram matrix K = Z Z^T of a prompt's token
-    states ("prompt entropy") and of a dataset's mean-pooled states
-    ("dataset entropy"); with a population argument these are the frames and
-    pooled populations. The nonzero eigenvalues of Z Z^T are the squared
-    singular values of Z, so the entropy is computed from the spectrum
-    without forming an N x N matrix. The Gram matrix is not clamped: the
-    reference implementation zero-clamps negative entries, which is not a
-    numerical safeguard and inflated the entropy by 13 to 22 percent on audio
-    foundation-model states. The reference library's alpha = 2 shortcut
-    divides the squared Frobenius norm by N^2, which assumes a kernel matrix
-    with unit diagonal; on a trace-normalized Gram matrix it overstates the
-    entropy by exactly 2 log N. The entropy here is computed from the
-    eigenvalues for every alpha. Not centered by default, following the papers;
-    with center=True and alpha = 1 it equals the normalized entropy of
-    effective_rank(spectrum="variance").
+    Sanchez Giraldo, Rao and Principe (2015, IEEE Trans. Inf. Theory); Skean et al. (2025, ICML,
+    arXiv:2502.02013, Eq. 1). S_alpha = log(sum lambda_i^alpha) / (1 - alpha) over the
+    eigenvalues of K / tr(K) with K = Z Z^T; alpha = 1 is the von Neumann entropy. Computed from
+    the singular values of Z, without the N x N matrix. Uncentered by default, as in the papers;
+    with center=True and alpha = 1 it equals effective_rank's normalized entropy under
+    spectrum="variance".
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points.
-        alpha: Renyi order; 1.0 gives von Neumann entropy.
-        normalization: "max" divides by log min(N, D); "logN", "logD", "raw".
-        center: Mean-center before the Gram matrix (off in the papers).
+        x: Points (N, D), or a Spectrum of preprocessed points.
+        alpha: Renyi order.
+        normalization: "max" divides by log min(N, D); "logN", "logD" or "raw".
+        center: Mean-center before the Gram matrix.
 
     Returns:
         value: normalized entropy.
@@ -141,29 +110,19 @@ def matrix_entropy(
 def alpha_req(x: Tensor | Spectrum, *, fit_range: tuple[int, int] = (10, 100), center: bool = True) -> MetricResult:
     """Power-law decay exponent of the covariance eigenspectrum (alpha-ReQ).
 
-    Agrawal et al. (2022, NeurIPS) fit lambda_j ~ j^(-alpha) to the sorted
-    eigenvalues of the empirical covariance. Small alpha (at most about 1)
-    indicates a dense encoding, large alpha a rapidly decaying, sparse one;
-    both too high and too low a value imply poor generalization, with good
-    representations in a range close to 1, matching the infinite-width
-    linear-regression result that min-norm solutions generalize iff alpha = 1.
-    The fit is the Stringer et al. (2019, Nature) recipe used by the
-    reference implementation: weighted least squares in log-log space over
-    the eigenvalue indices in fit_range, with weights 1/j to down-weight the
-    tail. The exponent is independent of how the spectrum is normalized.
-    The fit range changes conclusions: Arputharaj et al. (2026, TMLR,
-    Appendix B.1) find the correlation of alpha with accuracy flipping sign
-    between this range and indices [10, 0.9 D], so record fit_range with
-    every value and do not compare alphas fitted over different ranges.
+    Agrawal et al. (2022, NeurIPS): lambda_j ~ j^(-alpha), fitted by weighted least squares in
+    log-log space with weights 1/j over fit_range (Stringer et al., 2019). Values near 1 go with
+    good representations. The fit range can flip the sign of the correlation with accuracy
+    (Arputharaj et al., 2026, App. B.1), so compare alphas only at equal fit_range.
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points.
-        fit_range: Half-open range of 0-based eigenvalue indices used in the fit.
-        center: Mean-center before the SVD (the covariance is centered by definition).
+        x: Points (N, D), or a Spectrum of preprocessed points.
+        fit_range: Half-open range of 0-based eigenvalue indices.
+        center: Mean-center before the SVD.
 
     Returns:
         value: alpha.
-        extras: r2 of the log-log fit over fit_range.
+        extras: r2 of the log-log fit.
     """
     s = _spectrum(x, Preprocess(center=center))
     eig = s.normalized("variance")
@@ -186,32 +145,21 @@ def alpha_req(x: Tensor | Spectrum, *, fit_range: tuple[int, int] = (10, 100), c
 
 
 def anisotropy_spectral(x: Tensor | Spectrum, *, center: bool = True, l2: bool = True) -> MetricResult:
-    """Fraction of total variance on the leading singular direction.
+    """Spectral anisotropy: the share of variance on the leading direction.
 
-    Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum_k s_k^2 of the
-    centered embedding matrix; 1/D for an isotropic cloud, 1 when all
-    variance lies on one axis. The canonical protocol centers and then
-    L2-normalizes each row, so the score measures directional
-    concentration independent of norm. Chung and Kim (2026,
-    arXiv:2602.03282) report the complement 1 - lambda_1 / sum(lambda) as
-    the global isotropy score on the centered, non-normalized spectrum;
-    with l2=False the extras field equals it. The reciprocal sum(lambda) /
-    lambda_1 is the normalized eigenvalue sum NESum of He and Ozay (2022,
-    ICML, Def. 4.1), the whitening measure that equals the stable rank of
-    Tsitsulin et al. (2023) on centered data; it is returned in the extras
-    rather than as a separate metric. He and Ozay find its relation to
-    accuracy non-monotonic (too whitened is also worse), and Arputharaj et
-    al. (2026, TMLR) find it predictive for self-supervised but not for
-    supervised vision models.
+    Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum s_k^2 of the centered matrix, 1/D for an
+    isotropic cloud and 1 for a single axis. Rows are L2-normalized after centering by default,
+    so the score ignores norms. With l2=False, 1 - value is the isotropy score of Chung and Kim
+    (2026); 1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank on centered data.
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points.
+        x: Points (N, D), or a Spectrum of preprocessed points.
         center: Mean-center before the SVD.
-        l2: Scale each row to unit norm after centering.
+        l2: Scale rows to unit norm after centering.
 
     Returns:
         value: anisotropy in (0, 1].
-        extras: isotropy_score = 1 - value; ne_sum = 1 / value (NESum, stable rank) of the analyzed matrix.
+        extras: isotropy_score (1 - value), ne_sum (1 / value).
     """
     s = _spectrum(x, Preprocess(center=center, l2=l2))
     lam = s.eigenvalues
@@ -222,39 +170,25 @@ def anisotropy_spectral(x: Tensor | Spectrum, *, center: bool = True, l2: bool =
 def participation_ratio(
     x: Tensor | Spectrum, *, normalized: bool = True, center: bool = True, correction: str = "none"
 ) -> MetricResult:
-    """Participation ratio of the covariance eigenvalues, (sum lambda)^2 / sum lambda^2.
+    """Participation ratio (sum lambda)^2 / sum lambda^2 of the covariance eigenvalues.
 
-    A classical count of directions that carry variance, between 1 and D
-    (NerVE, Jha et al., 2026, Eq. 2). Divided by D it is the global
-    participation ratio G.PR of Chung and Kim (2026, arXiv:2602.03282),
-    in (0, 1] with 1 for an isotropic cloud; that paper finds it, like other
-    global geometry statistics, uncorrelated with compositional binding,
-    which is the caveat to carry.
-
-    The plug-in estimate is biased downward at finite N: Chun, Canatar, Chung
-    and Lee (2026, ICLR, arXiv:2509.26560, Sec. 3) show 1/PR_naive is about
-    1/N + 1/D + 1/PR, so the relative bias is about PR/N. Their unbiased
-    estimators average the quartic index sums over distinct indices (Sec. 4):
-    "row" removes the sample-size bias, the case of network activations where
-    all D units are observed (their Sec. 4.5), "col" removes the
-    unit-subsampling term and "both" removes the two. The plug-in and the three
-    corrected estimates come from one pass over the (N, D) matrix, in closed
-    form from the D x D second-moment matrix and column moments, checked
-    against the reference implementation; all four are in the extras and
-    correction chooses the value. Use "row" when N is below about 100 times the
-    expected ratio, which includes small monitoring buffers. A Spectrum, or
+    Jha et al. (2026, Eq. 2); divided by D, the G.PR of Chung and Kim (2026). The plug-in
+    estimate is biased low by about PR/N. Chun, Canatar, Chung and Lee (2026, ICLR,
+    arXiv:2509.26560, Sec. 4) give unbiased estimators: "row" corrects the sample size (all
+    units observed), "col" the unit subsampling, "both" the two. All four come from one
+    closed-form pass over the (N, D) matrix; correction chooses the value. A Spectrum, or
     center=False, gives the plug-in estimate only.
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points (plug-in only).
+        x: Points (N, D), or a Spectrum of preprocessed points (plug-in only).
         normalized: Divide by D.
         center: Mean-center; False gives the uncentered plug-in estimate only.
-        correction: "none" (plug-in), "row", "col" or "both" (Chun et al., 2026).
+        correction: "none", "row", "col" or "both".
 
     Returns:
         value: the chosen estimate, divided by D if normalized.
-        extras: participation_ratio (the chosen estimate, not divided by D) and the
-            naive, row, col and both estimates.
+        extras: participation_ratio (the chosen estimate) and the naive, row, col and both
+            estimates, none divided by D.
     """
     if correction not in ("none", "row", "col", "both"):
         raise ValueError(f"unknown correction {correction!r}")
@@ -326,15 +260,12 @@ def _chun_participation_ratios(x: Tensor) -> dict[str, float]:
 def eigenvalue_early_enrichment(x: Tensor | Spectrum, *, center: bool = True) -> MetricResult:
     """Top-heaviness of the covariance spectrum over the ambient dimension (EEE).
 
-    NerVE (Jha et al., 2026, arXiv:2603.06922, Eq. 3): the mean gap between
-    the cumulative variance fraction of the k largest eigenvalues and the
-    uniform reference k/D, normalized to [0, 1): EEE = (2/D) sum_k (S_k - k/D)
-    over all D ambient directions, unused ones counted as zero variance.
-    0 for a flat spectrum, approaching 1 when one direction carries all the
-    variance. Scale-invariant.
+    Jha et al. (2026, arXiv:2603.06922, Eq. 3): EEE = (2/D) sum_k (S_k - k/D), with S_k the
+    cumulative variance fraction of the k largest eigenvalues over all D directions. 0 for a flat
+    spectrum, approaching 1 when one direction carries all the variance; scale-invariant.
 
     Args:
-        x: Points (N, D), or a Spectrum of already preprocessed points.
+        x: Points (N, D), or a Spectrum of preprocessed points.
         center: Mean-center before the SVD.
 
     Returns:

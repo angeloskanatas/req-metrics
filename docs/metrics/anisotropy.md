@@ -11,29 +11,18 @@ Spectral anisotropy of the centered, row-normalized matrix.
 
 ## Definition, protocol and pitfalls
 
-Fraction of total variance on the leading singular direction.
+Spectral anisotropy: the share of variance on the leading direction.
 
-Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum_k s_k^2 of the
-centered embedding matrix; 1/D for an isotropic cloud, 1 when all
-variance lies on one axis. The canonical protocol centers and then
-L2-normalizes each row, so the score measures directional
-concentration independent of norm. Chung and Kim (2026,
-arXiv:2602.03282) report the complement 1 - lambda_1 / sum(lambda) as
-the global isotropy score on the centered, non-normalized spectrum;
-with l2=False the extras field equals it. The reciprocal sum(lambda) /
-lambda_1 is the normalized eigenvalue sum NESum of He and Ozay (2022,
-ICML, Def. 4.1), the whitening measure that equals the stable rank of
-Tsitsulin et al. (2023) on centered data; it is returned in the extras
-rather than as a separate metric. He and Ozay find its relation to
-accuracy non-monotonic (too whitened is also worse), and Arputharaj et
-al. (2026, TMLR) find it predictive for self-supervised but not for
-supervised vision models.
+Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum s_k^2 of the centered matrix, 1/D for an
+isotropic cloud and 1 for a single axis. Rows are L2-normalized after centering by default,
+so the score ignores norms. With l2=False, 1 - value is the isotropy score of Chung and Kim
+(2026); 1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank on centered data.
 
 Args:
-    x: Points (N, D), or a Spectrum of already preprocessed points.
+    x: Points (N, D), or a Spectrum of preprocessed points.
     center: Mean-center before the SVD.
-    l2: Scale each row to unit norm after centering.
+    l2: Scale rows to unit norm after centering.
 
 Returns:
     value: anisotropy in (0, 1].
-    extras: isotropy_score = 1 - value; ne_sum = 1 / value (NESum, stable rank) of the analyzed matrix.
+    extras: isotropy_score (1 - value), ne_sum (1 / value).

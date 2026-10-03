@@ -11,24 +11,18 @@ Information imbalance from representation A to representation B.
 
 ## Definition, protocol and pitfalls
 
-Glielmo et al. (2022, PNAS Nexus, arXiv:2104.15079), Eq. 2:
-Delta(A -> B) = 2 <r_B | r_A = 1> / N, the mean rank in space B of each
-point's nearest neighbor in space A, scaled so that identical spaces give
-about 2/N and independent spaces about 1. Asymmetric: a small Delta(A -> B)
-with a large Delta(B -> A) means A contains the information in B and more.
-The k-neighbor generalization averages the ranks of the k nearest
-A-neighbors, as in DADApy's implementation (Glielmo et al., 2022,
-Patterns); k = 1 is the original definition. Ranks are exact and computed by
-counting, so no N x N index table is stored; DADApy instead looks neighbors
-up in a truncated table and draws a random rank for items beyond it.
+Glielmo et al. (2022, PNAS Nexus, arXiv:2104.15079, Eq. 2): Delta(A -> B) = 2 <r_B | r_A = 1>
+/ N, the mean rank in B of each point's nearest neighbor in A; about 2/N for identical spaces
+and 1 for independent ones. A small Delta(A -> B) with a large Delta(B -> A) means A contains
+the information in B. k > 1 averages the ranks of the k nearest A-neighbors, as in DADApy.
+Ranks are counted exactly, without an N x N table.
 
 Args:
-    x_a: Representation A, shape (N, D_a).
-    x_b: Representation B, shape (N, D_b), same items in the same order.
-    k: Number of nearest A-neighbors whose B-ranks are averaged.
-    neighbors_a: Precomputed Neighbors of A with at least k neighbors.
-    neighbors_b: Precomputed Neighbors of B with at least k neighbors (for the reverse direction).
+    x_a: Representation A, (N, D_a).
+    x_b: Representation B, (N, D_b).
+    k: Nearest A-neighbors whose B-ranks are averaged.
+    neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
 Returns:
     value: Delta(A -> B).
-    extras: reverse (Delta(B -> A)).
+    extras: reverse, Delta(B -> A).

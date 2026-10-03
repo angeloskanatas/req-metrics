@@ -12,18 +12,12 @@ from req_metrics.registry import register_metric
 
 
 def neighborhood_curvature(x: Tensor, *, k: int = 64, neighbors: Neighbors | None = None) -> MetricResult:
-    """Local bending of the cloud: mean cosine between unit edges to the k nearest neighbors.
+    """Neighborhood curvature: mean cosine between the unit edges to the k nearest neighbors.
 
-    The discrete curvature score of CurvSSL (Ghojogh et al., 2025,
-    arXiv:2511.17426): for each point, the unit vectors to its k nearest
-    neighbors and the mean of their pairwise cosines, averaged over points.
-    Near 0 when neighbors surround the point isotropically, toward 1 when
-    they lie to one side (a boundary or a sharp bend), negative when they
-    lie on opposite sides, as on a curve. A Gaussian cloud is not a null
-    case: its outer points see neighbors biased toward the center and score
-    around 0.2 at k = 32 in eight dimensions, so compare layers or runs
-    rather than reading the value against zero. A point-cloud quantity,
-    unrelated to the trajectory curvature of a frame sequence.
+    CurvSSL (Ghojogh et al., 2025, arXiv:2511.17426): per point, the mean pairwise cosine of the
+    unit vectors to its k neighbors, averaged over points; near 0 for isotropic neighborhoods,
+    toward 1 at boundaries. A Gaussian cloud scores about 0.2 at k = 32 in eight dimensions, so
+    compare layers or runs rather than reading the value against zero.
 
     Args:
         x: Points (N, D).
@@ -54,27 +48,15 @@ def local_rectifiability(
 ) -> MetricResult:
     """Multi-scale flatness of the cloud around an n-dimensional tangent plane.
 
-    The empirical beta-number of UR-JEPA (Le et al., 2026, arXiv:2606.01443,
-    Eq. 23-24): at each anchor x and dyadic scale r_k = 2^-k r_max, the
-    Gaussian-weighted centered scatter matrix S_r(x) with weights
-    exp(-|z - x|^2 / 2r^2), and beta_2(x, r) = (1/r^2) sum_{j>n} sigma_j^2 /
-    sum_j w_r(z_j - x): the kernel-weighted variance orthogonal to the
-    best-fit affine n-plane, normalized by the neighborhood mass. UR-JEPA
-    minimizes it as a regularizer toward a uniformly n-rectifiable measure;
-    here it is read as a diagnostic.
-    Small and decaying with r means locally flat and n-dimensional; large
-    and flat across scales means isotropic; near zero together with a
-    near-zero scatter trace means collapse. The count of eigenvalues above
-    their mean is a per-scale local-dimension estimate. Cost is a local PCA
-    per anchor and scale, so subsample to a few thousand points. UR-JEPA
-    fixes n as the target dimension of its regularizer; as a diagnostic with
-    no target, n defaults to the number of eigenvalues of the global centered
-    covariance above their mean (a participation count), recorded in the
-    extras, so profiles across layers of different width stay comparable.
+    The empirical beta-number of UR-JEPA (Le et al., 2026, arXiv:2606.01443, Eqs. 23-24): at
+    anchors x and dyadic scales r, the Gaussian-weighted variance orthogonal to the best-fit
+    affine n-plane, divided by r^2 and the neighborhood mass. Small and decaying with r means
+    locally flat. Without a target n, n defaults to the number of eigenvalues of the global
+    covariance above their mean. One local PCA per anchor and scale; use a few thousand points.
 
     Args:
         x: Points (N, D).
-        n: Tangent dimension tested, 1 <= n < D; default as described above.
+        n: Tangent dimension, 1 <= n < D.
         n_anchors: Anchor points per scale.
         n_scales: Dyadic scales below the anchor diameter.
         chunk: Anchors per batch.
@@ -82,8 +64,8 @@ def local_rectifiability(
 
     Returns:
         value: beta_2 at the middle scale.
-        extras: n (tangent dimension used), beta2_scale{i}, trace_scale{i}, local_id_scale{i}, r_scale{i};
-            scale 0 is the coarsest.
+        extras: n, and beta2_scale{i}, trace_scale{i}, local_id_scale{i}, r_scale{i}, with
+            scale 0 the coarsest.
     """
     if x.ndim != 2:
         raise ValueError(f"expected (N, D), got shape {tuple(x.shape)}")

@@ -1,6 +1,6 @@
 # `embedding_norm`
 
-Mean Euclidean norm of the representations, with its spread.
+Mean Euclidean norm of the representations.
 
 - Input: `points`
 - Canonical preprocessing: `none`
@@ -11,16 +11,11 @@ Mean Euclidean norm of the representations, with its spread.
 
 ## Definition, protocol and pitfalls
 
-Draganov et al. (2025, arXiv:2502.09252) show that although cosine-based
-self-supervised objectives embed on a hypersphere, the norms of the
-pre-normalization embeddings govern convergence rates and encode the
-network's confidence, with smaller norms on unexpected samples. Tracked
-per layer during training the mean norm is a convergence monitor; the
-coefficient of variation separates a few outlier clips from a uniform
-rescaling. Take the representation before any L2 normalization.
+Draganov et al. (2025, arXiv:2502.09252): pre-normalization norms govern convergence and
+shrink on unexpected samples. Take the representation before any L2 normalization.
 
 Args:
-    x: Representations, shape (N, D).
+    x: Representations (N, D).
 
 Returns:
     value: mean norm.

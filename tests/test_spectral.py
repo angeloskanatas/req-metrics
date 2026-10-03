@@ -45,6 +45,13 @@ class EntropyTests(unittest.TestCase):
         h2 = -math.log(float((p**2).sum()))
         self.assertAlmostEqual(rq.matrix_entropy(x, alpha=2.0, normalization="raw").value, h2, places=9)
 
+    def test_max_eigenvalues_keeps_the_largest_singular_values(self):
+        x = gaussian(500, 64) @ torch.diag(torch.logspace(0, -1, 64))
+        s = torch.linalg.svdvals((x - x.mean(0)).double())[:16]
+        p = s / s.sum()
+        self.assertAlmostEqual(rq.effective_rank(x, max_eigenvalues=16).value, float(torch.exp(-(p * p.log()).sum())), 9)
+        self.assertEqual(rq.effective_rank(x, max_eigenvalues=1000).value, rq.effective_rank(x).value)
+
     def test_variance_normalized_entropy_is_near_one_for_gaussian(self):
         self.assertGreater(rq.effective_rank(gaussian(), spectrum="variance").extras["normalized_entropy"], 0.98)
 

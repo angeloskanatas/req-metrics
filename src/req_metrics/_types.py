@@ -13,6 +13,7 @@ class InputKind(str, Enum):
     SHIFTED = "shifted"  # (N, D) plus {semitones: (N, D)} transposed copies
     TOKENS = "tokens"  # (N, T, D)
     PAIR = "pair"  # two point clouds (N, D_a), (N, D_b) describing the same N items
+    JACOBIAN = "jacobian"  # (B, k, D) Jacobian-vector products: B inputs, k input directions
 
 
 @dataclass(frozen=True)

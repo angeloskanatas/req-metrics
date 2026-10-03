@@ -70,29 +70,24 @@ def make_views(
     batch_size: int = 64,
     collate: Callable[[list], object] | None = None,
 ) -> Tensor:
-    """Build a (q, N, D) view stack from user-supplied encoder and augmentation callables.
+    """Build a (q, N, D) view stack from encoder and augmentation callables.
 
-    For each of q passes a seeded generator is drawn, each batch of inputs is
-    augmented with it and encoded, and the pooled representations are stacked. `encode(batch) -> (B, D)` is any callable, a
-    frozen model's pooled hidden state or a layer hook; `augment(batch,
-    generator) -> batch` is the perturbation whose invariance is being
-    measured. Keep inputs in a fixed order across passes so row i is the same
-    clip in every view. For masked-prediction objectives measured as in
-    training, put the mask draw inside `encode` (train mode for the mask,
-    zero dropout). For a post-hoc protocol over stored embeddings, store each view's
-    pooled embeddings and use stack_views instead.
+    Each of q passes draws a seeded generator, augments every batch with it and encodes it.
+    Keep inputs in a fixed order so row i is the same clip in every view. For masked objectives,
+    put the mask draw inside `encode` (train mode, zero dropout). For stored embeddings, use
+    stack_views.
 
     Args:
-        encode: Maps an augmented batch to a (B, D) tensor.
+        encode: Maps an augmented batch to (B, D).
         inputs: Indexable clips in a fixed order (list, tensor, dataset).
-        augment: Perturbs a batch given a torch.Generator; may ignore the generator.
+        augment: Perturbs a batch given a torch.Generator.
         q: Number of views.
         seed: Base seed; pass p uses seed + p.
         batch_size: Clips per encode call.
-        collate: Builds a batch from a list of items; default torch.stack for tensors, list otherwise.
+        collate: Builds a batch from a list of items; default torch.stack for tensors.
 
     Returns:
-        Views, shape (q, N, D), on the device the encoder returns.
+        Views (q, N, D), on the encoder's output device.
     """
     if q < 2:
         raise ValueError("q must be >= 2")

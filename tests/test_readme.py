@@ -45,8 +45,7 @@ class PostHocExampleTests(unittest.TestCase):
             rq.compute(frames, ["trajectory_curvature"], population="frames", n=2000)
             views = {l: torch.stack([z + 0.1 * torch.randn_like(z) for _ in range(10)]) for l, z in layers.items()}
             spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
-            rq.compute(views, ["lidar"], views=spec)
-            rq.compute({l: v[:2] for l, v in views.items()}, ["infonce", "alignment"], views=spec)
+            rq.compute(views, ["lidar", "infonce"], views=spec)
             shifted = {0: (z0, {k: z0 + 0.05 * k * torch.randn_like(z0) for k in range(1, 12)})}
             rq.compute(
                 shifted,

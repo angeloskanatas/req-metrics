@@ -1,10 +1,8 @@
-"""Relational metrics and collapse indicators on pooled vectors.
+"""Relational metrics: pairwise relations of the L2-normalized point cloud.
 
-Pairwise-relation statistics of the L2-normalized point cloud, all label-free and
-parameter-free: the self-clustering score of Tsitsulin et al. (2023), the
-uniformity of Wang and Isola (2020) and the normalized-output standard deviation
-of Chen and He (2021). They describe how points are spread on the unit sphere and
-are the registry's indicators of complete collapse and of concentration.
+Self-clustering, uniformity, the normalized-output standard deviation and cosine
+anisotropy describe how points spread on the unit sphere; they are the registry's
+indicators of complete collapse and of concentration.
 """
 
 from __future__ import annotations
@@ -28,28 +26,18 @@ def _unit_rows(x: Tensor, center: bool) -> Tensor:
 def self_clustering(x: Tensor, *, center: bool = False) -> MetricResult:
     """Self-clustering score: excess squared cosine over a uniform spherical cloud.
 
-    Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562,
-    Def. 3.5): for L2-normalized rows W, the pairwise dot-product mass
-    Q = sum_ij (w_i . w_j)^2 is compared with its expectation for N points
-    uniform on the sphere, N + N(N-1)/D, and with its maximum N^2 at complete
-    collapse: SelfCluster = (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a
-    uniform cloud and 1 for a single point. The paper writes Q as the Frobenius
-    norm of W W^T; the expectation and maximum it states are those of the squared
-    norm, which is what is used here so that collapse gives exactly 1. Computed
-    through the D x D second-moment matrix, ||W^T W||_F^2 = ||W W^T||_F^2, in
-    O(N D^2) (the reformulation of Arputharaj et al., 2026, TMLR). Arputharaj et
-    al. report it as a reliable negative predictor of accuracy for
-    self-supervised vision models, uninformative for supervised ones, and
-    anti-correlated at -0.999 with diffusion spectral entropy under
-    L2-normalization. The paper found its sign on graph embeddings consistent
-    where spectral metrics flipped.
+    Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562, Def. 3.5): with Q
+    the sum of squared cosines over all pairs of L2-normalized rows,
+    (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a uniform cloud and 1 for a single point.
+    The paper writes Q as a Frobenius norm but states the expectation and maximum of its
+    square, which is used here. Computed from the D x D second-moment matrix in O(N D^2).
 
     Args:
         x: Points (N, D).
-        center: Mean-center before normalizing (off in the source paper).
+        center: Mean-center before normalizing.
 
     Returns:
-        value: SelfCluster, 0 (uniform) to 1 (collapsed).
+        value: score, 0 (uniform) to 1 (collapsed).
         extras: mean_squared_cosine over distinct pairs, and its uniform value 1/D.
     """
     w = _unit_rows(x, center)
@@ -61,25 +49,20 @@ def self_clustering(x: Tensor, *, center: bool = False) -> MetricResult:
 
 
 def uniformity(x: Tensor, *, t: float = 2.0, center: bool = False, chunk: int = 2048) -> MetricResult:
-    """Uniformity: log average pairwise Gaussian potential on the unit sphere.
+    """Uniformity: log mean pairwise Gaussian potential on the unit sphere.
 
-    Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.2):
-    L_uniform = log mean_{i<j} exp(-t ||u_i - u_j||^2) over L2-normalized
-    features, t = 2 in the paper and its reference code. The uniform
-    distribution on the sphere is its unique minimizer (Prop. 1); Corollary 1
-    gives the range [-2t + log 0F1(; D/2; t^2), 0], the lower end reached only
-    by a perfectly uniform encoder and 0 only by a constant one. Lower values
-    mean points are spread more evenly. Pairwise distances come from the Gram
-    matrix in row chunks, ||u - v||^2 = 2 - 2 u.v, in float64; O(N^2 D).
+    Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.2): log mean_{i<j} exp(-t ||u_i -
+    u_j||^2) over L2-normalized rows, t = 2; lower is more uniform. Corollary 1 bounds it below
+    by -2t + log 0F1(; D/2; t^2). Computed from Gram blocks in float64, O(N^2 D).
 
     Args:
         x: Points (N, D).
-        t: Kernel scale of the Gaussian potential.
-        center: Mean-center before normalizing (off in the source paper).
+        t: Kernel scale.
+        center: Mean-center before normalizing.
         chunk: Rows per Gram block.
 
     Returns:
-        value: L_uniform in nats, in [lower_bound, 0].
+        value: uniformity in nats.
         extras: lower_bound for this D and t, its large-D limit -2t, gap = value - lower_bound.
     """
     from scipy.special import hyp0f1
@@ -102,20 +85,15 @@ def uniformity(x: Tensor, *, t: float = 2.0, center: bool = False, chunk: int = 
 def normalized_std(x: Tensor) -> MetricResult:
     """Mean per-channel standard deviation of the L2-normalized output.
 
-    Chen and He (2021, CVPR, arXiv:2011.10566, Sec. 4.1): the std over samples of
-    z / ||z||_2, averaged over channels, is 0 when all outputs collapse to one
-    vector and about 1 / sqrt(D) when z is a zero-mean isotropic Gaussian, so it
-    is the standard complete-collapse monitor of Siamese self-supervised
-    learning (lightly's std_of_l2_normalized). It does not see dimensional
-    collapse; pair it with a spectral metric. Sample std uses the N - 1
-    denominator, as in that implementation.
+    Chen and He (2021, CVPR, arXiv:2011.10566, Sec. 4.1): 0 under complete collapse and about
+    1 / sqrt(D) for an isotropic Gaussian. It does not detect dimensional collapse.
 
     Args:
         x: Points (N, D).
 
     Returns:
-        value: mean channel std of the unit-norm rows.
-        extras: reference 1 / sqrt(D) and the ratio value * sqrt(D) (about 1 for an isotropic cloud).
+        value: mean channel std of the unit-norm rows (N - 1 denominator).
+        extras: reference 1 / sqrt(D) and the ratio value * sqrt(D).
     """
     u = _unit_rows(x, center=False)
     value = float(u.std(dim=0).mean())
@@ -127,19 +105,16 @@ _P = InputKind.POINTS
 
 
 def anisotropy_cosine(x: Tensor, *, center: bool = False) -> MetricResult:
-    """Mean pairwise cosine similarity between distinct samples.
+    """Cosine anisotropy: mean cosine similarity between distinct samples.
 
-    Ethayarajh (2019, EMNLP) measures anisotropy as the expected cosine
-    between representations of random inputs; Godey et al. (2024, EACL) track
-    the same average across layers and attribute it to self-attention.
-    Computed exactly in O(N D) from the sum of the unit vectors. Timkey and
-    van Schijndel (2021, EMNLP) show this measure is often dominated by one
-    to five rogue dimensions and recommend standardizing before computing
-    it; centering alone removes the shared mean direction.
+    Ethayarajh (2019, EMNLP); Godey et al. (2024, EACL). Uncentered, it reflects the shared mean
+    direction, which the spectral anisotropy of the centered matrix removes; Timkey and van
+    Schijndel (2021, EMNLP) show it is often driven by a few rogue dimensions. Exact in O(N D)
+    from the sum of the unit vectors.
 
     Args:
         x: Points (N, D).
-        center: Mean-center before normalizing (off in the papers).
+        center: Mean-center before normalizing.
 
     Returns:
         value: mean off-diagonal cosine in [-1/(N-1), 1].

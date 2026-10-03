@@ -47,28 +47,17 @@ KANATAS2026 = Protocol(
     paper="Kanatas et al., What Makes a Good Layer? Assessing the Layer-Wise Intrinsic Properties of Music "
     "Foundation Models, ISMIR 2026, arXiv:2608.14819",
     pooled=(
-        ("intrinsic_dimension", {}),  # TwoNN, the paper's estimator
-        ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # the scale-dependent extension, also computed
-        ("effective_rank", {"spectrum": "singular", "center": True}),
+        ("intrinsic_dimension", {}),  # TwoNN
+        ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # profiles consistent with TwoNN
+        ("effective_rank", {"spectrum": "singular", "center": True, "max_eigenvalues": 2048}),
         ("anisotropy", {"center": True, "l2": True}),
-        ("alpha_req", {}),  # computed; not among the reported metrics
     ),
-    frames=(
-        (
-            "trajectory_curvature",
-            {"k": 1, "convention": "signed"},
-        ),  # the methods definition; the correlation analysis read extras["abs"], negated
-    ),
+    frames=(("trajectory_curvature", {"k": 1, "convention": "signed"}),),
     views=(
-        ("lidar", {"delta": 1e-6, "unbiased": False}),  # 10 views per clip
-        (
-            "infonce",
-            {"temperature": 0.3, "center": True, "l2": True},
-        ),  # 2 views; temperature from the run configuration
+        ("lidar", {"delta": 1e-6, "unbiased": False, "max_eigenvalues": 2048}),  # 10 views per clip
+        ("infonce", {"temperature": 0.3, "center": True, "l2": True}),  # 2 views
     ),
-    shifted=(
-        ("pte", {"probe": "linear", "score": "phase"}),  # 11 nonzero shifts; cpsd_rmse in the extras
-    ),
+    shifted=(("pte", {"probe": "linear", "score": "phase"}),),  # 11 nonzero shifts
     n_items=10000,
     notes=(
         "Section 3.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "

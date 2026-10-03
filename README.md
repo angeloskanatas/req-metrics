@@ -18,9 +18,9 @@ tensors of any modality; the documentation says clips for the items of a
 corpus, and only the pitch-transposition equivariance metric is specific to
 music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
-The registry holds 35 metrics in eleven groups: spectral, intrinsic dimension, local
+The registry holds 36 metrics in twelve groups: spectral, intrinsic dimension, local
 geometry, relational, clustering, distribution, trajectory, views, equivariance, layer
-pairs and token fields. Each metric has a published definition and is checked against the
+pairs, token fields and functional. Each metric has a published definition and is checked against the
 implementation it was adopted from. The same estimators run post hoc on
 extracted embeddings and, through forward hooks, on every layer of a model
 while it trains.
@@ -62,9 +62,7 @@ frames = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) per clip, time-or
 rq.compute(frames, ["trajectory_curvature"], population="frames", n=2000)
 
 views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same clips
-spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
-rq.compute(views, ["lidar"], views=spec)
-rq.compute({l: v[:2] for l, v in views.items()}, ["infonce", "alignment"], views=spec)  # two views
+rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
 rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
@@ -137,6 +135,7 @@ layer is in `docs/DESIGN.md`.
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
 | Equivariance | `pte` | embeddings of pitch-shifted copies |
 | Layer pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two layers |
+| Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per clip |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
 

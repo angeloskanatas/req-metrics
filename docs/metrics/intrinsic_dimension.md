@@ -14,24 +14,16 @@ TwoNN intrinsic dimension (Facco et al.).
 
 TwoNN intrinsic dimension from the ratio of second- to first-neighbor distance.
 
-Facco et al. (2017, Scientific Reports): under local uniformity the ratio
-mu = r_2 / r_1 is Pareto with shape d, so -log(1 - F(mu)) = d log mu. The
-"base" algorithm sorts the ratios, keeps the lowest mu_fraction (the
-paper discards the top 10 percent as unstable), sets the empirical CDF
-to i/N, and fits a line through the origin by least squares; "ml" is the
-closed-form maximum likelihood d = (N - 1) / sum(log mu). Exact
-duplicate rows are removed first (DADApy keeps them unless
-remove_identical_points is called; a duplicate gives r_1 = 0 and an
-infinite ratio, and its neighbors a ratio of 1). The choice matters: on a
-corpus with 13 duplicate clips among 990 the estimate differs by about 20
-percent between the two conventions. extras["n_used"] records the count
-after removal.
-The intrinsic-dimension estimator of Kanatas et al. (2026).
+Facco et al. (2017, Scientific Reports): under local uniformity mu = r_2 / r_1 is Pareto with
+shape d. "base" fits -log(1 - F(mu)) = d log mu through the origin on the lowest mu_fraction
+of the ratios (the paper discards the top 10 percent); "ml" is d = (N - 1) / sum(log mu).
+Exact duplicate rows are removed first, which DADApy does not do by default; see
+extras["n_used"].
 
 Args:
     x: Points (N, D).
     mu_fraction: Fraction of the smallest ratios kept in the fit.
-    algorithm: "base" (linear fit) or "ml" (maximum likelihood).
+    algorithm: "base" or "ml".
 
 Returns:
     value: estimated dimension.

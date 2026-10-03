@@ -21,36 +21,26 @@ def _check_views(views: Tensor, min_q: int) -> tuple[int, int, int]:
 def lidar(
     views: Tensor, *, delta: float = 1e-4, unbiased: bool = True, max_eigenvalues: int | None = None
 ) -> MetricResult:
-    """LiDAR: effective rank of the LDA matrix with clips as classes and views as samples.
+    """LiDAR: effective rank of the LDA matrix, with clips as classes and their views as samples.
 
-    Thilak et al. (2024, ICLR, arXiv:2312.04000), Eq. 1-4. Each clean clip
-    is a surrogate class and its q views the within-class samples:
-    S_b is the scatter of the class means around the grand mean, S_w the
-    scatter of the views around their class mean plus delta I, and
-    LiDAR = exp(-sum p_i log p_i) over the eigenvalues of
-    S_w^{-1/2} S_b S_w^{-1/2}, normalized by their sum. It counts the
-    directions that separate clips after whitening the variability the
-    augmentations induce, so it tracks the training objective's own
-    invariances rather than raw covariance rank. The paper uses unbiased
-    estimates (n-1 and n(q-1) denominators), recommends n above the feature
-    width because rank(S_b) <= n, and finds q = 10 within one percent of
-    q = 50. Computed in float64 with symmetric eigendecompositions; the
-    epsilon the paper adds inside the logarithm is omitted, zero eigenvalues
-    contributing nothing. The paper does not print delta; 1e-4 is the value
-    of the reference implementation of Skean et al. (2025). Kanatas et al. (2026)
-    use 10 views per clip on 10,000 clips with one augmentation chain shared
-    across models, excluding the augmentation that alters each task family's
-    defining attribute, whereas the original work uses each method's own
-    training augmentations.
+    Thilak et al. (2024, ICLR, arXiv:2312.04000, Eqs. 1-2; Eqs. 1-4 in arXiv v1): S_b is the
+    scatter of the clips' view means and S_w the scatter of the views around their clip mean plus
+    delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
+    S_w^{-1/2} S_b S_w^{-1/2}. The clean clip names the class and is not one of the q views. Use
+    the training objective's own positives when monitoring one model (their Sec. 4.2) and one
+    shared chain when comparing models. The denominators leave the value unchanged; an absolute
+    delta makes it scale-dependent when within-clip variance approaches delta. Directions without
+    clip signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the
+    width (App. 11). The paper's epsilon is omitted.
 
     Args:
-        views: Augmented representations, shape (q, N, D), q >= 2.
-        delta: Ridge added to the within-class scatter.
-        unbiased: Use n-1 and n(q-1) denominators (paper) or n and nq.
-        max_eigenvalues: Keep only the largest eigenvalues, if set.
+        views: Augmented representations (q, N, D), q >= 2.
+        delta: Ridge added to S_w; the paper gives no value, 1e-4 is that of Skean et al. (2025).
+        unbiased: Denominators n - 1 and n(q - 1), or n and nq.
+        max_eigenvalues: Keep only the largest eigenvalues.
 
     Returns:
-        value: LiDAR effective rank.
+        value: LiDAR.
         extras: entropy, n_positive_eigenvalues.
     """
     q, n, d = _check_views(views, 2)
@@ -78,24 +68,16 @@ def lidar(
 def alignment(views: Tensor, *, alpha: float = 2.0) -> MetricResult:
     """Alignment: mean distance between L2-normalized views of the same clip, to the power alpha.
 
-    Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.1):
-    L_align = E ||f(x) - f(y)||^alpha over positive pairs, alpha = 2 in Wang and
-    Isola (2020) and their reference code; 0 for a perfectly aligned encoder, 2 for unrelated
-    unit vectors in high dimension. Averaged over all pairs of views and all
-    clips. The companion of uniformity: the two together are the asymptotic
-    form of the contrastive loss (Theorem 1), and encoders with low values of
-    both perform best in that study. With two views that are a sample and its
-    transformed copy, 1 - value / 2 is the cosine similarity that Plachouras et
-    al. (2025, IJCNN) report as an invariance score over a transformation's
-    parameter range.
+    Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.1), alpha = 2: 0 for perfectly aligned
+    views, 2 for unrelated unit vectors in high dimension; averaged over all view pairs and clips.
 
     Args:
-        views: Augmented representations, shape (q, N, D), q >= 2; rows are L2-normalized here.
+        views: Augmented representations (q, N, D), q >= 2.
         alpha: Distance exponent.
 
     Returns:
-        value: L_align.
-        extras: n_pairs of views averaged.
+        value: alignment.
+        extras: n_pairs.
     """
     q, n, d = _check_views(views, 2)
     u = torch.nn.functional.normalize(views.double(), dim=-1)
@@ -107,42 +89,63 @@ def alignment(views: Tensor, *, alpha: float = 2.0) -> MetricResult:
     return MetricResult(total / pairs, {"n_pairs": float(pairs)})
 
 
-def infonce(views: Tensor, *, temperature: float = 0.1, center: bool = True, l2: bool = True) -> MetricResult:
-    """Full-batch InfoNCE loss between two views of the same clips.
+def infonce(
+    views: Tensor,
+    *,
+    temperature: float = 0.1,
+    center: bool = True,
+    l2: bool = True,
+    symmetric: bool = False,
+    anchor: int | None = None,
+) -> MetricResult:
+    """InfoNCE loss between augmented views of the same clips.
 
-    van den Oord, Li and Vinyals (2018, arXiv:1807.03748), Eq. 4: the
-    cross-entropy of identifying each clip's second view among all N second
-    views, with logits the scaled similarities. Rows are centered and
-    L2-normalized so logits are cosines over the temperature, the
-    preprocessing of the Skean et al. (2025, ICML) reference implementation and of the
-    protocol of Kanatas et al. (2026). Lower loss means the layer is more invariant
-    to the augmentations relative to clip identity. The bound of van den Oord et al.,
-    I >= log N - L is reported in nats and as the fraction 1 - L / log N;
-    for unrelated views the loss exceeds log N by about half the variance of
-    the scaled similarities, so the bound can be negative. The temperature
-    is a protocol constant that must be recorded: the
-    reference implementation uses 0.1; the results of Kanatas et al. (2026) were computed at 0.3. The shared
-    augmentation chain contained a pitch shift, which confounds this metric
-    on tonal tasks unless that augmentation is removed.
+    van den Oord, Li and Vinyals (2018, arXiv:1807.03748, Eq. 4): the cross-entropy of
+    identifying each clip's view b among all N clips' views b from its view a, with cosine
+    logits over the temperature (rows centered and L2-normalized, as in Skean et al., 2025).
+    Lower is more invariant to the augmentations. With q > 2 views the loss is averaged over
+    the pairs a < b, the full graph of Tian et al. (2020, Eq. 8), or over the pairs (anchor,
+    b), their core view (Eq. 7), for a non-exchangeable view such as a clean or global one.
+    symmetric=True adds the reverse direction of each pair (Tian et al., Eq. 4). log N - L,
+    the bound of van den Oord et al., cannot exceed log N and, for unit vectors with nearly
+    orthogonal negatives, about 1 / temperature, even for identical views; compare values at
+    equal N and temperature, and read contrastive_accuracy, which has no such ceiling.
 
     Args:
-        views: Two views, shape (2, N, D).
+        views: Views (q, N, D), q >= 2.
         temperature: Softmax temperature.
         center: Mean-center each view over clips.
-        l2: Scale each row to unit norm.
+        l2: Scale rows to unit norm.
+        symmetric: Average both directions of each pair.
+        anchor: View paired with every other view; None pairs all views.
 
     Returns:
-        value: InfoNCE loss in nats.
-        extras: mi_lower_bound (1 - L / log N), mi_bound_nats (log N - L).
+        value: mean loss in nats.
+        extras: log_n_minus_loss, contrastive_accuracy (top-1 of the positive), n_pairs.
     """
     q, n, _ = _check_views(views, 2)
-    if q != 2:
-        raise ValueError(f"infonce takes exactly two views, got {q}")
+    if anchor is not None and not 0 <= anchor < q:
+        raise ValueError(f"anchor must index one of the {q} views, got {anchor}")
     v = apply_preprocess(views.double(), Preprocess(center=center, l2=l2))
-    logits = v[0] @ v[1].T / temperature
-    labels = torch.arange(n, device=logits.device)
-    loss = float(torch.nn.functional.cross_entropy(logits, labels))
-    return MetricResult(loss, {"mi_lower_bound": 1.0 - loss / math.log(n), "mi_bound_nats": math.log(n) - loss})
+    if anchor is None:
+        pairs = [(a, b) for a in range(q) for b in range(a + 1, q)]
+    else:
+        pairs = [(anchor, b) for b in range(q) if b != anchor]
+    if symmetric:
+        pairs += [(b, a) for a, b in pairs]
+    labels = torch.arange(n, device=v.device)
+    losses, hits = [], []
+    for a, b in pairs:
+        logits = v[a] @ v[b].T / temperature
+        losses.append(float(torch.nn.functional.cross_entropy(logits, labels)))
+        hits.append(float((logits.argmax(dim=1) == labels).double().mean()))
+    loss = sum(losses) / len(losses)
+    extras = {
+        "log_n_minus_loss": math.log(n) - loss,
+        "contrastive_accuracy": sum(hits) / len(hits),
+        "n_pairs": float(len(pairs)),
+    }
+    return MetricResult(loss, extras)
 
 
 def _normalized_gram(x: Tensor, kernel: str) -> Tensor:
@@ -174,30 +177,24 @@ def dime(
     kernel: str = "linear",
     seed: int = 0,
     normalization: str = "raw",
+    center: bool = False,
 ) -> MetricResult:
     """DiME: permuted minus paired matrix-based joint entropy of two views.
 
-    Skean et al. (2023, arXiv:2301.08164): with K_X and K_Y the N x N
-    normalized Gram matrices of the two views (unit diagonal), the joint
-    entropy is S_alpha(K_X o K_Y) over the Hadamard product (their Sec. 2.2),
-    and DiME is the expected joint entropy under random re-pairings of one
-    view minus the paired joint entropy. It behaves like a mutual
-    information between the views and is zero when they are unrelated. The
-    paper uses Gaussian kernels with alpha = 1.01; the Skean et al. (2025)
-    layer-wise reference implementation uses the linear Gram of the states. Both
-    that implementation replaces the N x N Gram matrices by D x D covariances
-    whenever N > D; the Hadamard product does not commute with
-    that swap, so those values are not the published quantity. This
-    implementation follows the definition and therefore costs an N x N
-    eigendecomposition per permutation; subsample to a few thousand clips.
+    Skean et al. (2023, arXiv:2301.08164, Sec. 2.2): with K_X and K_Y the normalized N x N Gram
+    matrices of the two views, DiME is the mean joint entropy S_alpha(K_X o K_Y) under random
+    re-pairings minus the paired joint entropy; zero for unrelated views. The paper uses Gaussian
+    kernels and alpha = 1.01. The N x N definition is kept, since the Hadamard product does not
+    survive a swap to D x D covariances, so cost grows as N^3 per permutation.
 
     Args:
-        views: Two views, shape (2, N, D).
-        alpha: Renyi order; 1.0 gives von Neumann entropy.
-        n_perm: Random re-pairings averaged for the baseline.
-        kernel: "linear" (cosine Gram of unit rows) or "rbf" (median bandwidth).
+        views: Two views (2, N, D).
+        alpha: Renyi order.
+        n_perm: Random re-pairings averaged.
+        kernel: "linear" (cosine Gram) or "rbf" (median bandwidth).
         seed: Permutation seed.
         normalization: "raw" or "max" (divide by log N).
+        center: Mean-center each view before the kernel, as Skean et al. (2025) do.
 
     Returns:
         value: DiME.
@@ -207,6 +204,8 @@ def dime(
     if q != 2:
         raise ValueError(f"dime takes exactly two views, got {q}")
     x, y = views[0].double(), views[1].double()
+    if center:
+        x, y = x - x.mean(dim=0, keepdim=True), y - y.mean(dim=0, keepdim=True)
     kx, ky = _normalized_gram(x, kernel), _normalized_gram(y, kernel)
     joint = _renyi_matrix_entropy(kx * ky, alpha)
     g = torch.Generator(device=x.device).manual_seed(seed)

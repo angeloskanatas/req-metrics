@@ -215,6 +215,7 @@ def compute(
     Args:
         layers: Layer index -> data. Point metrics: (N, D) for "pooled", a sequence of
             (T_i, D) for "frames" and "tokens". View metrics: (q, N, D). PTE: (z, {k: z_k}).
+            Jacobian effective rank: (B, k, D) Jacobian-vector products (see jacobian_products).
         metrics: Registry names. All must share one input kind per call.
         population: "pooled", "frames" or "tokens" (point and trajectory metrics only).
         n: Keep at most n clips (or tokens, for "tokens") chosen at random with seed; the
@@ -302,6 +303,14 @@ def compute(
 
     if kind == InputKind.PAIR:
         raise ValueError("pair metrics compare two representations; use compute_pairs")
+
+    if kind == InputKind.JACOBIAN:
+        for l in layer_ids:
+            j = torch.as_tensor(layers[l])
+            for spec in specs:
+                value, extras = _run(spec, (j,), params.get(spec.name, {}))
+                record(spec, l, value, extras, int(j.shape[0]), int(j.shape[-1]))
+        return _warn_failed(records)
 
     if population == "pooled":
         if any(s.inputs in (InputKind.TRAJECTORY, InputKind.TOKENS) for s in specs):

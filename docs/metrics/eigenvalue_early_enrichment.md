@@ -11,15 +11,12 @@ Top-heaviness of the covariance spectrum over the ambient dimension (EEE).
 
 ## Definition, protocol and pitfalls
 
-NerVE (Jha et al., 2026, arXiv:2603.06922, Eq. 3): the mean gap between
-the cumulative variance fraction of the k largest eigenvalues and the
-uniform reference k/D, normalized to [0, 1): EEE = (2/D) sum_k (S_k - k/D)
-over all D ambient directions, unused ones counted as zero variance.
-0 for a flat spectrum, approaching 1 when one direction carries all the
-variance. Scale-invariant.
+Jha et al. (2026, arXiv:2603.06922, Eq. 3): EEE = (2/D) sum_k (S_k - k/D), with S_k the
+cumulative variance fraction of the k largest eigenvalues over all D directions. 0 for a flat
+spectrum, approaching 1 when one direction carries all the variance; scale-invariant.
 
 Args:
-    x: Points (N, D), or a Spectrum of already preprocessed points.
+    x: Points (N, D), or a Spectrum of preprocessed points.
     center: Mean-center before the SVD.
 
 Returns:

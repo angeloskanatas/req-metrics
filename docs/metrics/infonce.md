@@ -1,6 +1,6 @@
 # `infonce`
 
-Full-batch InfoNCE loss between two views of the same clips.
+InfoNCE loss between augmented views of the same clips.
 
 - Input: `views`
 - Canonical preprocessing: `center+l2`
@@ -11,27 +11,25 @@ Full-batch InfoNCE loss between two views of the same clips.
 
 ## Definition, protocol and pitfalls
 
-van den Oord, Li and Vinyals (2018, arXiv:1807.03748), Eq. 4: the
-cross-entropy of identifying each clip's second view among all N second
-views, with logits the scaled similarities. Rows are centered and
-L2-normalized so logits are cosines over the temperature, the
-preprocessing of the Skean et al. (2025, ICML) reference implementation and of the
-protocol of Kanatas et al. (2026). Lower loss means the layer is more invariant
-to the augmentations relative to clip identity. The bound of van den Oord et al.,
-I >= log N - L is reported in nats and as the fraction 1 - L / log N;
-for unrelated views the loss exceeds log N by about half the variance of
-the scaled similarities, so the bound can be negative. The temperature
-is a protocol constant that must be recorded: the
-reference implementation uses 0.1; the results of Kanatas et al. (2026) were computed at 0.3. The shared
-augmentation chain contained a pitch shift, which confounds this metric
-on tonal tasks unless that augmentation is removed.
+van den Oord, Li and Vinyals (2018, arXiv:1807.03748, Eq. 4): the cross-entropy of
+identifying each clip's view b among all N clips' views b from its view a, with cosine
+logits over the temperature (rows centered and L2-normalized, as in Skean et al., 2025).
+Lower is more invariant to the augmentations. With q > 2 views the loss is averaged over
+the pairs a < b, the full graph of Tian et al. (2020, Eq. 8), or over the pairs (anchor,
+b), their core view (Eq. 7), for a non-exchangeable view such as a clean or global one.
+symmetric=True adds the reverse direction of each pair (Tian et al., Eq. 4). log N - L,
+the bound of van den Oord et al., cannot exceed log N and, for unit vectors with nearly
+orthogonal negatives, about 1 / temperature, even for identical views; compare values at
+equal N and temperature, and read contrastive_accuracy, which has no such ceiling.
 
 Args:
-    views: Two views, shape (2, N, D).
+    views: Views (q, N, D), q >= 2.
     temperature: Softmax temperature.
     center: Mean-center each view over clips.
-    l2: Scale each row to unit norm.
+    l2: Scale rows to unit norm.
+    symmetric: Average both directions of each pair.
+    anchor: View paired with every other view; None pairs all views.
 
 Returns:
-    value: InfoNCE loss in nats.
-    extras: mi_lower_bound (1 - L / log N), mi_bound_nats (log N - L).
+    value: mean loss in nats.
+    extras: log_n_minus_loss, contrastive_accuracy (top-1 of the positive), n_pairs.

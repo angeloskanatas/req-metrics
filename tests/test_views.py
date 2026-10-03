@@ -45,11 +45,12 @@ class InfoNCETests(unittest.TestCase):
         x = torch.randn(1000, 32, generator=g)
         same = rq.infonce(torch.stack([x, x]))
         self.assertLess(same.value, 0.3)  # 999 negatives at cos ~ N(0, 1/sqrt(32)) leave log(1 + ~0.2)
-        self.assertGreater(same.extras["mi_lower_bound"], 0.95)
+        self.assertGreater(same.extras["log_n_minus_loss"], 0.95 * math.log(1000))
+        self.assertEqual(same.extras["contrastive_accuracy"], 1.0)
         indep = rq.infonce(torch.stack([x, torch.randn(1000, 32, generator=g)]))
         # unrelated views: loss ~ log N + var(cos / tau) / 2 = 6.9 + 1.6, so the MI bound is at or below zero
         self.assertGreater(indep.value, math.log(1000))
-        self.assertLess(indep.extras["mi_lower_bound"], 0.0)
+        self.assertLess(indep.extras["log_n_minus_loss"], 0.0)
         self.assertGreater(indep.value, same.value)
 
     def test_matches_previous_formula(self):
@@ -65,6 +66,21 @@ class InfoNCETests(unittest.TestCase):
             return float(torch.nn.functional.cross_entropy((u @ w.T) / t, torch.arange(300)))
 
         self.assertAlmostEqual(rq.infonce(torch.stack([a, b])).value, old(a.double(), b.double()), places=9)
+
+    def test_view_pairs_full_graph_core_view_and_symmetric(self):
+        g = torch.Generator().manual_seed(3)
+        x = torch.randn(400, 16, generator=g)
+        v = torch.stack([x + 0.3 * torch.randn(400, 16, generator=g) for _ in range(4)])
+        pair = {(a, b): rq.infonce(v[[a, b]]).value for a in range(4) for b in range(4) if a != b}
+        full = rq.infonce(v)
+        self.assertAlmostEqual(full.value, sum(pair[(a, b)] for a in range(4) for b in range(a + 1, 4)) / 6, places=12)
+        self.assertEqual(full.extras["n_pairs"], 6)
+        core = rq.infonce(v, anchor=2)
+        self.assertAlmostEqual(core.value, (pair[(2, 0)] + pair[(2, 1)] + pair[(2, 3)]) / 3, places=12)
+        sym = rq.infonce(v[:2], symmetric=True)
+        self.assertAlmostEqual(sym.value, (pair[(0, 1)] + pair[(1, 0)]) / 2, places=12)
+        with self.assertRaises(ValueError):
+            rq.infonce(v, anchor=4)
 
 
 class DimeTests(unittest.TestCase):
@@ -101,10 +117,6 @@ class DimeTests(unittest.TestCase):
         self.assertEqual(rq.dime(v, seed=7, n_perm=2).value, rq.dime(v, seed=7, n_perm=2).value)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ViewConstructionTests(unittest.TestCase):
     def test_make_views_shapes_seeds_and_order(self):
         torch.manual_seed(0)
@@ -115,7 +127,7 @@ class ViewConstructionTests(unittest.TestCase):
         v = rq.make_views(encode, clips, augment, q=3, seed=1, batch_size=16)
         self.assertEqual(tuple(v.shape), (3, 50, 6))
         v2 = rq.make_views(encode, clips, augment, q=3, seed=1, batch_size=8)
-        self.assertTrue(torch.allclose(v[0] - (clips @ proj), v2[0] - (clips @ proj), atol=1e-6) is False or True)
+        self.assertTrue(torch.allclose(v, v2))  # the seeded noise stream does not depend on the batch size
         self.assertFalse(torch.allclose(v[0], v[1]))  # passes differ
         self.assertTrue(torch.allclose(rq.make_views(encode, clips, augment, q=3, seed=1, batch_size=16), v))
         spec = rq.ViewSpec(
@@ -125,3 +137,7 @@ class ViewConstructionTests(unittest.TestCase):
         self.assertEqual(tuple(rq.stack_views(v[0], v[1]).shape), (2, 50, 6))
         with self.assertRaises(ValueError):
             rq.stack_views(v[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -35,10 +35,13 @@ def _kmeans_pp(x: Tensor, k: int, gen: torch.Generator, chunk: int) -> Tensor:
 def kmeans(
     x: Tensor, k: int, *, iters: int = 100, tol: float = 1e-6, seed: int = 0, chunk: int = 8192
 ) -> tuple[Tensor, Tensor, float]:
-    """Lloyd's k-means with k-means++ seeding: (centers (K, D), labels (N,), inertia).
+    """Lloyd's k-means with k-means++ seeding.
 
-    Empty clusters keep their previous center. Iteration stops when the relative
-    change of the inertia falls below tol.
+    Empty clusters keep their center; iteration stops when the relative change of the inertia
+    falls below tol.
+
+    Returns:
+        centers (K, D), labels (N,), inertia.
     """
     gen = torch.Generator().manual_seed(seed)
     c = _kmeans_pp(x, k, gen, chunk)
@@ -60,12 +63,11 @@ def kmeans(
 
 
 def davies_bouldin(x: Tensor, labels: Tensor) -> float:
-    """Davies-Bouldin index (Davies and Bouldin, 1979) with mean distance to the centroid as dispersion.
+    """Davies-Bouldin index (Davies and Bouldin, 1979).
 
-    DB = (1/K) sum_i max_{j != i} (s_i + s_j) / d_ij over the non-empty clusters,
-    with centroids the cluster means, s_i the mean Euclidean distance of the points
-    of cluster i to its centroid and d_ij the distance between centroids; coincident
-    centroids contribute 0. Equals scikit-learn's davies_bouldin_score.
+    Mean over clusters of max_{j != i} (s_i + s_j) / d_ij, with s_i the mean distance to the
+    centroid and d_ij the distance between centroids; coincident centroids contribute 0. Equals
+    scikit-learn's davies_bouldin_score.
     """
     uniq, lab = torch.unique(labels, return_inverse=True)
     k = uniq.numel()
@@ -85,24 +87,18 @@ def davies_bouldin(x: Tensor, labels: Tensor) -> float:
 def cluster_quality(
     x: Tensor, *, k: int = 1024, score: str = "davies_bouldin", iters: int = 100, seed: int = 0
 ) -> MetricResult:
-    """Clustering quality of a point cloud under k-means: Davies-Bouldin index and inertia.
+    """Clustering quality under k-means: Davies-Bouldin index and inertia.
 
-    Whetten et al. (2025, Interspeech, Sec. 3.1.1) fit k-means with k = 1024 and
-    k-means++ seeding to the frame embeddings of one layer and report the inertia
-    (within-cluster sum of squares, their Eq. 2) and the Davies-Bouldin index
-    (their Eq. 3) as label-free indicators of downstream speech performance,
-    computed early in pretraining. In their study lower inertia goes with better
-    recognition while the Davies-Bouldin index correlates in the opposite direction,
-    so read the two together and compare runs at the same layer, N and k. The paper
-    fits scikit-learn's mini-batch k-means; full-batch Lloyd iterations are used
-    here, with a seed, so values are reproducible. Inertia scales with N and the
-    norm of the embeddings; the extras also give it per point. Use the frames
-    population to cluster all frames of a corpus, as in the paper.
+    Whetten et al. (2025, Interspeech, Sec. 3.1.1, Eqs. 2-3): k-means with k = 1024 and k-means++
+    seeding on the frames of one layer, early in pretraining. In their study lower inertia goes
+    with better recognition and the Davies-Bouldin index with worse, so read both, at equal
+    layer, N and k. Full-batch Lloyd iterations with a seed replace the paper's mini-batch
+    k-means.
 
     Args:
         x: Points (N, D), N well above k.
         k: Number of clusters.
-        score: "davies_bouldin" or "inertia", the value returned.
+        score: "davies_bouldin" or "inertia".
         iters: Maximum Lloyd iterations.
         seed: Seed of the k-means++ initialization.
 
