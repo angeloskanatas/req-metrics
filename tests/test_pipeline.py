@@ -133,6 +133,13 @@ class FramesAndTokensTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rq.compute(self.clips, ["trajectory_curvature"], population="tokens")
 
+    def test_device_argument_gives_the_same_records(self):
+        mets = ["effective_rank", "intrinsic_dimension"]
+        for population, n in (("frames", 10), ("tokens", 500)):
+            base = rq.compute(self.clips, mets, population=population, n=n, seed=3)
+            moved = rq.compute(self.clips, mets, population=population, n=n, seed=3, device="cpu")
+            self.assertEqual([r.value for r in base], [r.value for r in moved], msg=population)
+
 
 class ViewsShiftsPairsTests(unittest.TestCase):
     def test_views_and_shifts(self):
@@ -165,6 +172,29 @@ class ViewsShiftsPairsTests(unittest.TestCase):
         self.assertAlmostEqual(diag.value, 2.0 / 200, places=9)
         off = rec.where(layer=0, layer_b=2)[0]
         self.assertGreater(off.value, diag.value)
+
+    def test_imbalance_within_one_model_matches_two_models(self):
+        layers = pooled_layers(n=150, d=6, n_layers=3)
+        copy = {l: x.clone() for l, x in layers.items()}  # same values, so B is treated as a second model
+        same = rq.compute_pairs(layers, k=3)
+        two = rq.compute_pairs(layers, copy, k=3, device="cpu")
+        for a, b in zip(same, two, strict=True):
+            self.assertEqual((a.layer, a.layer_b), (b.layer, b.layer_b))
+            self.assertAlmostEqual(a.value, b.value, places=12)
+            self.assertAlmostEqual(a.extras["reverse"], b.extras["reverse"], places=12)
+
+    def test_device_argument_for_views_and_pairs(self):
+        g = torch.Generator().manual_seed(4)
+        base = torch.randn(200, 8, generator=g)
+        vl = {l: base.unsqueeze(0) + 0.3 * torch.randn(3, 200, 8, generator=g) for l in range(2)}
+        a = rq.compute(vl, ["lidar", "infonce"])
+        b = rq.compute(vl, ["lidar", "infonce"], device=torch.device("cpu"))
+        self.assertEqual([r.value for r in a], [r.value for r in b])
+        layers = pooled_layers(n=120, d=6, n_layers=2)
+        for metric in ("cka", "neighborhood_overlap"):
+            x = rq.compute_pairs(layers, metric=metric)
+            y = rq.compute_pairs(layers, metric=metric, device="cpu")
+            self.assertEqual([r.value for r in x], [r.value for r in y], msg=metric)
 
 
 class RecordsIOTests(unittest.TestCase):

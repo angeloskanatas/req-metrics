@@ -278,6 +278,12 @@ class MonitorTests(unittest.TestCase):
             frames.sweep(self.model, loader(), step=3, sinks=[rq.json_sink(d)])
             self.assertTrue((Path(d) / "frames_step_3.json").exists())
 
+    def test_tokens_population_caps_pooled_frames_separately(self):
+        mon = rq.LayerMonitor(self.model.blocks, pool="frames", metrics=["effective_rank"], n_items=40,
+                              n_tokens=100, population="tokens")  # fmt: skip
+        rec = mon.sweep(self.model, loader(), step=0)
+        self.assertEqual({r.n_items for r in rec}, {100})  # 40 clips x 12 frames pooled, 100 drawn
+
     def test_dead_layer_logs_zero_effective_rank(self):
         model = nn.Sequential(nn.Linear(16, 16), nn.ReLU())
         nn.init.zeros_(model[0].weight)

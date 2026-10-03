@@ -7,10 +7,10 @@ ShiftSpec objects. Populations:
 - "pooled": layers[l] is (N, D), one vector per clip.
 - "frames": layers[l] is a sequence of (T_i, D) tensors, one per clip; point
   metrics run per clip and are aggregated, trajectory metrics run per clip.
-- "tokens": layers[l] is a sequence of (T_i, D) tensors; all frames of all
-  clips are pooled into one point cloud.
-- Token-field metrics (norm outliers, token cosines) take the same per-clip
-  (T_i, D) inputs under "frames" or "tokens".
+- "tokens": layers[l] is a sequence of (T_i, D) tensors; the frames of all clips
+  are pooled into one point cloud, subsampled to n tokens.
+- Token-field metrics take the same per-clip inputs; those whose definition pairs
+  tokens within a clip (registry per_clip) run per clip under "tokens" as well.
 View metrics take layers[l] of shape (q, N, D); PTE takes layers[l] = (z, shifted).
 """
 
@@ -41,6 +41,24 @@ _NEIGHBOR_K = {
     "intrinsic_dimension/mlid": ("k", 64),
     "neighborhood_curvature": ("k", 64),
 }
+
+
+def _tensor(data: Any) -> Tensor:
+    """A torch view of array-like data; MPS tensors move to the CPU, since the estimators compute in float64."""
+    t = torch.as_tensor(data)
+    return t.cpu() if t.device.type == "mps" else t
+
+
+def _device(device: str | torch.device | None) -> torch.device | None:
+    """The device estimators run on; MPS maps to the CPU, since it has no float64."""
+    if device is None:
+        return None
+    d = torch.device(device)
+    return torch.device("cpu") if d.type == "mps" else d
+
+
+def _to(t: Tensor, device: torch.device | None) -> Tensor:
+    return t if device is None else t.to(device)
 
 
 def _warn_failed(records: Records) -> Records:
@@ -79,6 +97,19 @@ def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence
     if max_items is not None and max_items < len(idx):
         idx = np.sort(rng.choice(idx, size=max_items, replace=False))
     return idx
+
+
+def _pooled_tokens(clips: Sequence[Any], clip_idx: np.ndarray, n: int | None, seed: int) -> Tensor:
+    """At most n tokens drawn at random from the selected clips, without concatenating every clip first."""
+    lengths = np.array([len(clips[i]) for i in clip_idx])
+    offsets = np.concatenate([[0], np.cumsum(lengths)])
+    flat = choose_indices(int(offsets[-1]), n, seed)  # sorted global token indices
+    owner = np.searchsorted(offsets, flat, side="right") - 1
+    parts = []
+    for j in np.unique(owner):
+        rows = torch.from_numpy(flat[owner == j] - offsets[j])
+        parts.append(_tensor(clips[clip_idx[j]])[rows])
+    return torch.cat(parts)
 
 
 def _normalized_depths(layer_ids: Sequence[int]) -> dict[int, float]:
@@ -228,6 +259,7 @@ def compute(
     shifts: ShiftSpec | None = None,
     keep_per_clip: bool = False,
     limits: Mapping[str, int] | None = None,
+    device: str | torch.device | None = None,
 ) -> Records:
     """Compute metrics for every layer and return one Record per (layer, metric).
 
@@ -237,8 +269,8 @@ def compute(
             Jacobian effective rank: (B, k, M) Jacobian sketches (see jacobian_products).
         metrics: Registry names. All must share one input kind per call.
         population: "pooled", "frames" or "tokens" (point and trajectory metrics only).
-        n: Keep at most n clips (or tokens, for "tokens") chosen at random with seed; the
-            same clips are used for every layer.
+        n: Keep at most n clips chosen at random with seed, the same for every layer; for
+            "tokens", at most n pooled tokens for the point metrics.
         seed: Subsampling seed, recorded.
         group_ids: One id per clip; one random clip per group is kept before subsampling.
         params: Metric name -> estimator keyword arguments; recorded in the records.
@@ -249,10 +281,13 @@ def compute(
         limits: Metric name -> cap on the items that estimator sees (overrides the registry
             max_items); a seeded subsample is drawn above the cap and recorded in
             extras["n_items_used"].
+        device: Device the estimators run on; each layer, clip or pooled token cloud is moved
+            there after subsetting, one at a time. Default: the device of the inputs.
 
     Returns:
         Records, one row per (layer, metric), failures recorded as nan with an error message.
     """
+    dev = _device(device)
     params = {k: dict(v) for k, v in (params or {}).items()}
     specs = [get_metric(m) for m in metrics]
     kinds = {s.inputs for s in specs}
@@ -298,7 +333,7 @@ def compute(
         idx = choose_indices(first.shape[1], n, seed, group_ids)
         caps = dict(limits or {})
         for l in layer_ids:
-            v = torch.as_tensor(layers[l])[:, idx]
+            v = _to(_tensor(layers[l])[:, idx], dev)
             for spec in specs:
                 cap = caps.get(spec.name, spec.max_items)
                 vs = v if cap is None or v.shape[1] <= cap else v[:, _cap(torch.arange(v.shape[1]), cap, seed)]
@@ -313,8 +348,8 @@ def compute(
         idx = choose_indices(z0.shape[0], n, seed, group_ids)
         for l in layer_ids:
             z, shifted = layers[l]
-            z = torch.as_tensor(z)[idx]
-            sh = {k: torch.as_tensor(v)[idx] for k, v in shifted.items()}
+            z = _to(_tensor(z)[idx], dev)
+            sh = {k: _to(_tensor(v)[idx], dev) for k, v in shifted.items()}
             for spec in specs:
                 value, extras = _run(spec, (z, sh), params.get(spec.name, {}))
                 record(spec, l, value, extras, len(idx), int(z.shape[-1]), len(sh))
@@ -325,7 +360,7 @@ def compute(
 
     if kind == InputKind.JACOBIAN:
         for l in layer_ids:
-            j = torch.as_tensor(layers[l])
+            j = _to(_tensor(layers[l]), dev)
             for spec in specs:
                 value, extras = _run(spec, (j,), params.get(spec.name, {}))
                 record(spec, l, value, extras, int(j.shape[0]), int(j.shape[-1]))
@@ -334,47 +369,53 @@ def compute(
     if population == "pooled":
         if any(s.inputs in (InputKind.TRAJECTORY, InputKind.TOKENS) for s in specs):
             raise ValueError("trajectory and token-field metrics need population='frames' or 'tokens'")
-        first = torch.as_tensor(layers[layer_ids[0]])
-        counts = {l: int(torch.as_tensor(layers[l]).shape[0]) for l in layer_ids}
+        first = _tensor(layers[layer_ids[0]])
+        counts = {l: int(_tensor(layers[l]).shape[0]) for l in layer_ids}
         if len(set(counts.values())) > 1:
             raise ValueError(f"layers must have the same number of rows, got {counts}")
         idx = choose_indices(first.shape[0], n, seed, group_ids)
         for l in layer_ids:
-            x = torch.as_tensor(layers[l])[idx]
+            x = _to(_tensor(layers[l])[idx], dev)
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
         return _warn_failed(records)
+
+    def per_clip(clips: Sequence[Any], clip_specs: list[MetricSpec], idx: np.ndarray, l: int) -> None:
+        """Run clip_specs on every selected clip and record their aggregates."""
+        per_metric: dict[str, tuple[list[float], list[dict]]] = {s.name: ([], []) for s in clip_specs}
+        point_specs = [s for s in clip_specs if s.inputs == InputKind.POINTS]
+        other_specs = [s for s in clip_specs if s.inputs != InputKind.POINTS]
+        for i in idx:
+            c = _to(_tensor(clips[i]), dev)
+            results = _points_sweep(c, point_specs, params, seed, limits) if point_specs else {}
+            results.update({s.name: _run(s, (c,), params.get(s.name, {})) for s in other_specs})
+            for name, (value, extras) in results.items():
+                per_metric[name][0].append(value)
+                per_metric[name][1].append(extras)
+        dim = int(_tensor(clips[idx[0]]).shape[-1])
+        for name, (values, extras_list) in per_metric.items():
+            value, extras = _aggregate(values, extras_list, keep_per_clip)
+            record(get_metric(name), l, value, extras, len(idx), dim)
 
     if population == "tokens":
         if any(s.inputs == InputKind.TRAJECTORY for s in specs):
             raise ValueError("trajectory metrics need population='frames'")
+        pooled_specs = [s for s in specs if not s.per_clip]
+        clip_specs = [s for s in specs if s.per_clip]  # their definition pairs tokens within a clip
+        clip_idx = choose_indices(len(layers[layer_ids[0]]), None, seed, group_ids)
         for l in layer_ids:
-            x = torch.cat([torch.as_tensor(c) for c in layers[l]], dim=0)
-            idx = choose_indices(x.shape[0], n, seed)  # token subsample; group filtering is per clip, not per token
-            x = x[idx]
-            for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
-                record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
+            if pooled_specs:
+                x = _to(_pooled_tokens(layers[l], clip_idx, n, seed), dev)
+                for name, (value, extras) in _points_sweep(x, pooled_specs, params, seed, limits).items():
+                    record(get_metric(name), l, value, extras, int(x.shape[0]), int(x.shape[-1]))
+            if clip_specs:
+                per_clip(layers[l], clip_specs, clip_idx, l)
         return _warn_failed(records)
 
     if population == "frames":
-        clips0 = layers[layer_ids[0]]
-        idx = choose_indices(len(clips0), n, seed, group_ids)
+        idx = choose_indices(len(layers[layer_ids[0]]), n, seed, group_ids)
         for l in layer_ids:
-            clips = layers[l]
-            per_metric: dict[str, tuple[list[float], list[dict]]] = {s.name: ([], []) for s in specs}
-            dim = int(torch.as_tensor(clips[idx[0]]).shape[-1])
-            point_specs = [s for s in specs if s.inputs == InputKind.POINTS]
-            other_specs = [s for s in specs if s.inputs != InputKind.POINTS]
-            for i in idx:
-                c = torch.as_tensor(clips[i])
-                results = _points_sweep(c, point_specs, params, seed, limits) if point_specs else {}
-                results.update({s.name: _run(s, (c,), params.get(s.name, {})) for s in other_specs})
-                for name, (value, extras) in results.items():
-                    per_metric[name][0].append(value)
-                    per_metric[name][1].append(extras)
-            for name, (values, extras_list) in per_metric.items():
-                value, extras = _aggregate(values, extras_list, keep_per_clip)
-                record(get_metric(name), l, value, extras, len(idx), dim)
+            per_clip(layers[l], specs, idx, l)
         return _warn_failed(records)
 
     raise ValueError(f"unknown population {population!r}")
@@ -405,6 +446,7 @@ def compute_pairs(
     chunk: int = 512,
     metric: str = "information_imbalance",
     params: Mapping[str, Any] | None = None,
+    device: str | torch.device | None = None,
 ) -> Records:
     """A layer-pair metric between every layer of A and every layer of B (B defaults to A).
 
@@ -419,11 +461,13 @@ def compute_pairs(
     For the overlap only the k-nearest-neighbor tables are needed, once per
     layer; for CKA the centered features and their norms, and for SVCCA the
     kept singular directions, are also computed once per layer. To follow a
-    layer through training, pass the same items at two checkpoints as A and B.
+    layer through training, pass the same items at two checkpoints as A and B. device is
+    as in compute().
     """
+    dev = _device(device)
     if metric in ("cka", "svcca"):
         return _closed_form_pairs(
-            metric, layers_a, layers_b, dict(params or {}), n, seed, group_ids, model, model_b, pooling, corpus
+            metric, layers_a, layers_b, dict(params or {}), n, seed, group_ids, model, model_b, pooling, corpus, dev
         )
     if metric not in ("information_imbalance", "neighborhood_overlap"):
         raise ValueError(f"unknown layer-pair metric {metric!r}")
@@ -433,10 +477,10 @@ def compute_pairs(
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
     ids_a, ids_b = sorted(layers_a), sorted(b_map)
-    first = torch.as_tensor(layers_a[ids_a[0]])
+    first = _tensor(layers_a[ids_a[0]])
     idx = choose_indices(first.shape[0], n, seed, group_ids)
-    xa = {l: torch.as_tensor(layers_a[l])[idx].double() for l in ids_a}
-    xb = xa if same else {l: torch.as_tensor(b_map[l])[idx].double() for l in ids_b}
+    xa = {l: _to(_tensor(layers_a[l])[idx], dev).double() for l in ids_a}
+    xb = xa if same else {l: _to(_tensor(b_map[l])[idx], dev).double() for l in ids_b}
     n_items = len(idx)
     nn_a = {l: Neighbors.from_points(xa[l], k).indices[:, 1 : k + 1] for l in ids_a}
     nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k).indices[:, 1 : k + 1] for l in ids_b}
@@ -484,7 +528,10 @@ def compute_pairs(
                     sums[key(ls, lt)] += float(gathered.double().sum())
 
     accumulate(ids_b, xb, ids_a, nn_a, sums_ab, lambda ls, lt: (ls, lt))  # ranks in B of A's neighbors
-    accumulate(ids_a, xa, ids_b, nn_b, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
+    if same:  # Delta(B_lb -> A_la) is Delta(lb -> la), already accumulated
+        sums_ba = {(la, lb): sums_ab[(lb, la)] for la in ids_a for lb in ids_b}
+    else:
+        accumulate(ids_a, xa, ids_b, nn_b, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
     depths = _normalized_depths(ids_a)
     scale = (n_items * k) * (n_items / 2.0)
     out = Records()
@@ -526,6 +573,7 @@ def _closed_form_pairs(
     model_b: str | None,
     pooling: str | None,
     corpus: str | None,
+    dev: torch.device | None = None,
 ) -> Records:
     """CKA or SVCCA for every layer pair, with per-layer summaries computed once."""
     from req_metrics.metrics.compare import _check_pair, _cka_from_stats, _cka_stats, _svd_directions
@@ -534,9 +582,9 @@ def _closed_form_pairs(
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
     ids_a, ids_b = sorted(layers_a), sorted(b_map)
-    idx = choose_indices(torch.as_tensor(layers_a[ids_a[0]]).shape[0], n, seed, group_ids)
+    idx = choose_indices(_tensor(layers_a[ids_a[0]]).shape[0], n, seed, group_ids)
     for l in ids_b:
-        _check_pair(torch.as_tensor(layers_a[ids_a[0]])[idx], torch.as_tensor(b_map[l])[idx])
+        _check_pair(_tensor(layers_a[ids_a[0]])[idx], _tensor(b_map[l])[idx])
     if metric == "cka":
         debiased = bool(params.get("debiased", False))
         if debiased and len(idx) < 4:
@@ -561,8 +609,8 @@ def _closed_form_pairs(
             rho = torch.linalg.svdvals(a[0].T @ b[0]).clamp(0.0, 1.0)
             return float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(a[1]), "k_b": float(b[1])}
 
-    sa = {l: summary(torch.as_tensor(layers_a[l])[idx]) for l in ids_a}
-    sb = sa if same else {l: summary(torch.as_tensor(b_map[l])[idx]) for l in ids_b}
+    sa = {l: summary(_to(_tensor(layers_a[l])[idx], dev)) for l in ids_a}
+    sb = sa if same else {l: summary(_to(_tensor(b_map[l])[idx], dev)) for l in ids_b}
     depths = _normalized_depths(ids_a)
     done: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
     out = Records()
@@ -587,7 +635,7 @@ def _closed_form_pairs(
                     pooling=pooling,
                     corpus=corpus,
                     n_items=len(idx),
-                    dim=int(torch.as_tensor(layers_a[la]).shape[-1]),
+                    dim=int(_tensor(layers_a[la]).shape[-1]),
                     preprocess="none",
                     params=dict(params),
                     seed=seed,

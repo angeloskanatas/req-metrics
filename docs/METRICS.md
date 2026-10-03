@@ -1,9 +1,9 @@
 # Metric reference
 
-Definitions, sources and verification of the metrics, and the protocol of
-Kanatas et al. (2026). The per-metric text is in the estimator docstrings and is
-rendered into `docs/metrics/` by `scripts/build_metric_cards.py`; this document
-covers what applies across metrics.
+Definitions, sources and verification of the metrics, and the protocol of Kanatas et
+al. (2026). The per-metric text is in the estimator docstrings and is rendered into
+`docs/metrics/` by `scripts/build_metric_cards.py`; this document covers what
+applies across metrics.
 
 ## 1. Conventions
 
@@ -37,11 +37,12 @@ covers what applies across metrics.
 - Inclusion rule: only metrics defined in a published paper are registered,
   each with its input contract, canonical preprocessing and citation keys
   into `references.bib`.
-- Preprocessing is never implicit. A metric whose definition is on the
-  covariance centers inside the estimator and says so; anything else is
-  applied by the pipeline from the registry entry and written into the record.
+- Preprocessing is never implicit. Each estimator's `center`, `standardize` and
+  `l2` arguments define what it applies; the registry holds their defaults, the
+  pipeline applies them before building the shared spectrum, and every record
+  stores the preprocessing actually applied.
 - Population (`pooled`, `frames`, `tokens`) is a pipeline argument, not a
-  property of the estimator.
+  property of the estimator; see Section 2.
 - Citations name author, year and venue; arXiv ids are given once per metric.
   "Published protocol" means the configuration behind the reported numbers of
   Kanatas et al. (2026).
@@ -60,17 +61,65 @@ covers what applies across metrics.
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
-registry covers all of them except condition number and DSE (rejected, with
-reasons, in Section 6) and adds the frame, view, shift, pair and token
-families that single-vector studies cannot express.
+registry covers all of them except condition number and DSE (rejected, with reasons,
+in Section 6) and adds the frame, view, shift, pair and token families that
+single-vector studies cannot express.
 
+### Populations
 
+The population decides which vectors form the point cloud; the estimator does not
+change.
+
+- `pooled`: one vector per clip (token or time mean, class token, final token, or a
+  grid readout). The setting of RankMe, LiDAR, Arputharaj et al. (2026) and Kanatas
+  et al. (2026), and of the layer-wise intrinsic-dimension studies of Valeriani et
+  al. (2023, token mean) and Cheng et al. (2025, ICLR, last token).
+- `frames`: each clip's own frames or patches form one cloud; the estimator runs per
+  clip and the values are aggregated (mean of the finite values; std, median, min,
+  max and the count of failures in the extras). Viswanathan et al. (2025) estimate
+  the intrinsic dimension of each prompt's 1,024 tokens and average over prompts;
+  Pedashenko et al. (2026, EACL) do the same per text; Skean et al. (2025) compute
+  prompt entropy on the tokens of one prompt; trajectory curvature (Hosseini and
+  Fedorenko, 2023) and DINOv3's Gram anchoring are per sample by definition. The
+  value describes the clip's own manifold: a neighbor estimator here sees temporally
+  adjacent frames.
+- `tokens`: the frames of all clips form one cloud, from which n tokens are drawn at
+  random. This is the population of the anisotropy literature, where pairs of token
+  vectors are drawn across a corpus (Ethayarajh, 2019; Godey et al., 2024; Timkey
+  and van Schijndel, 2021); of Razzhigaev et al. (2024), who compute anisotropy and
+  TwoNN on batches of at least 4,096 vectors from different contexts, shuffled
+  before batching for TwoNN, and average over batches; of Ruppik et al. (2025,
+  NeurIPS), who pool the tokens of thousands of sequences, deduplicate them and draw
+  a fixed number; and of the global effective rank of Whetten et al. (2025), over
+  all frames of about an hour of audio. For neighbor estimators the number of clips
+  sets the regime (Osman, Baroni and Macocco, 2026): with N points from c clips,
+  about m = N / c per clip, the k neighbors of a point can all be frames of its own
+  clip while k < m (the local regime, close to the frames reading) and must reach
+  other clips once k >= m (the global regime). The transition at c = N / k adds a
+  spurious peak to layer profiles and reverses the dependence on c; the argument
+  assumes, as they verify for words, that a clip's frames lie closer to each other
+  than to other clips' frames. Compare such values at equal N, k and clip count.
+  Repeated draws with different seeds give the batch spread of Razzhigaev et al.;
+  class, register and first-position tokens can distort such a cloud (Timkey and van
+  Schijndel, 2021, report cosine above 0.99 between position-0 tokens), so strip
+  them first (`layouts.strip_prefix_tokens`, or `n_prefix` with the "frames"
+  readout). Token-field metrics whose definition pairs tokens within one clip
+  (`cls_patch_cosine`, `token_cosine`; registry `per_clip`) run per clip here too,
+  while `token_norm_outliers` reads the pooled tokens, as Darcet et al. (2024) set
+  their cutoff from a pooled norm histogram.
+
+Rosina Fernandez, Guillaume and Wisniewski (2025) compare the cosine similarity of
+frame pairs from the same recording and from different recordings and find the two
+distributions similar; no other study cited compares the frames and tokens readings
+of one estimator on the same data. Viswanathan et al. (2025, App. D) find that
+token-level and prompt-level intrinsic dimension follow different trends, and Osman
+et al. (2026) that pooled neighbor estimates change regime with the number of items,
+so the population is part of the protocol and is recorded with every value.
 
 ## 3. Verification against reference implementations
 
-Every port was checked against the code it was adopted from; where a
-reference implementation deviates from the published definition, the
-docstring says so.
+Every port was checked against the code it was adopted from; where a reference
+implementation deviates from the published definition, the docstring says so.
 
 - Spectral group. Matrix-based entropy is the Renyi entropy of the squared
   singular values, so it is computed from the shared spectrum without an
@@ -88,8 +137,9 @@ docstring says so.
   reference matrix-entropy code clamps negative Gram entries to zero, which
   raised the entropy by 13 to 22 percent on audio foundation-model states; the
   Gram matrix is not clamped here. RankMe-t (Aldeneh et al., 2024) is the
-  effective rank of the pooled population under mean pooling, up to a per-clip
-  scale that the effective rank ignores.
+  effective rank of time-summed clip vectors; for clips of equal length this is the
+  effective rank of the mean-pooled population, since the two differ by one global
+  scale.
 - Neighbor group. TwoNN and GRIDE follow DADApy step for step and reproduce
   its solver to machine precision (estimates and Fisher errors at every scale,
   checked by loading DADApy's own likelihood functions on the same ratios).
@@ -109,11 +159,12 @@ docstring says so.
   2e-14 with delta 1e-6; the default delta 1e-4 is that of the Skean et al.
   (2025) analysis code. Thilak et al. state unbiased estimates without giving
   denominators; the choice rescales S_b and S_w by constants, which leaves the
-  value unchanged at delta 0 and otherwise changes only delta's relative size. InfoNCE matches to 1e-9
-  on two views; with more views it averages the two-view loss over view pairs. DiME's joint entropy matches
-  repitl to 1e-15; unlike that analysis code, it never swaps the N x N Gram
-  Hadamard product for D x D covariances when N > D, since the two differ
-  (single-matrix entropies agree, Hadamard products do not).
+  value unchanged at delta 0 and otherwise changes only delta's relative size.
+  InfoNCE matches to 1e-9 on two views; with more views it averages the
+  two-view loss over view pairs. DiME's joint entropy matches repitl to 1e-15;
+  unlike that analysis code, it never swaps the N x N Gram Hadamard product for
+  D x D covariances when N > D, since the two differ (single-matrix entropies
+  agree, Hadamard products do not).
 - Equivariance. PTE reproduces the published training loop (mixed-shift
   batches, Adam, early stopping, best state restored) and agrees with the
   analysis code on identical data and seeds to six decimals.
@@ -130,8 +181,8 @@ docstring says so.
 
 ## 4. Reproducing Kanatas et al. (2026)
 
-`protocols.get("kanatas2026")` pins the variants and parameters per input
-kind. The canonical set:
+`protocols.get("kanatas2026")` pins the variants and parameters per input kind. The
+canonical set:
 
 | metric | estimator / variant | preprocessing | population | views |
 |---|---|---|---|---|
@@ -147,65 +198,66 @@ kind. The canonical set:
 encoders and the final-token state for autoregressive decoders.
 
 Every record written here carries metric and variant, estimator parameters,
-preprocessing, population and pooling label, number of views, number of items,
-seed, representation width and the library version. PTE is trained with a linear probe on 10,000 clips; the cross-power distance that
-includes the magnitude is in the extras of every run next to the phase distance.
+preprocessing, population and pooling label, number of views, number of items, seed,
+representation width and the library version. PTE is trained with a linear probe on
+10,000 clips; the cross-power distance that includes the magnitude is in the extras
+of every run next to the phase distance.
 
 ## 5. Intrinsic dimension: caveats
 
-MLE, TwoNN and GRIDE target the pointwise dimension, which cannot increase
-under Lipschitz maps (Schulte and Rügamer, 2026, AISTATS); every standard
-layer type is Lipschitz, so a layer-wise ID profile that rises is an
-estimator artifact driven by growing nearest-neighbor distances and
-representation norms, not a rising true dimension. Estimates are biased lower
-bounds whose bias is not consistent across layers, and the layer-wise
-pattern co-moves with the von Neumann entropy of the centered Gram matrix
-(the variance convention of `effective_rank`). Report ID profiles as
-geometric descriptors, not as manifold dimensions, and read them next to
-the spectral entropies. The plug-in participation ratio has a separate,
-sample-size bias of about PR/N (Chun et al., 2026); see the `correction`
-argument of `participation_ratio`.
+MLE, TwoNN and GRIDE target the pointwise dimension, which cannot increase under
+Lipschitz maps (Schulte and Rügamer, 2026, AISTATS); every standard layer type is
+Lipschitz, so a layer-wise ID profile that rises is an estimator artifact driven by
+growing nearest-neighbor distances and representation norms, not a rising true
+dimension. Estimates are biased lower bounds whose bias is not consistent across
+layers, and the layer-wise pattern co-moves with the von Neumann entropy of the
+centered Gram matrix (the variance convention of `effective_rank`). Report ID
+profiles as geometric descriptors, not as manifold dimensions, and read them next to
+the spectral entropies. The plug-in participation ratio has a separate, sample-size
+bias of about PR/N (Chun et al., 2026); see the `correction` argument of
+`participation_ratio`.
 
-Duplicates matter for the two-neighbor estimators. An exact duplicate has
-r_1 = 0 and an infinite ratio, and its neighbors a ratio of exactly 1; DADApy's
-2NN keeps such rows unless `remove_identical_points` is called, whereas
-`twonn` here removes exact duplicate rows first and records the count used.
-On MERT-v1-95M embeddings of 990 GTZAN clips, which contain 13 exact
-duplicates, the two conventions differ by about 20 percent at every layer
-(for example 12.6 against 15.6 at layer 6), while GRIDE at the scale of the
-8th neighbor is unaffected; both match DADApy to all printed digits under
-the same convention. Deduplicate the corpus before estimating, as the
-published protocol does, or read `extras["n_used"]`.
+Duplicates matter for the two-neighbor estimators. An exact duplicate has r_1 = 0
+and an infinite ratio, and its neighbors a ratio of exactly 1; DADApy's 2NN keeps
+such rows unless `remove_identical_points` is called, whereas the neighbor
+estimators here (TwoNN, GRIDE, MLE, mLID, neighborhood curvature) remove exact
+duplicate rows first. On MERT-v1-95M embeddings of 990 GTZAN clips, which contain 13
+exact duplicates, the two conventions differ by about 20 percent at every layer (for
+example 12.6 against 15.6 at layer 6), while GRIDE at the scale of the 8th neighbor
+is unaffected; both match DADApy to all printed digits under the same convention.
+Deduplicate the corpus before estimating, as the published protocol does;
+`compute()` records the number of distinct rows in `extras["n_distinct"]` when
+duplicates were removed, and `twonn` reports the count it used in
+`extras["n_used"]`.
 
 ## 6. Relational metrics, collapse indicators and corrections
 
-Sources for this section: Tsitsulin, Munkhoeva and Perozzi (2023,
-TAG-ML at ICML, arXiv:2305.16562); He and Ozay (2022, ICML); Wang and Isola
-(2020, ICML, arXiv:2005.10242) with their reference code; Chen and He (2021,
-CVPR, arXiv:2011.10566); Chun, Canatar, Chung and Lee (2026, ICLR,
-arXiv:2509.26560) with their reference code; Arputharaj, Jönsson and Eilertsen
-(2026, TMLR, arXiv:2608.23182); Schulte and Rügamer (2026, AISTATS,
-arXiv:2604.20276); Liao et al. (2024, CISS, arXiv:2312.04823) with their code.
+Sources for this section: Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML,
+arXiv:2305.16562); He and Ozay (2022, ICML); Wang and Isola (2020, ICML,
+arXiv:2005.10242) with their reference code; Chen and He (2021, CVPR,
+arXiv:2011.10566); Chun, Canatar, Chung and Lee (2026, ICLR, arXiv:2509.26560) with
+their reference code; Arputharaj, Jönsson and Eilertsen (2026, TMLR,
+arXiv:2608.23182); Schulte and Rügamer (2026, AISTATS, arXiv:2604.20276); Liao et
+al. (2024, CISS, arXiv:2312.04823) with their code.
 
 ### self_clustering (Tsitsulin et al., 2023, Def. 3.5)
 Points: L2-normalized rows W, no centering. Q = sum over all pairs of the squared
-cosine, compared with its uniform-sphere expectation N + N(N-1)/D and its
-collapse maximum N^2: (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D). The paper
-writes Q as the Frobenius norm of W W^T; the expectation and the maximum it
-states are those of the squared norm, which this implementation uses so that a
-single point gives exactly 1 and a uniform cloud 0. Computed from the D x D
-second moment in O(N D^2). The TMLR study reports it as a reliable negative
-predictor for self-supervised vision models and uninformative for supervised
-ones, with values near 0 or 1 for supervised ViTs, and rho = -0.999 with
-diffusion spectral entropy.
+cosine, compared with its uniform-sphere expectation N + N(N-1)/D and its collapse
+maximum N^2: (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D). The paper writes Q as the
+Frobenius norm of W W^T; the expectation and the maximum it states are those of the
+squared norm, which this implementation uses so that a single point gives exactly 1
+and a uniform cloud 0. Computed from the D x D second moment in O(N D^2). The TMLR
+study reports it as a reliable negative predictor for self-supervised vision models
+and uninformative for supervised ones, with values near 0 or 1 for supervised ViTs,
+and rho = -0.999 with diffusion spectral entropy.
 
 ### uniformity and alignment (Wang and Isola, 2020)
-uniformity: log of the mean pairwise Gaussian potential exp(-t ||u - v||^2)
-over L2-normalized points, t = 2, computed from Gram blocks in float64.
-Corollary 1 range [-2t + log 0F1(; D/2; t^2), 0], the lower end only for a
-perfectly uniform encoder (extras: lower_bound, gap). alignment: mean over
-view pairs and clips of ||u_a - u_b||^alpha, alpha = 2, on L2-normalized views
-(input kind views). Both equal the two-line reference implementation.
+uniformity: log of the mean pairwise Gaussian potential exp(-t ||u - v||^2) over
+L2-normalized points, t = 2, computed from Gram blocks in float64. Corollary 1 range
+[-2t + log 0F1(; D/2; t^2), 0], the lower end only for a perfectly uniform encoder
+(extras: lower_bound, gap). alignment: mean over view pairs and clips of ||u_a -
+u_b||^alpha, alpha = 2, on L2-normalized views (input kind views). Both equal the
+two-line reference implementation.
 
 ### normalized_std (Chen and He, 2021, Sec. 4.1)
 Mean over channels of the sample std of z / ||z||_2: 0 under complete collapse,
@@ -214,101 +266,95 @@ complete-collapse monitor only; it does not see dimensional collapse.
 
 ### participation_ratio corrections (Chun et al., 2026)
 1/PR_naive is about 1/N + 1/D + 1/PR (their Sec. 3), so the plug-in estimate is
-biased low by roughly PR/N. correction="row" removes the sample-size term, the
-case of network activations where all units are observed (their Sec. 4.5);
-"both" also removes the unit-subsampling term. The corrected estimators center
-algebraically and take the raw matrix; all estimates come from one pass and are
-in the extras of every record. Quartic index sums are evaluated
-in closed form (Gram matrix, column moments) and agree with the MIT reference
-code to 1e-12 (NOTICE). The plug-in estimate remains the default for parity
-with published numbers.
+biased low by roughly PR/N. correction="row" removes the sample-size term, the case
+of network activations where all units are observed (their Sec. 4.5); "both" also
+removes the unit-subsampling term. The corrected estimators center algebraically and
+take the raw matrix; all estimates come from one pass and are in the extras of every
+record. Quartic index sums are evaluated in closed form (Gram matrix, column
+moments) and agree with the MIT reference code to 1e-12 (NOTICE). The plug-in
+estimate remains the default for parity with published numbers.
 
 ### Extras added to existing metrics
-anisotropy.ne_sum = sum(lambda)/lambda_1 (NESum of He and Ozay, 2022; stable rank
-of Tsitsulin et al., 2023, on centered data). effective_rank.normalized_rank =
-RankMe/D (RankMe* of Tsitsulin et al., 2023). alpha_req: the fit range changes the
-sign of the correlation with accuracy (TMLR study, Appendix B.1); record it.
+anisotropy.ne_sum = sum(lambda)/lambda_1 (NESum of He and Ozay, 2022; stable rank of
+Tsitsulin et al., 2023, on centered data). effective_rank.normalized_rank = RankMe/D
+(RankMe* of Tsitsulin et al., 2023). alpha_req: the fit range changes the sign of
+the correlation with accuracy (TMLR study, Appendix B.1); record it.
 
 ### Considered and not adopted (relational and spectral candidates)
-Condition number (Tsitsulin et al.): sign reversals across datasets in their
-Table 3, and the TMLR study shows its correlation with accuracy is an artifact of
-OLS conditioning that disappears under a k-NN probe. Coherence (Tsitsulin et
-al.): their Table 1 marks it data-dependent and least stable; not in the TMLR
-study. Diffusion spectral entropy (Liao et al.): bandwidth sigma in absolute
-embedding units with no scale rule (paper exp(-d^2/sigma) versus code
-exp(-d^2/(2 sigma^2)), default 10), which confounds layer-wise comparison as
-norms grow with depth; reference code non-commercial; rho = -0.999 with
-self_clustering. Layer-wise representation dynamics (Jiang et al., 2026): no
-code and no peer review yet; CKA and SVCCA, the published measures their
-subspace distances build on, are in the layer-pair family. Dense representation
-structure estimator (Dai et al., 2025, NeurIPS, arXiv:2510.17299): the released
-code computes a different quantity from the paper's Eq. 5 (scale normalizations
-and an intra-cluster denominator that the paper does not state, and no lambda,
-which Eq. 5 defines over the checkpoints of a run), so published values cannot be
-reproduced from the definition; the code carries no license. Parameter- and
-representation-prediction probes (Plachouras et al., 2025, IJCNN): they train a
-probe for every layer, transformation and evaluation, which is too costly for
-monitoring during training, and the paper evaluates them on final-layer
-features rather than as layer-selection measures; the authors' toolkit provides
-them. Persistence
-(Shestov et al., 2025): persistent homology on recommender embeddings, which
-would add a persistent-homology dependency.
-
+Condition number (Tsitsulin et al.): sign reversals across datasets in their Table
+3, and the TMLR study shows its correlation with accuracy is an artifact of OLS
+conditioning that disappears under a k-NN probe. Coherence (Tsitsulin et al.): their
+Table 1 marks it data-dependent and least stable; not in the TMLR study. Diffusion
+spectral entropy (Liao et al.): bandwidth sigma in absolute embedding units with no
+scale rule (paper exp(-d^2/sigma) versus code exp(-d^2/(2 sigma^2)), default 10),
+which confounds layer-wise comparison as norms grow with depth; reference code
+non-commercial; rho = -0.999 with self_clustering. Layer-wise representation
+dynamics (Jiang et al., 2026): no code and no peer review yet; CKA and SVCCA, the
+published measures their subspace distances build on, are in the layer-pair family.
+Dense representation structure estimator (Dai et al., 2025, NeurIPS,
+arXiv:2510.17299): the released code computes a different quantity from the paper's
+Eq. 5 (scale normalizations and an intra-cluster denominator that the paper does not
+state, and no lambda, which Eq. 5 defines over the checkpoints of a run), so
+published values cannot be reproduced from the definition; the code carries no
+license. Parameter- and representation-prediction probes (Plachouras et al., 2025,
+IJCNN): they train a probe for every layer, transformation and evaluation, which is
+too costly for monitoring during training, and the paper evaluates them on
+final-layer features rather than as layer-selection measures; the authors' toolkit
+provides them. Persistence (Shestov et al., 2025): persistent homology on
+recommender embeddings, which would add a persistent-homology dependency.
 
 ## 7. neighborhood_overlap
 
-Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1);
-Valeriani et al. (2023, NeurIPS) for the transformer use. Layer-pair
-input: the mean over items of the fraction of k nearest neighbors (Euclidean,
-self excluded) shared between two representations; 1 when neighborhoods are
-preserved, k/(N-1) at chance. k = 30 in both papers at ImageNet scale, trend
-robust to k. `compute_pairs(layers, metric="neighborhood_overlap")` builds one
-k-NN table per layer and intersects them for every pair. Symmetric, so it
-answers a different question from the information imbalance (directional
-predictability of neighbor ranks); the two are the layer-pair family. The
-retention score of Jiang et al. (2026) is the Jaccard variant of this quantity.
+Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1); Valeriani
+et al. (2023, NeurIPS) for the transformer use. Layer-pair input: the mean over
+items of the fraction of k nearest neighbors (Euclidean, self excluded) shared
+between two representations; 1 when neighborhoods are preserved, k/(N-1) at chance.
+k = 30 in both papers at ImageNet scale, trend robust to k.
+`compute_pairs(layers, metric="neighborhood_overlap")` builds one k-NN table per
+layer and intersects them for every pair. Symmetric, so it answers a different
+question from the information imbalance (directional predictability of neighbor
+ranks); the two are the layer-pair family. The retention score of Jiang et al.
+(2026) is the Jaccard variant of this quantity.
 
 ## 8. cka and svcca
 
-Layer-pair similarity indices for the same items in two representations.
-`cka` is linear centered kernel alignment (Kornblith et al., 2019, ICML,
-arXiv:1905.00414, Table 1), invariant to orthogonal maps and isotropic
-scaling; `debiased=True` uses the unbiased HSIC estimator, which matters when N
-is not large relative to the widths. `svcca` (Raghu et al., 2017, NeurIPS,
-arXiv:1706.05806) keeps the SVD directions that carry 99 percent of the summed
-singular values (App. A) and averages the canonical correlations between them
-(Eq. 1); it is invariant to invertible linear maps of the kept subspaces and
-therefore needs N well above the kept widths. Post hoc, `compute_pairs` gives the
-layer-by-layer similarity map of a model. During training, the same fixed items
-at two checkpoints give the drift of each layer, the use of Raghu et al.,
-Sec. 4.1, who compare every layer during training with its final state. Both
-are closed-form; per-layer summaries are computed once per call.
+Layer-pair similarity indices for the same items in two representations. `cka` is
+linear centered kernel alignment (Kornblith et al., 2019, ICML, arXiv:1905.00414,
+Table 1), invariant to orthogonal maps and isotropic scaling; `debiased=True` uses
+the unbiased HSIC estimator, which matters when N is not large relative to the
+widths. `svcca` (Raghu et al., 2017, NeurIPS, arXiv:1706.05806) keeps the SVD
+directions that carry 99 percent of the summed singular values (App. A) and averages
+the canonical correlations between them (Eq. 1); it is invariant to invertible
+linear maps of the kept subspaces and therefore needs N well above the kept widths.
+Post hoc, `compute_pairs` gives the layer-by-layer similarity map of a model. During
+training, the same fixed items at two checkpoints give the drift of each layer, the
+use of Raghu et al., Sec. 4.1, who compare every layer during training with its
+final state. Both are closed-form; per-layer summaries are computed once per call.
 
 ## 9. cluster_quality
 
-Whetten et al. (2025, Interspeech): k-means with k = 1024 and k-means++
-seeding on the frame embeddings of a layer, reported as the inertia and the
-Davies-Bouldin index, as label-free indicators computed early in pretraining.
-In their study the two correlate with recognition in opposite directions, so
-they are read together and compared at the same layer, N and k. Full-batch
-Lloyd iterations with a seed replace the paper's mini-batch k-means, so values
-are reproducible.
+Whetten et al. (2025, Interspeech): k-means with k = 1024 and k-means++ seeding on
+the frame embeddings of a layer, reported as the inertia and the Davies-Bouldin
+index, as label-free indicators computed early in pretraining. In their study the
+two correlate with recognition in opposite directions, so they are read together and
+compared at the same layer, N and k. Full-batch Lloyd iterations with a seed replace
+the paper's mini-batch k-means, so values are reproducible.
 
 ## 10. jacobian_effective_rank
 
-Chung and Kim (2026, arXiv:2602.03282, Eq. 1): the participation ratio
-(sum s_i)^2 / sum s_i^2 of the k leading singular values of a readout's
-input-output Jacobian J(x), averaged over inputs; at most k. The singular values
-are estimated by randomized range finding (Halko et al., 2011) from k random
-orthonormal input directions with subspace iteration; their protocol uses 32
-directions, 5 power iterations and 100 ImageNet validation images on the final
-embedding (Sec. 4.1, App. I.4), with Gaussian-noise inputs as a control (App.
-E.1). `jacobian_products` implements the estimator and `LayerMonitor` applies it
-to the first `jacobian_items` inputs of the monitoring set, for the readout of
-every hooked layer: the first products serve all layers in one forward-mode pass
-per direction, and each power iteration costs 2k passes per layer.
-`jacobian_input` sets the tensor the Jacobian is taken with respect to (a
-spectrogram rather than the waveform, for instance). Values are comparable at
-equal k, power iterations, inputs and readout. Chung and Kim find the measure predictive of
-compositional binding and state that it is not a universal quality measure.
+Chung and Kim (2026, ICML, arXiv:2602.03282, Eq. 1): the participation ratio (sum
+s_i)^2 / sum s_i^2 of the k leading singular values of a readout's input-output
+Jacobian J(x), averaged over inputs; at most k. The singular values are estimated by
+randomized range finding (Halko et al., 2011) from k random orthonormal input
+directions with subspace iteration; their protocol uses 32 directions, 5 power
+iterations and 100 ImageNet validation images on the final embedding (Sec. 4.1, App.
+I.4), with Gaussian-noise inputs as a control (App. E.1). `jacobian_products`
+implements the estimator and `LayerMonitor` applies it to the first `jacobian_items`
+inputs of the monitoring set, for the readout of every hooked layer: the first
+products serve all layers in one forward-mode pass per direction, and each power
+iteration costs 2k passes per layer. `jacobian_input` sets the tensor the Jacobian
+is taken with respect to (a spectrogram rather than the waveform, for instance).
+Values are comparable at equal k, power iterations, inputs and readout. Chung and
+Kim find the measure predictive of compositional binding and state that it is not a
+universal quality measure.
 

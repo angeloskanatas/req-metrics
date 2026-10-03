@@ -50,11 +50,22 @@ class TokenHealthTests(unittest.TestCase):
         rec = rq.compute(clips, ["token_norm_outliers", "token_cosine"], population="frames")
         self.assertAlmostEqual(rec.where(metric="token_norm_outliers", layer=0)[0].value, 0.05 / 3, places=9)
         pooled = rq.compute(clips, ["token_norm_outliers"], population="tokens")
-        self.assertAlmostEqual(pooled.where(layer=0)[0].value, 10 / 600, places=9)
+        self.assertAlmostEqual(pooled.where(layer=0)[0].value, 10 / 600, places=9)  # against the pooled median
         with self.assertRaises(ValueError):
             rq.compute({0: self.tokens}, ["token_cosine"], population="pooled")
         for n in ("token_norm_outliers", "token_cosine", "cls_patch_cosine", "token_gram_drift"):
             self.assertIn(n, rq.list_metrics())
+
+    def test_token_fields_run_per_clip_under_the_tokens_population(self):
+        g = torch.Generator().manual_seed(3)
+        clips = []
+        for _ in range(5):
+            cls = torch.randn(1, 32, generator=g)  # each clip's patches follow its own class token
+            clips.append(torch.cat([cls, cls + 0.3 * torch.randn(16, 32, generator=g)]))
+        want = sum(rq.cls_patch_cosine(c).value for c in clips) / len(clips)
+        for population in ("frames", "tokens"):
+            rec = rq.compute({0: clips}, ["cls_patch_cosine"], population=population)
+            self.assertAlmostEqual(rec[0].value, want, places=9)
 
 
 if __name__ == "__main__":

@@ -60,6 +60,7 @@ class LayerMonitorCallback(_Base):
             {"grid": (F, T)} for the grid readouts of spectrogram-patch encoders.
         population: "pooled", "frames" or "tokens".
         n_items: Monitoring-set size, drawn once from the training dataset with seed.
+        n_tokens: Pooled frames for population "tokens"; see LayerMonitor.
         every_n_epochs: Sweep period in epochs (None disables epoch sweeps); a sweep also runs at
             the start of training.
         model_attr: Attribute of the LightningModule to call on the input (e.g. "backbone");
@@ -69,7 +70,9 @@ class LayerMonitorCallback(_Base):
         loader: Optional callable (trainer, pl_module) -> iterable replacing the automatic
             monitoring subset.
         view_metrics, augment, q, view_spec, views_in_train_mode: View metrics computed from q
-            augmented passes with augment(batch, generator); see LayerMonitor.
+            augmented passes with augment(batch, generator); see LayerMonitor. Only the monitored
+            module and its layers change mode during a sweep, so an augmentation module of the
+            LightningModule that acts in train mode only keeps acting.
         jacobian_items, jacobian_probes, jacobian_power_iters, jacobian_input, jacobian_forward:
             Jacobian effective rank of every layer's readout on the first jacobian_items
             monitoring inputs; see LayerMonitor. Off by default.
@@ -105,6 +108,7 @@ class LayerMonitorCallback(_Base):
         pool: str | Pooler = "mean",
         population: str = "pooled",
         n_items: int = 5000,
+        n_tokens: int | None = None,
         every_n_epochs: int | None = 1,
         model_attr: str | None = None,
         batch_input: Callable[[Any], Any] | None = None,
@@ -148,6 +152,7 @@ class LayerMonitorCallback(_Base):
         self.online: OnlineBuffer | None = None
         self.metrics, self.layers, self.pool, self.population = list(metrics), layers, pool, population
         self.n_items, self.every_n_epochs, self.model_attr = n_items, every_n_epochs, model_attr
+        self.n_tokens = n_tokens
         self.batch_input = batch_input or (lambda b: b[0] if isinstance(b, (tuple, list)) else b)
         self._loader_fn = loader
         self._loader: Iterable[Any] | None = None
@@ -184,6 +189,7 @@ class LayerMonitorCallback(_Base):
                 self.metrics,
                 pool_kwargs=self.pool_kwargs,
                 n_items=self.n_items,
+                n_tokens=self.n_tokens,
                 population=self.population,
                 params=self.params,
                 view_metrics=self.view_metrics,
@@ -280,25 +286,20 @@ class LayerMonitorCallback(_Base):
             return
         self._ensure(trainer, pl_module)
         assert self.monitor is not None and self._loader is not None
-        target = self._target(pl_module)
-        was_training = pl_module.training
-        pl_module.eval()
-        try:
-            device = next(pl_module.parameters()).device
-            if device.type == "cuda":
-                import torch
+        target = self._target(pl_module)  # the monitor switches only this module and the hooked layers
+        device = next(pl_module.parameters()).device
+        if device.type == "cuda":
+            import torch
 
-                torch.cuda.empty_cache()
-            forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
-            views = _Inputs(self._live, self.batch_input) if self._live is not None else None
-            rec = self.monitor.sweep(
-                forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target, view_loader=views
-            )
-            self._stamp(trainer, rec)
-            for sink in self._sinks(trainer):
-                sink(rec, epoch)
-        finally:
-            pl_module.train(was_training)
+            torch.cuda.empty_cache()
+        forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
+        views = _Inputs(self._live, self.batch_input) if self._live is not None else None
+        rec = self.monitor.sweep(
+            forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target, view_loader=views
+        )
+        self._stamp(trainer, rec)
+        for sink in self._sinks(trainer):
+            sink(rec, epoch)
 
     def on_train_start(self, trainer, pl_module) -> None:
         if not getattr(trainer, "is_global_zero", True):

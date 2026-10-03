@@ -22,10 +22,11 @@ def _check_tokens(x: Tensor, min_tokens: int = 2) -> None:
 def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | None = None) -> MetricResult:
     """Fraction of high-norm tokens, and the channel concentration of the largest one.
 
-    Darcet et al. (2024, ICLR, arXiv:2309.16588) report high-norm tokens with an absolute cutoff
-    (150 for DINOv2) that varies across models, so a token here is an outlier when its norm
-    exceeds factor times the median. The extras describe the largest token's channel energies,
-    after Jiang et al. (2025) and Sun et al. (2024).
+    Darcet et al. (2024, ICLR, arXiv:2309.16588) set an absolute cutoff (150 for DINOv2) from the
+    norm histogram of the tokens of many images and note that it varies across models, so a token
+    here is an outlier when its norm exceeds factor times the median of the tokens given: one
+    clip under the "frames" population, the pooled tokens under "tokens". The extras describe the
+    largest token's channel energies, after Jiang et al. (2025) and Sun et al. (2024).
 
     Args:
         tokens: One clip's tokens (T, D), class tokens removed.
@@ -136,10 +137,20 @@ register_metric(
     arxiv="2309.16588",
 )(token_norm_outliers)
 register_metric(
-    "token_cosine", inputs=_T, preprocess=Preprocess(), citation=("marouani2026clspatch",), arxiv="2602.08626"
+    "token_cosine",
+    inputs=_T,
+    preprocess=Preprocess(),
+    citation=("marouani2026clspatch",),
+    arxiv="2602.08626",
+    per_clip=True,
 )(token_cosine)
 register_metric(
-    "cls_patch_cosine", inputs=_T, preprocess=Preprocess(), citation=("marouani2026clspatch",), arxiv="2602.08626"
+    "cls_patch_cosine",
+    inputs=_T,
+    preprocess=Preprocess(),
+    citation=("marouani2026clspatch",),
+    arxiv="2602.08626",
+    per_clip=True,
 )(cls_patch_cosine)
 register_metric(
     "token_gram_drift",

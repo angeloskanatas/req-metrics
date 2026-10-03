@@ -82,21 +82,21 @@ def make_pooler(
     """A pooling callable from a name, for (B, L, D) block outputs.
 
     Sequence readouts: "cls" (token 0), "mean" (over all tokens), "max", "last" (the
-    final token, for causal decoders), "frames" (no pooling; (B, T, D) for the frames
-    and tokens populations). Grid readouts, for spectrogram-patch encoders whose L
-    tokens are an (F, T) grid given as `grid`: "gap" (mean over patches), "freq_concat_mean"
-    (frequency patches concatenated, then the mean over time, (B, F * D); the readout
-    of MSM-MAE and M2D), "partitioned" (block means over freq_chunks x time_chunks
-    regions, Gu et al., 2026), "freq_concat" (the (B, T, F * D) trajectory for the
-    frames population) and "freq_mean" (the (B, T, D) trajectory). The grid readouts
-    are the batched form of the functions in `layouts`.
+    final token, for causal decoders), "frames" (no pooling; the (B, T, D) tokens after
+    the first `n_prefix`, for the frames and tokens populations). Grid readouts, for
+    spectrogram-patch encoders whose L tokens are an (F, T) grid given as `grid`: "gap"
+    (mean over patches), "freq_concat_mean" (frequency patches concatenated, then the
+    mean over time, (B, F * D); the readout of MSM-MAE and M2D), "partitioned" (block
+    means over freq_chunks x time_chunks regions, Gu et al., 2026), "freq_concat" (the
+    (B, T, F * D) trajectory for the frames population) and "freq_mean" (the (B, T, D)
+    trajectory). The grid readouts are the batched form of the functions in `layouts`.
 
     Args:
         pool: Readout name, or a callable mapping one block output to (B, D) or (B, T, D).
         grid: (F, T) patch counts of the grid readouts; the first `n_prefix` tokens are dropped.
         time_axis: 1 when tokens are ordered frequency-major (index f * T + t), 0 when
             time-major (index t * F + f).
-        n_prefix: Leading class or register tokens to drop before a grid readout.
+        n_prefix: Leading class or register tokens to drop before "frames" or a grid readout.
         freq_chunks, time_chunks: Block counts of "partitioned".
     """
     if callable(pool):
@@ -110,7 +110,7 @@ def make_pooler(
     if pool == "last":
         return lambda out: out[:, -1] if out.ndim == 3 else out
     if pool == "frames":
-        return lambda out: out
+        return lambda out: out[:, n_prefix:] if out.ndim == 3 else out
     if pool in ("gap", "freq_concat_mean", "partitioned", "freq_concat", "freq_mean"):
         if grid is None:
             raise ValueError(f"pooling {pool!r} needs grid=(F, T)")
@@ -396,7 +396,8 @@ def jacobian_products(
 
     out: dict[int, Tensor] = {}
     with _forward_mode_attention():
-        outputs, pullback = vjp(readouts, x)
+        linearized = vjp(readouts, x)  # (outputs, pullback); indexed, since vjp may also return aux
+        outputs, pullback = linearized[0], linearized[1]
 
         def apply_jt(i: int, u: Tensor) -> Tensor:  # (B, r, D_i) -> (B, r, M) for module i
             rows = []
@@ -427,8 +428,12 @@ class LayerMonitor:
             for "frames" and "tokens". The pooling must be parameter-free.
         pool_kwargs: Keyword arguments of make_pooler for a named readout.
         metrics: Registry names of point or trajectory metrics; all of one input kind.
-        n_items: Clips of the monitoring set to use; the loader is consumed until reached. With
-            population "tokens", also the cap on the pooled frames passed to compute().
+        n_items: Clips of the monitoring set to use; the loader is consumed until reached. The
+            frames and tokens populations hold every clip's frames (on the CPU), so a few hundred
+            clips is the usual scale there. The q view passes are also held on the CPU; metrics
+            run on the device of the hooked layers, one layer at a time.
+        n_tokens: For population "tokens", the pooled frames drawn for the point metrics; None
+            uses all frames of the n_items clips.
         population: "pooled", "frames" or "tokens", matching what pool returns; the frames and
             tokens populations need clips of equal length within a sweep (batches are concatenated).
         params: Metric name -> estimator keyword arguments.
@@ -438,6 +443,8 @@ class LayerMonitor:
             loader to build (q, N, D) views per layer. Keep the loader order fixed across passes.
             The views should follow the objective's positive construction (Thilak et al., 2024):
             when positives differ by random crops, pass a view_loader to sweep() that draws them.
+            augment runs in the mode its own modules are in; sweep() switches only the model and
+            the hooked layers.
         q: Views per clip for the view metrics.
         view_spec: Description of the view construction, recorded with the view records.
         views_in_train_mode: Run the q augmented passes with the model in train mode, for
@@ -465,6 +472,7 @@ class LayerMonitor:
         *,
         pool_kwargs: Mapping[str, Any] | None = None,
         n_items: int = 10000,
+        n_tokens: int | None = None,
         population: str = "pooled",
         params: Mapping[str, Mapping[str, Any]] | None = None,
         model: str | None = None,
@@ -486,6 +494,7 @@ class LayerMonitor:
         self.pool = make_pooler(pool, **dict(pool_kwargs or {}))
         self.metrics = list(metrics)
         self.n_items = n_items
+        self.n_tokens = n_tokens
         self.population = population
         self.params = {k: dict(v) for k, v in (params or {}).items()}
         self.labels: dict[str, Any] = {"model": model, "pooling": pooling, "corpus": corpus}
@@ -508,12 +517,17 @@ class LayerMonitor:
         augment: Callable[[Any, torch.Generator], Any] | None = None,
         generator: torch.Generator | None = None,
     ) -> dict[int, Any]:
-        """One pass over the loader with hooks: layer index -> pooled (N, D) tensor or list of (T_i, D) frames."""
+        """One pass over the loader with hooks: layer index -> pooled (N, D) tensor or list of (T_i, D) frames.
+
+        Frames and augmented passes are kept on the CPU; clean pooled passes on the layers' device.
+        """
         buffers: dict[int, list[Tensor]] = {i: [] for i in range(len(self.layer_modules))}
+        on_device = self.population == "pooled" and augment is None
 
         def make_hook(i: int):
             def hook(module, inputs, output):
-                buffers[i].append(self.pool(_first_tensor(output)).detach())
+                z = self.pool(_first_tensor(output)).detach()
+                buffers[i].append(z if on_device else z.cpu())
 
             return hook
 
@@ -592,13 +606,15 @@ class LayerMonitor:
         view_loader: Iterable | None = None,
     ) -> Records:
         layers = self.collect(forward, loader)
+        device = self._device()
         rec = compute(
             layers,
             self.metrics,
             population=self.population,
-            n=self.n_items,
+            n=self.n_tokens if self.population == "tokens" else self.n_items,
             seed=self.seed,
             params=self.params,
+            device=device,
             **self.labels,
         )
         if self.view_metrics and self.augment is not None:
@@ -629,6 +645,7 @@ class LayerMonitor:
                     seed=self.seed,
                     params=self.params,
                     views=self.view_spec,
+                    device=device,
                     **self.labels,
                 )
             )
@@ -641,6 +658,10 @@ class LayerMonitor:
             sink(rec, step)
         return rec
 
+    def _device(self) -> torch.device | None:
+        """The device of the hooked layers' parameters, or None for parameter-free layers."""
+        return next((p.device for m in self.layer_modules for p in m.parameters()), None)
+
     def _jacobian(self, forward: Callable[[Any], Any], loader: Iterable) -> Records:
         chunks, seen = [], 0
         for batch in loader:
@@ -650,8 +671,7 @@ class LayerMonitor:
             if seen >= self.jacobian_items:
                 break
         x = torch.cat(chunks)[: self.jacobian_items]
-        device = next((p.device for m in self.layer_modules for p in m.parameters()), x.device)
-        x = x.to(device)
+        x = x.to(self._device() or x.device)
         if self.jacobian_input is not None:
             x = self.jacobian_input(x)
         products = jacobian_products(

@@ -1,9 +1,9 @@
 """Named protocols: the metric set, variants and parameters of a published analysis.
 
 A protocol is data, not code: lists of (metric, params) per input kind, the
-fixed sample size, and notes quoting the paper's protocol. Protocols are named after their paper (first author and year, as
-a citation key) and looked up with get(); compute() is called once per input
-kind with the matching names and params.
+fixed sample size, and notes quoting the paper's protocol. Protocols are named
+after their paper (first author and year, as a citation key) and looked up with
+get(); compute() is called once per input kind with the matching names and params.
 """
 
 from __future__ import annotations

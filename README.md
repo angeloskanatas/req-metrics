@@ -20,10 +20,10 @@ music. The literature behind both uses is listed in `docs/DESIGN.md`.
 
 The registry holds 36 metrics in twelve groups: spectral, intrinsic dimension, local
 geometry, relational, clustering, distribution, trajectory, views, equivariance, layer
-pairs, token fields and functional. Each metric has a published definition and is checked against the
-implementation it was adopted from. The same estimators run post hoc on
-extracted embeddings and, through forward hooks, on every layer of a model
-while it trains.
+pairs, token fields and functional. Each metric has a published definition and is
+checked against the implementation it was adopted from. The same estimators run
+post hoc on extracted embeddings and, through forward hooks, on every layer of a
+model while it trains.
 
 ## Installation
 
@@ -59,7 +59,8 @@ rec.profile("effective_rank")                        # [(layer, value), ...]
 rec.to_csv("my-encoder.csv")                         # or to_json, to_pandas
 
 frames = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) per clip, time-ordered
-rq.compute(frames, ["trajectory_curvature"], population="frames", n=2000)
+rq.compute(frames, ["trajectory_curvature", "effective_rank"], population="frames", n=2000)  # per clip, averaged
+rq.compute(frames, ["effective_rank"], population="tokens", n=10000)  # frames of all clips as one cloud
 
 views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same clips
 rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
@@ -108,6 +109,10 @@ mon.sweep(model, monitor_loader, step=epoch, sinks=[rq.wandb_sink(history=mon.hi
 mon.profiles("effective_rank")                       # {step: [(layer, value), ...]}
 ```
 
+Centered spectral and neighbor metrics cannot see representations collapsing onto one
+shared vector; `normalized_std` (Chen and He, 2021) and `cosine_anisotropy` can, so log
+one of them beside the others.
+
 Selection follows the published rules: `rq.rank_runs({name: records},
 "effective_rank", layer=12)` orders runs or checkpoints by a metric at the layer
 read downstream, as RankMe and LiDAR do, and `rq.top_layers` ranks the layers of
@@ -115,12 +120,12 @@ one run. The direction is an argument because a metric's sign depends on the
 task family and the training paradigm.
 
 `pool` is `cls`, `mean`, `max`, `last`, `frames`, a grid readout (`gap`,
-`freq_concat_mean`, `partitioned`, `freq_concat`, with `pool_kwargs={"grid": (F, T)}`)
-or any parameter-free callable; `augment` is any callable you supply. Sinks are `csv_sink`,
-`json_sink`, `tensorboard_sink`, `wandb_sink` or any callable of `(records, step)`.
-Monitoring records have the same schema as post-hoc records. The rationale for
-the fixed subset, the training-batch buffer, the sweep schedule and reading every
-layer is in `docs/DESIGN.md`.
+`freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with
+`pool_kwargs={"grid": (F, T)}`) or any parameter-free callable; `augment` is any
+callable you supply. Sinks are `csv_sink`, `json_sink`, `tensorboard_sink`,
+`wandb_sink` or any callable of `(records, step)`. Monitoring records have the same
+schema as post-hoc records. The rationale for the fixed subset, the training-batch
+buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 
 ## Metrics
 
@@ -148,8 +153,9 @@ every alternative is in the extras of the record.
 
 ## Documentation
 
-- `docs/METRICS.md`: definition, canonical protocol and citation of every metric, the
-  verification against reference implementations, and what was considered and not adopted.
+- `docs/METRICS.md`: definition, canonical protocol and citation of every metric,
+  the verification against reference implementations, and what was considered and
+  not adopted.
 - `docs/metrics/`: one card per metric, generated from the registry.
 - `docs/VIEWS.md`: how augmented views and pitch-shifted copies enter.
 - `docs/DESIGN.md`: the decisions behind the library, cost classes, sample size.
@@ -175,8 +181,8 @@ companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
   arXiv:2502.02013): layer-wise entropy, curvature and InfoNCE for language models.
 - [synesis](https://github.com/chrispla/synesis) (Plachouras et al., IJCNN 2025, arXiv:2505.06224):
   probe-based informativeness, equivariance, invariance and disentanglement.
-- Arputharaj, Jönsson and Eilertsen (TMLR 2026, arXiv:2608.23182): a comparative study of seven
-  label-free metrics on 260 vision models.
+- Arputharaj, Jönsson and Eilertsen (TMLR 2026, arXiv:2608.23182): a comparative
+  study of seven label-free metrics on 260 vision models.
 
 req-metrics collects these families in one registry with recorded protocol and
 provenance, shares the singular spectrum and the neighbor table across

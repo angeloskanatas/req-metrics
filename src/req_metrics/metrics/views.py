@@ -30,9 +30,9 @@ def lidar(
     the training objective's own positives when monitoring one model (their Sec. 4.2) and one
     shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
     leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
-    within-clip variance approaches delta. Directions without
-    clip signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the
-    width (App. 11). The paper's epsilon is omitted.
+    within-clip variance approaches delta. Directions without clip signal keep eigenvalues of
+    order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
+    epsilon is omitted.
 
     Args:
         views: Augmented representations (q, N, D), q >= 2.
@@ -41,7 +41,7 @@ def lidar(
         max_eigenvalues: Keep only the largest eigenvalues.
 
     Returns:
-        value: LiDAR.
+        value: LiDAR; 0 when the LDA matrix has no positive eigenvalue (no clip separates).
         extras: entropy, n_positive_eigenvalues.
     """
     q, n, d = _check_views(views, 2)
@@ -57,8 +57,8 @@ def lidar(
     inv_sqrt = evecs[:, pos] @ torch.diag(evals[pos].pow(-0.5)) @ evecs[:, pos].T
     lam = torch.linalg.eigvalsh(inv_sqrt @ sigma_b @ inv_sqrt)
     lam = lam[lam > 0]
-    if lam.numel() == 0:
-        raise ValueError("the LDA matrix has no positive eigenvalue")
+    if lam.numel() == 0:  # collapse: no direction separates the clips
+        return MetricResult(0.0, {"n_positive_eigenvalues": 0.0})
     if max_eigenvalues is not None and lam.numel() > max_eigenvalues:
         lam = lam[-max_eigenvalues:]
     p = lam / lam.sum()

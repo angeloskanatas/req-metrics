@@ -101,9 +101,6 @@ def normalized_std(x: Tensor) -> MetricResult:
     return MetricResult(value, {"isotropic_reference": ref, "ratio_to_isotropic": value / ref})
 
 
-_P = InputKind.POINTS
-
-
 def anisotropy_cosine(x: Tensor, *, center: bool = False) -> MetricResult:
     """Cosine anisotropy: mean cosine similarity between distinct samples.
 
@@ -128,6 +125,7 @@ def anisotropy_cosine(x: Tensor, *, center: bool = False) -> MetricResult:
     return MetricResult(float((total @ total - n) / (n * (n - 1))), {})
 
 
+_P = InputKind.POINTS
 register_metric(
     "self_clustering",
     inputs=_P,
@@ -154,7 +152,7 @@ register_metric(
 )(normalized_std)
 register_metric(
     "cosine_anisotropy",
-    inputs=InputKind.POINTS,
+    inputs=_P,
     preprocess=Preprocess(),
     citation=("ethayarajh2019contextual", "DBLP:conf/eacl/GodeyCS24", "timkey2021rogue"),
 )(anisotropy_cosine)

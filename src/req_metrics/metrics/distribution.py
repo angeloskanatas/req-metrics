@@ -151,7 +151,7 @@ register_metric("sparsity", inputs=_P, preprocess=Preprocess(), citation=("kuang
 )
 register_metric(
     "embedding_norm",
-    inputs=InputKind.POINTS,
+    inputs=_P,
     preprocess=Preprocess(),
     citation=("draganov2025norms",),
     arxiv="2502.09252",

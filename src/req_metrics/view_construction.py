@@ -115,7 +115,8 @@ class ShiftSpec:
     Attributes:
         method: e.g. "waveform pitch shift (librosa)", "CQT frame crop".
         semitones: The nonzero shifts k, in semitones.
-        up_is_positive: True when positive k raised the pitch of the audio (the convention of Kanatas et al., 2026, target phase -2 pi omega k / 12); False for the opposite action
+        up_is_positive: True when positive k raised the pitch of the audio (the convention of
+            Kanatas et al., 2026, target phase -2 pi omega k / 12); False for the opposite action
             (STONE's CQT crop, positive sign). The PTE estimator assumes True.
         clip_seconds: Clip duration fed to the encoder, if fixed.
         notes: Anything else needed to reproduce the shifted inputs.

@@ -201,6 +201,62 @@ class LightningPlugAndPlayTests(unittest.TestCase):
         self.assertEqual(len(lidar), 2 * 2)  # two sweeps, two layers
         self.assertTrue(all(r.value == r.value for r in lidar))
 
+    def test_train_mode_augmentation_stays_active_during_sweeps(self):
+        from req_metrics.integrations.lightning import LayerMonitorCallback
+
+        aug_modes, backbone_modes = [], []
+
+        class Aug(nn.Module):  # acts in train mode only, as GPU augmentation chains often do
+            def forward(self, x, gen):
+                aug_modes.append(self.training)
+                return x + 0.1 * torch.randn(x.shape, generator=gen) if self.training else x
+
+        class Probe(nn.Module):
+            def forward(self, x):
+                backbone_modes.append(self.training)
+                return x
+
+        class Lit(pl.LightningModule):
+            def __init__(self):
+                super().__init__()
+                self.aug = Aug()
+                self.backbone = nn.Sequential(Probe(), nn.Linear(8, 8), nn.Linear(8, 8))
+
+            def training_step(self, batch, idx):
+                return self.backbone(batch[0]).square().mean()
+
+            def configure_optimizers(self):
+                return torch.optim.SGD(self.parameters(), lr=0.01)
+
+        torch.manual_seed(0)
+        lit = Lit()
+        dl = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(torch.randn(64, 8)), batch_size=16)
+        cb = LayerMonitorCallback(
+            ["effective_rank"],
+            layers=[lit.backbone[1], lit.backbone[2]],
+            pool=lambda out: out,
+            n_items=64,
+            every_n_epochs=1,
+            model_attr="backbone",
+            view_metrics=["lidar"],
+            augment=lambda x, g: lit.aug(x, g),
+            q=3,
+            log=False,
+        )
+        trainer = pl.Trainer(
+            max_epochs=1,
+            logger=False,
+            enable_progress_bar=False,
+            enable_checkpointing=False,
+            enable_model_summary=False,
+            callbacks=[cb],
+            accelerator="cpu",
+        )
+        trainer.fit(lit, dl)
+        self.assertTrue(aug_modes and all(aug_modes))  # the augmentation module kept acting
+        self.assertIn(False, backbone_modes)  # sweeps read the backbone in eval mode
+        self.assertIn(True, backbone_modes)  # training steps in train mode
+
     def test_resolve_layers_and_poolers(self):
         m = nn.Sequential(nn.Linear(4, 4), nn.ReLU(), nn.Linear(4, 4))
 
@@ -219,6 +275,8 @@ class LightningPlugAndPlayTests(unittest.TestCase):
         self.assertTrue(torch.equal(rq.make_pooler("cls")(out), out[:, 0]))
         self.assertTrue(torch.equal(rq.make_pooler("last")(out), out[:, -1]))
         self.assertTrue(torch.allclose(rq.make_pooler("mean")(out), out.mean(1)))
+        self.assertTrue(torch.equal(rq.make_pooler("frames")(out), out))
+        self.assertTrue(torch.equal(rq.make_pooler("frames", n_prefix=1)(out), out[:, 1:]))
         dl = rq.monitor_loader(
             torch.utils.data.TensorDataset(torch.arange(50.0).unsqueeze(1)), n_items=20, batch_size=8, seed=1
         )

@@ -42,7 +42,8 @@ class PostHocExampleTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 rec.to_csv(Path(d) / "my-encoder.csv")
             frames = {l: [torch.cumsum(torch.randn(40, 24), 0) for _ in range(10)] for l in range(2)}
-            rq.compute(frames, ["trajectory_curvature"], population="frames", n=2000)
+            rq.compute(frames, ["trajectory_curvature", "effective_rank"], population="frames", n=2000)
+            rq.compute(frames, ["effective_rank"], population="tokens", n=10000)
             views = {l: torch.stack([z + 0.1 * torch.randn_like(z) for _ in range(10)]) for l, z in layers.items()}
             spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
             rq.compute(views, ["lidar", "infonce"], views=spec)

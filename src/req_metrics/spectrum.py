@@ -1,7 +1,7 @@
 """Singular spectrum of a centered point cloud, computed once and shared.
 
-Effective rank, spectral entropy, alpha-ReQ, spectral anisotropy, participation
-ratio and eigenvalue early enrichment are all functions of this object.
+Effective rank, matrix entropy, alpha-ReQ, spectral anisotropy and eigenvalue
+early enrichment are functions of this object.
 """
 
 from __future__ import annotations
