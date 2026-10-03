@@ -6,7 +6,7 @@ and source citation. Populations (pooled, frames, tokens) and I/O belong to the
 pipeline, not to the estimators.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from req_metrics import protocols
 from req_metrics._types import InputKind, MetricResult, Preprocess

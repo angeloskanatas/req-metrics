@@ -30,8 +30,8 @@ while it trains.
 Python 3.10 or later and PyTorch 2.1 or later.
 
 ```bash
-pip install "req-metrics @ git+https://github.com/angeloskanatas/req-metrics.git@v0.1.0"
-pip install "req-metrics[lightning] @ git+https://github.com/angeloskanatas/req-metrics.git@v0.1.0"   # with the Lightning callback
+pip install "req-metrics @ git+https://github.com/angeloskanatas/req-metrics.git@v0.2.0"
+pip install "req-metrics[lightning] @ git+https://github.com/angeloskanatas/req-metrics.git@v0.2.0"   # with the Lightning callback
 ```
 
 For development, with the test, lint and Lightning dependencies:

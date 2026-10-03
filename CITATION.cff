@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: Kanatas
     given-names: Angelos-Nikolaos
-version: 0.1.0
-date-released: 2026-10-02
+version: 0.2.0
+date-released: 2026-10-03
 preferred-citation:
   type: conference-paper
   title: "What Makes a Good Layer? Assessing the Layer-Wise Intrinsic Properties of Music Foundation Models"

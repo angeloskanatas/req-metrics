@@ -3,19 +3,22 @@
 All notable changes to this project are documented here. The format follows
 Keep a Changelog; versions follow Semantic Versioning.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-03
 
 - One record per computation: `effective_rank/variance`, `trajectory_curvature/abs`,
   `trajectory_curvature/recurve` and `pte/cpsd` are removed; their values are in the extras of
   `effective_rank`, `trajectory_curvature` and `pte`, and the `spectrum`, `convention`, `normalize`
   and `score` arguments choose the value. The unpublished concatenated-probe method of `pte` is
   removed. Frames records carry the mean of the per-clip extras. The site export writes every
-  variant the site stores from those extras. 37 metrics.
+  variant the site stores from those extras.
 - `cluster_quality`: k-means Davies-Bouldin index and inertia (Whetten et al., 2025), equal to
   scikit-learn's on the same labels.
 - `cka` (linear, with the debiased estimator) and `svcca` as layer-pair metrics, with parity
   against the authors' reference code; `compute_pairs(metric="cka" | "svcca", params=...)`
   computes per-layer summaries once and accepts two checkpoints as A and B. 40 metrics.
+- Monitoring sinks: `json_sink` names files by epoch and global step, with an `online_` prefix for
+  training-batch records, so combined epoch and step schedules no longer overwrite files; the
+  TensorBoard and W&B sinks and the profile legends use the global step when records carry it.
 
 ## [0.1.0] - 2026-10-02
 
