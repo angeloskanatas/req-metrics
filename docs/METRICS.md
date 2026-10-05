@@ -94,7 +94,8 @@ sample (the frames of a 1D encoder, the patches of a 2D one).
   their estimates is high. Compare at equal T_i, that is, equal duration and token
   rate.
 - `population`: the tokens of all samples form one cloud, `layers[l]` a sequence of
-  `(T_i, D)` tensors, from which n tokens are drawn at random. This is the setting
+  `(T_i, D)` tensors, from which `n_tokens` tokens are drawn at random. This is the
+  setting
   of the anisotropy literature, where pairs of token vectors are drawn across a
   corpus (Ethayarajh, 2019; Godey et al., 2024; Timkey and van Schijndel, 2021); of
   Razzhigaev et al. (2024), who compute anisotropy and TwoNN on batches of at least
@@ -352,7 +353,7 @@ the value falls as the gallery grows (0.135 at n = 1,024 to 0.008 at 15 million 
 k = 10, DINOv2 against OpenLlama), while k = n/100 is stable, and that it also falls
 when an item has several valid partners (many captions per image), which RSA and CKA
 do not register: compare values at equal n and k on one-to-one pairs, and read them
-as a local statistic. `compute_pairs(layers, metric="neighborhood_overlap")` builds
+as a local statistic. `compute_pairs(layers, metrics=["neighborhood_overlap"])` builds
 one k-NN table per layer and intersects them for every pair. Symmetric, so it
 answers a different question from the information imbalance (directional
 predictability of neighbor ranks) and from `cycle_knn` below. `jaccard=True` divides
@@ -384,7 +385,7 @@ permutation calibration, as the overlap does (App. E.8). Identical representatio
 diagonal of a layer map falls below 1 where items have no reciprocal neighbor. For
 independent representations each return hop succeeds with probability k/(N - 1) (Gröger
 et al., Prop. C.9), which bounds the chance level by k^2/(N - 1), stored as
-`chance_bound`. `compute_pairs(layers, metric="cycle_knn")` records the value A -> B for
+`chance_bound`. `compute_pairs(layers, metrics=["cycle_knn"])` records the value A -> B for
 every ordered pair and the other ordering in `extras["reverse"]`.
 
 ## 8. cka, svcca and rsa

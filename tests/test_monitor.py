@@ -51,7 +51,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(rec[0].extras["step"], 0)
         self.assertEqual(rec[0].n_items, 100)
         layers = mon.collect(self.model, loader())
-        direct = rq.compute(layers, ["effective_rank"], n=100)
+        direct = rq.compute(layers, ["effective_rank"], n_items=100)
         self.assertAlmostEqual(
             rec.where(metric="effective_rank", layer=2)[0].value, direct.where(layer=2)[0].value, places=9
         )

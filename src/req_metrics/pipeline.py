@@ -281,7 +281,8 @@ def compute(
     metrics: Sequence[str],
     *,
     level: str = "sequence",
-    n: int | None = None,
+    n_items: int | None = None,
+    n_tokens: int | None = None,
     seed: int = 0,
     group_ids: Sequence | None = None,
     params: Mapping[str, Mapping[str, Any]] | None = None,
@@ -304,8 +305,10 @@ def compute(
         metrics: Registry names. All must share one input kind per call.
         level: "sequence", "sample" or "population" (point, trajectory and token-field
             metrics; the other input kinds are sequence level).
-        n: Keep at most n samples chosen at random with seed, the same for every layer; at
-            the population level, at most n tokens for the point metrics.
+        n_items: Keep at most n_items samples chosen at random with seed, the same for every layer;
+            at the population level, the samples whose tokens are pooled.
+        n_tokens: At the population level, at most n_tokens tokens drawn at random from the pooled
+            cloud for the point metrics; None uses every token of the kept samples.
         seed: Subsampling seed, recorded.
         group_ids: One id per sample; one random sample per group is kept before subsampling.
         params: Metric name -> estimator keyword arguments; recorded in the records.
@@ -323,6 +326,8 @@ def compute(
         Records, one row per (layer, metric), failures recorded as nan with an error message.
     """
     dev = _device(device)
+    if n_tokens is not None and level != "population":
+        raise ValueError("n_tokens applies to level='population'")
     params = {k: dict(v) for k, v in (params or {}).items()}
     specs = [get_metric(m) for m in metrics]
     kinds = {s.inputs for s in specs}
@@ -365,7 +370,7 @@ def compute(
 
     if kind == InputKind.VIEWS:
         first = layers[layer_ids[0]]
-        idx = choose_indices(first.shape[1], n, seed, group_ids)
+        idx = choose_indices(first.shape[1], n_items, seed, group_ids)
         caps = dict(limits or {})
         for l in layer_ids:
             v = _to(_tensor(layers[l])[:, idx], dev)
@@ -380,7 +385,7 @@ def compute(
 
     if kind == InputKind.SHIFTED:
         z0, _ = layers[layer_ids[0]]
-        idx = choose_indices(z0.shape[0], n, seed, group_ids)
+        idx = choose_indices(z0.shape[0], n_items, seed, group_ids)
         for l in layer_ids:
             z, shifted = layers[l]
             z = _to(_tensor(z)[idx], dev)
@@ -408,7 +413,7 @@ def compute(
         counts = {l: int(_tensor(layers[l]).shape[0]) for l in layer_ids}
         if len(set(counts.values())) > 1:
             raise ValueError(f"layers must have the same number of rows, got {counts}")
-        idx = choose_indices(first.shape[0], n, seed, group_ids)
+        idx = choose_indices(first.shape[0], n_items, seed, group_ids)
         for l in layer_ids:
             x = _to(_tensor(layers[l])[idx], dev)
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
@@ -437,10 +442,10 @@ def compute(
             raise ValueError("trajectory metrics need level='sample'")
         pooled_specs = [s for s in specs if not s.per_sample]
         sample_specs = [s for s in specs if s.per_sample]  # their definition pairs tokens within a sample
-        sample_idx = choose_indices(len(layers[layer_ids[0]]), None, seed, group_ids)
+        sample_idx = choose_indices(len(layers[layer_ids[0]]), n_items, seed, group_ids)
         for l in layer_ids:
             if pooled_specs:
-                x, owner = _population_tokens(layers[l], sample_idx, n, seed)
+                x, owner = _population_tokens(layers[l], sample_idx, n_tokens, seed)
                 x = _to(x, dev)
                 n_samples = int(torch.unique(owner).numel())
                 for name, (value, extras) in _points_sweep(x, pooled_specs, params, seed, limits, owner).items():
@@ -451,7 +456,7 @@ def compute(
         return _warn_failed(records)
 
     if level == "sample":
-        idx = choose_indices(len(layers[layer_ids[0]]), n, seed, group_ids)
+        idx = choose_indices(len(layers[layer_ids[0]]), n_items, seed, group_ids)
         for l in layer_ids:
             per_sample(layers[l], specs, idx, l)
         return _warn_failed(records)
@@ -469,183 +474,209 @@ def _rank_table_rows(x_b: Tensor, rows: Tensor) -> Tensor:
     return ranks  # (c, N)
 
 
+_PAIR_NEIGHBOR_METRICS = ("information_imbalance", "neighborhood_overlap", "cycle_knn")
+
+
+def _default_arg(fn: Any, name: str) -> Any:
+    """The default of an estimator's keyword argument."""
+    return inspect.signature(fn).parameters[name].default
+
+
 def compute_pairs(
     layers_a: Mapping[int, Tensor],
     layers_b: Mapping[int, Tensor] | None = None,
     *,
-    k: int | None = None,
-    n: int | None = None,
+    metrics: Sequence[str],
+    n_items: int | None = None,
     seed: int = 0,
     group_ids: Sequence | None = None,
     model: str | None = None,
     model_b: str | None = None,
     pooling: str | None = None,
     corpus: str | None = None,
-    chunk: int = 512,
-    metric: str = "information_imbalance",
-    params: Mapping[str, Any] | None = None,
+    params: Mapping[str, Mapping[str, Any]] | None = None,
     device: str | torch.device | None = None,
 ) -> Records:
-    """A pair metric between every layer of A and every layer of B (B defaults to A).
+    """Pair metrics between every layer of A and every layer of B (B defaults to A).
 
     A and B are two representations of the same items with aligned rows: the layers of one model, two
     checkpoints, two models, or two modalities with paired items (image i and caption i); widths may
-    differ. One Record per (layer_a, layer_b). metric is "information_imbalance" (default k = 1; value
-    Delta(A -> B), extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cycle_knn"
-    (default k = 10; value A -> B, extras["reverse"]), "cka", "svcca" or "rsa" (symmetric). params passes
-    the estimator's options, flat or keyed by the metric name as in compute(): debiased for CKA,
-    threshold for SVCCA, distance and method for RSA, l2 for the three neighbor metrics, which then rank
-    cosine neighbors (unit-norm rows) as Huh et al. (2024) do, and jaccard for the overlap.
-    The preprocessing is recorded. The imbalance costs one chunked rank table per layer rather than one
-    per pair: for each target layer the ranks of all items are computed once and gathered at the k
-    nearest neighbors of every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D). The
-    overlap and the cycle consistency need only the k-nearest-neighbor tables, once per layer. CKA keeps
-    the centered features
-    and their norms, SVCCA the kept singular directions and RSA the ranked distance vector, each once
-    per layer; RSA is capped at its registry max_items because the vectors are held for all layers.
-    device is as in compute().
+    differ. One Record per (metric, layer_a, layer_b). information_imbalance and cycle_knn record the
+    A -> B value with B -> A in extras["reverse"]; neighborhood_overlap, cka, svcca and rsa are
+    symmetric. params is metric name -> estimator keyword arguments, as in compute(): k, l2 and chunk
+    for the imbalance, k, l2 and jaccard for the overlap, k and l2 for cycle_knn, debiased for CKA,
+    threshold for SVCCA, distance, method and chunk for RSA; l2=True ranks cosine neighbors (unit-norm
+    rows) as Huh et al. (2024) do, and is recorded as preprocessing. One seeded subsample of n_items
+    rows serves every metric, capped further at a metric's registry max_items (RSA holds one ranked
+    distance vector per layer). The three neighbor metrics share one k-nearest-neighbor table per
+    layer, sized to the largest k requested; the imbalance costs one chunked rank table per target
+    layer rather than one per pair, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D). CKA keeps the
+    centered features and their norms, SVCCA the kept singular directions and RSA the ranked distance
+    vector, each once per layer. device is as in compute().
     """
+    from req_metrics.metrics.compare import _check_pair
+
     dev = _device(device)
-    params = dict(params or {})
-    if isinstance(params.get(metric), Mapping):  # the keyed form of compute()
-        params = dict(params[metric])
-    if metric in ("cka", "svcca", "rsa"):
-        return _closed_form_pairs(
-            metric, layers_a, layers_b, params, n, seed, group_ids, model, model_b, pooling, corpus, dev
-        )
-    if metric not in ("information_imbalance", "neighborhood_overlap", "cycle_knn"):
-        raise ValueError(f"unknown layer-pair metric {metric!r}")
-    if k is None:
-        k = {"information_imbalance": 1, "neighborhood_overlap": 30, "cycle_knn": 10}[metric]
-    l2 = bool(params.get("l2", False))
-    jaccard = bool(params.get("jaccard", False))
-    spec = get_metric(metric)
+    params = {k: dict(v) for k, v in (params or {}).items()}
+    specs = [get_metric(m) for m in metrics]
+    for spec in specs:
+        if spec.inputs is not InputKind.PAIR:
+            raise ValueError(f"{spec.name!r} is not a pair metric")
+    if not layers_a:
+        raise ValueError("layers is empty: no layer tensors were given")
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
     ids_a, ids_b = sorted(layers_a), sorted(b_map)
     first = _tensor(layers_a[ids_a[0]])
-    idx = choose_indices(first.shape[0], n, seed, group_ids)
-    prep = l2_normalize if l2 else (lambda t: t)
-    xa = {l: prep(_to(_tensor(layers_a[l])[idx], dev).double()) for l in ids_a}
-    xb = xa if same else {l: prep(_to(_tensor(b_map[l])[idx], dev).double()) for l in ids_b}
-    n_items = len(idx)
-    nn_a = {l: Neighbors.from_points(xa[l], k).indices[:, 1 : k + 1] for l in ids_a}
-    nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k).indices[:, 1 : k + 1] for l in ids_b}
-    if metric in ("neighborhood_overlap", "cycle_knn"):
-        from req_metrics.metrics.compare import _cycle_fraction, _overlap_chance, _shared_neighbor_fraction
-
-        depths = _normalized_depths(ids_a)
-        out = Records()
-        for la in ids_a:
-            for lb in ids_b:
-                if metric == "neighborhood_overlap":
-                    frac = _shared_neighbor_fraction(nn_a[la], nn_b[lb], jaccard)
-                    extras = {"std": float(frac.std()), "chance": _overlap_chance(n_items, k, jaccard)}
-                else:
-                    frac = _cycle_fraction(nn_a[la], nn_b[lb])
-                    reverse = float(_cycle_fraction(nn_b[lb], nn_a[la]).mean())
-                    extras = {"reverse": reverse, "chance_bound": min(1.0, k * k / (n_items - 1))}
-                out.rows.append(
-                    Record(
-                        metric=spec.name,
-                        value=float(frac.mean()),
-                        layer=la,
-                        layer_b=lb,
-                        depth=depths[la],
-                        model=model if model_b is None else f"{model}->{model_b}",
-                        level="sequence",
-                        pooling=pooling,
-                        corpus=corpus,
-                        n_items=n_items,
-                        dim=int(xa[la].shape[-1]),
-                        preprocess="l2" if l2 else "none",
-                        params={"k": k, "l2": l2, "jaccard": jaccard}
-                        if metric == "neighborhood_overlap"
-                        else {"k": k, "l2": l2},
-                        seed=seed,
-                        tags=spec.tags,
-                        extras=extras,
-                        version=__version__,
-                    )
-                )
-        return out
-    # mean rank in target space T of the k A-neighbors, accumulated over row chunks of T's rank table
-    sums_ab = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
-    sums_ba = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
-
-    def accumulate(target_layers, target_x, source_layers, source_nn, sums, key):
-        for lt in target_layers:
-            for start in range(0, n_items, chunk):
-                rows = torch.arange(start, min(start + chunk, n_items))
-                ranks = _rank_table_rows(target_x[lt], rows)  # (c, N)
-                for ls in source_layers:
-                    gathered = torch.gather(ranks, 1, source_nn[ls][rows])  # (c, k)
-                    sums[key(ls, lt)] += float(gathered.double().sum())
-
-    accumulate(ids_b, xb, ids_a, nn_a, sums_ab, lambda ls, lt: (ls, lt))  # ranks in B of A's neighbors
-    if same:  # Delta(B_lb -> A_la) is Delta(lb -> la), already accumulated
-        sums_ba = {(la, lb): sums_ab[(lb, la)] for la in ids_a for lb in ids_b}
-    else:
-        accumulate(ids_a, xa, ids_b, nn_b, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
+    for l in ids_b:
+        _check_pair(first, _tensor(b_map[l]))
+    idx = torch.as_tensor(choose_indices(first.shape[0], n_items, seed, group_ids))
+    n = len(idx)
     depths = _normalized_depths(ids_a)
-    scale = (n_items * k) * (n_items / 2.0)
+    label = model if model_b is None else f"{model}->{model_b}"
+
+    # the neighbor metrics share one table per layer and preprocessing, sized to the largest k requested
+    k_max: dict[bool, int] = {}
+    for spec in specs:
+        if spec.name in _PAIR_NEIGHBOR_METRICS:
+            p = params.get(spec.name, {})
+            k = int(p.get("k", _default_arg(spec.fn, "k")))
+            if k < 1 or k > n - 1:
+                raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
+            l2 = bool(p.get("l2", False))
+            k_max[l2] = max(k_max.get(l2, 0), k)
+    tables: dict[bool, tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]] = {}
+
+    def neighbor_tables(l2: bool) -> tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]:
+        if l2 not in tables:
+            prep = l2_normalize if l2 else (lambda t: t)
+            xa = {l: prep(_to(_tensor(layers_a[l])[idx], dev).double()) for l in ids_a}
+            xb = xa if same else {l: prep(_to(_tensor(b_map[l])[idx], dev).double()) for l in ids_b}
+            nn_a = {l: Neighbors.from_points(xa[l], k_max[l2]).indices[:, 1:] for l in ids_a}
+            nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k_max[l2]).indices[:, 1:] for l in ids_b}
+            tables[l2] = (xa, xb, nn_a, nn_b)
+        return tables[l2]
+
     out = Records()
-    for la in ids_a:
-        for lb in ids_b:
+    for spec in specs:
+        p = params.get(spec.name, {})
+        values: dict[tuple[int, int], tuple[float, dict[str, Any]]]
+        if spec.name in _PAIR_NEIGHBOR_METRICS:
+            l2 = bool(p.get("l2", False))
+            k = int(p.get("k", _default_arg(spec.fn, "k")))
+            xa, xb, nn_a, nn_b = neighbor_tables(l2)
+            values = _neighbor_pairs(spec.name, xa, xb, nn_a, nn_b, same, k, p)
+            recorded: dict[str, Any] = {"k": k, "l2": l2}
+            if spec.name == "neighborhood_overlap":
+                recorded["jaccard"] = bool(p.get("jaccard", False))
+            n_used = n
+        else:
+            rows = _cap_index(n, spec.max_items, seed)
+            sel = idx if rows is None else idx[rows]
+            xa = {l: _to(_tensor(layers_a[l])[sel], dev) for l in ids_a}
+            xb = xa if same else {l: _to(_tensor(b_map[l])[sel], dev) for l in ids_b}
+            values = _closed_form_pairs(spec.name, xa, xb, same, p)
+            recorded = dict(p)
+            n_used = len(sel)
+        for (la, lb), (value, extras) in values.items():
             out.rows.append(
                 Record(
                     metric=spec.name,
-                    value=sums_ab[(la, lb)] / scale,
+                    value=value,
                     layer=la,
                     layer_b=lb,
                     depth=depths[la],
-                    model=model if model_b is None else f"{model}->{model_b}",
+                    model=label,
                     level="sequence",
                     pooling=pooling,
                     corpus=corpus,
-                    n_items=n_items,
-                    dim=int(xa[la].shape[-1]),
-                    preprocess="l2" if l2 else "none",
-                    params={"k": k, "l2": l2},
+                    n_items=n_used,
+                    dim=int(_tensor(layers_a[la]).shape[-1]),
+                    preprocess="l2" if recorded.get("l2") else "none",
+                    params=recorded,
                     seed=seed,
                     tags=spec.tags,
-                    extras={"reverse": sums_ba[(la, lb)] / scale},
+                    extras=extras,
                     version=__version__,
                 )
             )
     return out
 
 
-def _closed_form_pairs(
+def _neighbor_pairs(
     metric: str,
-    layers_a: Mapping[int, Tensor],
-    layers_b: Mapping[int, Tensor] | None,
-    params: dict[str, Any],
-    n: int | None,
-    seed: int,
-    group_ids: Sequence | None,
-    model: str | None,
-    model_b: str | None,
-    pooling: str | None,
-    corpus: str | None,
-    dev: torch.device | None = None,
-) -> Records:
-    """CKA, SVCCA or RSA for every layer pair, with per-layer summaries computed once."""
-    from req_metrics.metrics.compare import _check_pair, _cka_from_stats, _cka_stats, _rsa_vector, _svd_directions
+    xa: Mapping[int, Tensor],
+    xb: Mapping[int, Tensor],
+    nn_a: Mapping[int, Tensor],
+    nn_b: Mapping[int, Tensor],
+    same: bool,
+    k: int,
+    params: Mapping[str, Any],
+) -> dict[tuple[int, int], tuple[float, dict[str, Any]]]:
+    """Overlap, cycle consistency or imbalance for every layer pair from shared (N, >= k) neighbor tables."""
+    from req_metrics.metrics.compare import _cycle_fraction, _overlap_chance, _shared_neighbor_fraction
 
-    spec = get_metric(metric)
-    same = layers_b is None
-    b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
-    ids_a, ids_b = sorted(layers_a), sorted(b_map)
-    if spec.max_items is not None and (n is None or n > spec.max_items):
-        n = spec.max_items
-    idx = choose_indices(_tensor(layers_a[ids_a[0]]).shape[0], n, seed, group_ids)
-    for l in ids_b:
-        _check_pair(_tensor(layers_a[ids_a[0]])[idx], _tensor(b_map[l])[idx])
+    ids_a, ids_b = sorted(xa), sorted(xb)
+    n = int(next(iter(xa.values())).shape[0])
+    na = {l: t[:, :k] for l, t in nn_a.items()}
+    nb = na if same else {l: t[:, :k] for l, t in nn_b.items()}
+    out: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
+    if metric == "neighborhood_overlap":
+        jaccard = bool(params.get("jaccard", False))
+        chance = _overlap_chance(n, k, jaccard)
+        for la in ids_a:
+            for lb in ids_b:
+                frac = _shared_neighbor_fraction(na[la], nb[lb], jaccard)
+                out[(la, lb)] = (float(frac.mean()), {"std": float(frac.std()), "chance": chance})
+        return out
+    if metric == "cycle_knn":
+        bound = min(1.0, k * k / (n - 1))
+        for la in ids_a:
+            for lb in ids_b:
+                reverse = float(_cycle_fraction(nb[lb], na[la]).mean())
+                out[(la, lb)] = (
+                    float(_cycle_fraction(na[la], nb[lb]).mean()),
+                    {"reverse": reverse, "chance_bound": bound},
+                )
+        return out
+    # imbalance: mean rank in target space T of the k source-neighbors, accumulated over row chunks of T's rank table
+    chunk = int(params.get("chunk", 512))
+    sums_ab = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
+    sums_ba = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
+
+    def accumulate(target_layers, target_x, source_layers, source_nn, sums, key):
+        for lt in target_layers:
+            for start in range(0, n, chunk):
+                rows = torch.arange(start, min(start + chunk, n))
+                ranks = _rank_table_rows(target_x[lt], rows)  # (c, N)
+                for ls in source_layers:
+                    gathered = torch.gather(ranks, 1, source_nn[ls][rows])  # (c, k)
+                    sums[key(ls, lt)] += float(gathered.double().sum())
+
+    accumulate(ids_b, xb, ids_a, na, sums_ab, lambda ls, lt: (ls, lt))  # ranks in B of A's neighbors
+    if same:  # Delta(B_lb -> A_la) is Delta(lb -> la), already accumulated
+        sums_ba = {(la, lb): sums_ab[(lb, la)] for la in ids_a for lb in ids_b}
+    else:
+        accumulate(ids_a, xa, ids_b, nb, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
+    scale = (n * k) * (n / 2.0)
+    for la in ids_a:
+        for lb in ids_b:
+            out[(la, lb)] = (sums_ab[(la, lb)] / scale, {"reverse": sums_ba[(la, lb)] / scale})
+    return out
+
+
+def _closed_form_pairs(
+    metric: str, xa: Mapping[int, Tensor], xb: Mapping[int, Tensor], same: bool, params: Mapping[str, Any]
+) -> dict[tuple[int, int], tuple[float, dict[str, Any]]]:
+    """CKA, SVCCA or RSA for every layer pair, with per-layer summaries computed once."""
+    from req_metrics.metrics.compare import _cka_from_stats, _cka_stats, _rsa_vector, _svd_directions
+
+    ids_a, ids_b = sorted(xa), sorted(xb)
+    n = int(next(iter(xa.values())).shape[0])
     if metric == "cka":
         debiased = bool(params.get("debiased", False))
-        if debiased and len(idx) < 4:
-            raise ValueError(f"debiased CKA needs N >= 4, got N = {len(idx)}")
+        if debiased and n < 4:
+            raise ValueError(f"debiased CKA needs N >= 4, got N = {n}")
 
         def summary(x: Tensor) -> Any:
             return _cka_stats(x)
@@ -656,14 +687,15 @@ def _closed_form_pairs(
 
     elif metric == "rsa":
         distance, method = str(params.get("distance", "cosine")), str(params.get("method", "spearman"))
+        chunk = int(params.get("chunk", 1024))
 
         def summary(x: Tensor) -> Any:
-            return _rsa_vector(x, distance, method, int(params.get("chunk", 1024))).float()
+            return _rsa_vector(x, distance, method, chunk).float()
 
         def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
             return float(torch.dot(a.double(), b.double())), {"n_pairs": float(a.numel())}
 
-    else:
+    elif metric == "svcca":
         threshold = float(params.get("threshold", 0.99))
         if not 0.0 < threshold <= 1.0:
             raise ValueError(f"threshold must be in (0, 1], got {threshold}")
@@ -675,39 +707,18 @@ def _closed_form_pairs(
             rho = torch.linalg.svdvals(a[0].T @ b[0]).clamp(0.0, 1.0)
             return float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(a[1]), "k_b": float(b[1])}
 
-    sa = {l: summary(_to(_tensor(layers_a[l])[idx], dev)) for l in ids_a}
-    sb = sa if same else {l: summary(_to(_tensor(b_map[l])[idx], dev)) for l in ids_b}
-    depths = _normalized_depths(ids_a)
-    done: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
-    out = Records()
+    else:
+        raise ValueError(f"unknown pair metric {metric!r}")
+    sa = {l: summary(xa[l]) for l in ids_a}
+    sb = sa if same else {l: summary(xb[l]) for l in ids_b}
+    out: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
     for la in ids_a:
         for lb in ids_b:
-            if same and (lb, la) in done:
-                value, extras = done[(lb, la)]
+            if same and (lb, la) in out:
+                value, extras = out[(lb, la)]
                 if metric == "svcca":
                     extras = {**extras, "k_a": extras["k_b"], "k_b": extras["k_a"]}
+                out[(la, lb)] = (value, extras)
             else:
-                value, extras = pair(sa[la], sb[lb])
-                done[(la, lb)] = (value, extras)
-            out.rows.append(
-                Record(
-                    metric=spec.name,
-                    value=value,
-                    layer=la,
-                    layer_b=lb,
-                    depth=depths[la],
-                    model=model if model_b is None else f"{model}->{model_b}",
-                    level="sequence",
-                    pooling=pooling,
-                    corpus=corpus,
-                    n_items=len(idx),
-                    dim=int(_tensor(layers_a[la]).shape[-1]),
-                    preprocess="none",
-                    params=dict(params),
-                    seed=seed,
-                    tags=spec.tags,
-                    extras=dict(extras),
-                    version=__version__,
-                )
-            )
+                out[(la, lb)] = pair(sa[la], sb[lb])
     return out

@@ -46,27 +46,26 @@ import req_metrics as rq
 
 layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per sample (sequence level)
 rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
-                 n=10000, seed=42, model="my-encoder", pooling="time-mean")
+                 n_items=10000, seed=42, model="my-encoder", pooling="time-mean")
 rec.profile("effective_rank")                        # [(layer, value), ...]
 rec.to_csv("my-encoder.csv")                         # or to_json, to_pandas
 
 tokens = {0: [t0_s0, t0_s1, ...], 1: [...]}         # (T_i, D) frames or patches per sample
-rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)  # per sample, averaged
-rq.compute(tokens, ["effective_rank"], level="population", n=10000)  # tokens of all samples as one cloud
+rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n_items=2000)  # per sample, averaged
+rq.compute(tokens, ["effective_rank"], level="population", n_tokens=10000)  # tokens of all samples as one cloud
 
 views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same samples
 rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
-rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
-rq.compute_pairs(layers, metric="cka")              # or "svcca", "rsa", "neighborhood_overlap"
-rq.compute_pairs(audio_layers, text_layers, metric="neighborhood_overlap", k=10, params={"l2": True},
-                 model="audio-encoder", model_b="text-encoder")  # two models or modalities, paired items
+rq.compute_pairs(layers, metrics=["information_imbalance", "cka"])  # all layer pairs; one local, one global measure
+rq.compute_pairs(audio_layers, text_layers, metrics=["neighborhood_overlap"],  # two models or modalities, paired items
+                 params={"neighborhood_overlap": {"k": 10, "l2": True}}, model="audio", model_b="text")
 
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
 rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
 p = rq.protocols.get("kanatas2026")                 # metric variants and parameters of a published protocol
-rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n=p.n_items)
+rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n_items=p.n_items)
 ```
 
 Single estimators are plain functions returning `MetricResult(value, extras)`:

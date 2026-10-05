@@ -56,7 +56,9 @@ class PairsAlgorithmTests(unittest.TestCase):
         base = torch.randn(150, 5, generator=g)
         layers = {0: base, 1: base + 0.5 * torch.randn(150, 5, generator=g), 2: torch.randn(150, 5, generator=g)}
         for k in (1, 2):
-            rec = rq.compute_pairs(layers, k=k, chunk=64)
+            rec = rq.compute_pairs(
+                layers, metrics=["information_imbalance"], params={"information_imbalance": {"k": k, "chunk": 64}}
+            )
             for la in layers:
                 for lb in layers:
                     direct = rq.information_imbalance(layers[la], layers[lb], k=k)

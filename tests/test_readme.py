@@ -33,7 +33,7 @@ class PostHocExampleTests(unittest.TestCase):
             rec = rq.compute(
                 layers,
                 ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
-                n=10000,
+                n_items=10000,
                 seed=42,
                 model="my-encoder",
                 pooling="time-mean",
@@ -42,8 +42,8 @@ class PostHocExampleTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d:
                 rec.to_csv(Path(d) / "my-encoder.csv")
             tokens = {l: [torch.cumsum(torch.randn(40, 24), 0) for _ in range(10)] for l in range(2)}
-            rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)
-            rq.compute(tokens, ["effective_rank"], level="population", n=10000)
+            rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n_items=2000)
+            rq.compute(tokens, ["effective_rank"], level="population", n_tokens=10000)
             views = {l: torch.stack([z + 0.1 * torch.randn_like(z) for _ in range(10)]) for l, z in layers.items()}
             spec = rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10)
             rq.compute(views, ["lidar", "infonce"], views=spec)
@@ -54,20 +54,21 @@ class PostHocExampleTests(unittest.TestCase):
                 shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))),
                 params={"pte": {"epochs": 3}},
             )
-            for kw in (
-                {"k": 1},
-                {"metric": "neighborhood_overlap"},
-                {"metric": "cka"},
-                {"metric": "svcca"},
-                {"metric": "rsa"},
-                {"metric": "cycle_knn"},
+            for mets in (
+                ["information_imbalance"],
+                ["neighborhood_overlap"],
+                ["cka"],
+                ["svcca"],
+                ["rsa"],
+                ["cycle_knn"],
+                ["information_imbalance", "cka", "cycle_knn"],
             ):
-                self.assertEqual(len(rq.compute_pairs(layers, **kw).rows), 9)
+                self.assertEqual(len(rq.compute_pairs(layers, metrics=mets).rows), 9 * len(mets))
             rq.convergence(z1, "effective_rank").to_markdown()
             self.assertEqual(len(rq.top_layers(rec, "intrinsic_dimension/gride", k=3)), 3)
             p = rq.protocols.get("kanatas2026")
             self.assertEqual(
-                _failed(rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n=p.n_items)), []
+                _failed(rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n_items=p.n_items)), []
             )
 
 

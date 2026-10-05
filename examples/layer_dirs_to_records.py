@@ -7,7 +7,7 @@ Input layout (one directory per model, one subdirectory per layer):
 
 Usage:
     python examples/layer_dirs_to_records.py <root> --metrics effective_rank self_clustering uniformity \
-        --n 10000 --model my-encoder --corpus "my corpus, 15 s clips" --out records.json
+        --n-items 10000 --model my-encoder --corpus "my corpus, 15 s clips" --out records.json
 
 Any extractor that writes this layout works; nothing here depends on how the
 embeddings were produced.
@@ -48,7 +48,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("root")
     p.add_argument("--metrics", nargs="+", required=True)
-    p.add_argument("--n", type=int, default=10000)
+    p.add_argument("--n-items", type=int, default=10000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--model", default=None)
     p.add_argument("--pooling", default=None)
@@ -56,7 +56,9 @@ def main() -> None:
     p.add_argument("--out", required=True)
     a = p.parse_args()
     layers = load_layer_dirs(a.root)
-    rec = rq.compute(layers, a.metrics, n=a.n, seed=a.seed, model=a.model, pooling=a.pooling, corpus=a.corpus)
+    rec = rq.compute(
+        layers, a.metrics, n_items=a.n_items, seed=a.seed, model=a.model, pooling=a.pooling, corpus=a.corpus
+    )
     rec.to_json(a.out)
     for m in a.metrics:
         print(m, [round(v, 4) for _, v in rec.profile(m)])

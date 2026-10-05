@@ -92,8 +92,8 @@ class PooledTests(unittest.TestCase):
     def test_subsetting_is_shared_across_layers_and_seeded(self):
         layers = pooled_layers(n=300)
         groups = [i // 3 for i in range(300)]  # 100 groups of 3 clips
-        a = rq.compute(layers, ["effective_rank"], n=50, seed=7, group_ids=groups)
-        b = rq.compute(layers, ["effective_rank"], n=50, seed=7, group_ids=groups)
+        a = rq.compute(layers, ["effective_rank"], n_items=50, seed=7, group_ids=groups)
+        b = rq.compute(layers, ["effective_rank"], n_items=50, seed=7, group_ids=groups)
         self.assertEqual(a[0].n_items, 50)
         self.assertEqual([r.value for r in a], [r.value for r in b])
         idx = rq.choose_indices(300, None, 1, groups)
@@ -130,17 +130,17 @@ class FramesAndTokensTests(unittest.TestCase):
         self.clips = {l: [torch.randn(60 + 5 * (i % 4), 8, generator=g).cumsum(0) for i in range(40)] for l in range(2)}
 
     def test_sample_level_aggregates_per_sample(self):
-        rec = rq.compute(self.clips, ["trajectory_curvature"], level="sample", n=20, seed=0, keep_per_sample=True)
+        rec = rq.compute(self.clips, ["trajectory_curvature"], level="sample", n_items=20, seed=0, keep_per_sample=True)
         r = rec.where(layer=0)[0]
         self.assertEqual(r.extras["n_items"], 20)
         self.assertEqual(len(r.extras["per_sample"]), 20)
         self.assertAlmostEqual(r.value, sum(r.extras["per_sample"]) / 20, places=9)
         self.assertAlmostEqual(r.value, math.pi / 2, delta=0.15)  # random walks
-        rec2 = rq.compute(self.clips, ["effective_rank"], level="sample", n=20)
+        rec2 = rq.compute(self.clips, ["effective_rank"], level="sample", n_items=20)
         self.assertEqual(rec2.where(layer=1)[0].level, "sample")
 
     def test_population_level_pools_all_tokens(self):
-        rec = rq.compute(self.clips, ["effective_rank"], level="population", n=1000)
+        rec = rq.compute(self.clips, ["effective_rank"], level="population", n_tokens=1000)
         self.assertEqual(rec[0].n_items, 1000)
         with self.assertRaises(ValueError):
             rq.compute(self.clips, ["trajectory_curvature"], level="population")
@@ -150,7 +150,7 @@ class FramesAndTokensTests(unittest.TestCase):
         centers = 20 * torch.randn(30, 6, generator=g)
         tight = {0: [c + 0.01 * torch.randn(100, 6, generator=g) for c in centers]}
         mets = ["intrinsic_dimension/twonn", "intrinsic_dimension/mle", "effective_rank"]
-        by = {r.metric: r for r in rq.compute(tight, mets, level="population", n=3000)}
+        by = {r.metric: r for r in rq.compute(tight, mets, level="population", n_tokens=3000)}
         self.assertEqual(by["effective_rank"].extras["n_samples"], 30)
         self.assertNotIn("same_sample_fraction", by["effective_rank"].extras)
         self.assertEqual(by["intrinsic_dimension/twonn"].extras["same_sample_fraction"], 1.0)  # k = 2 < 100 per sample
@@ -161,9 +161,9 @@ class FramesAndTokensTests(unittest.TestCase):
 
     def test_device_argument_gives_the_same_records(self):
         mets = ["effective_rank", "intrinsic_dimension/twonn"]
-        for level, n in (("sample", 10), ("population", 500)):
-            base = rq.compute(self.clips, mets, level=level, n=n, seed=3)
-            moved = rq.compute(self.clips, mets, level=level, n=n, seed=3, device="cpu")
+        for level, cap in (("sample", {"n_items": 10}), ("population", {"n_tokens": 500})):
+            base = rq.compute(self.clips, mets, level=level, seed=3, **cap)
+            moved = rq.compute(self.clips, mets, level=level, seed=3, device="cpu", **cap)
             self.assertEqual([r.value for r in base], [r.value for r in moved], msg=level)
 
 
@@ -192,18 +192,37 @@ class ViewsShiftsPairsTests(unittest.TestCase):
 
     def test_pairs_matrix(self):
         layers = pooled_layers(n=200, d=6, n_layers=3)
-        rec = rq.compute_pairs(layers, k=1, model="toy")
+        rec = rq.compute_pairs(layers, metrics=["information_imbalance"], model="toy")  # k defaults to 1
         self.assertEqual(len(rec), 9)
         diag = rec.where(layer=1, layer_b=1)[0]
         self.assertAlmostEqual(diag.value, 2.0 / 200, places=9)
         off = rec.where(layer=0, layer_b=2)[0]
         self.assertGreater(off.value, diag.value)
 
+    def test_pairs_several_metrics_share_one_subsample(self):
+        layers = pooled_layers(n=200, d=6, n_layers=3)
+        mets = ["information_imbalance", "neighborhood_overlap", "cycle_knn", "cka"]
+        p = {"neighborhood_overlap": {"k": 10}}
+        rec = rq.compute_pairs(layers, metrics=mets, n_items=120, seed=5, params=p)
+        self.assertEqual(len(rec), 36)
+        self.assertEqual({r.n_items for r in rec}, {120})
+        for m in mets:
+            alone = rq.compute_pairs(layers, metrics=[m], n_items=120, seed=5, params=p)
+            self.assertEqual([r.value for r in rec.where(metric=m)], [r.value for r in alone], msg=m)
+        self.assertEqual(rec.where(metric="neighborhood_overlap")[0].params, {"k": 10, "l2": False, "jaccard": False})
+        self.assertEqual(rec.where(metric="cycle_knn")[0].params, {"k": 10, "l2": False})
+        self.assertEqual(rec.where(metric="cka")[0].params, {})
+        with self.assertRaisesRegex(ValueError, "not a pair metric"):
+            rq.compute_pairs(layers, metrics=["effective_rank"])
+        with self.assertRaisesRegex(ValueError, "population"):
+            rq.compute(layers, ["effective_rank"], n_tokens=100)
+
     def test_imbalance_within_one_model_matches_two_models(self):
         layers = pooled_layers(n=150, d=6, n_layers=3)
         copy = {l: x.clone() for l, x in layers.items()}  # same values, so B is treated as a second model
-        same = rq.compute_pairs(layers, k=3)
-        two = rq.compute_pairs(layers, copy, k=3, device="cpu")
+        p = {"information_imbalance": {"k": 3}}
+        same = rq.compute_pairs(layers, metrics=["information_imbalance"], params=p)
+        two = rq.compute_pairs(layers, copy, metrics=["information_imbalance"], params=p, device="cpu")
         for a, b in zip(same, two, strict=True):
             self.assertEqual((a.layer, a.layer_b), (b.layer, b.layer_b))
             self.assertAlmostEqual(a.value, b.value, places=12)
@@ -218,8 +237,8 @@ class ViewsShiftsPairsTests(unittest.TestCase):
         self.assertEqual([r.value for r in a], [r.value for r in b])
         layers = pooled_layers(n=120, d=6, n_layers=2)
         for metric in ("cka", "neighborhood_overlap"):
-            x = rq.compute_pairs(layers, metric=metric)
-            y = rq.compute_pairs(layers, metric=metric, device="cpu")
+            x = rq.compute_pairs(layers, metrics=[metric])
+            y = rq.compute_pairs(layers, metrics=[metric], device="cpu")
             self.assertEqual([r.value for r in x], [r.value for r in y], msg=metric)
 
 

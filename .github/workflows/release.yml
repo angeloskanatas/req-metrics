@@ -27,7 +27,7 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
           /tmp/smoke/bin/pip install dist/*.whl
-          cd /tmp && /tmp/smoke/bin/python -c "import req_metrics as rq, torch; r = rq.compute({0: torch.randn(200, 16)}, ['effective_rank', 'intrinsic_dimension']); print(rq.__version__, len(rq.list_metrics()), [x.value for x in r])"
+          cd /tmp && /tmp/smoke/bin/python -c "import req_metrics as rq, torch; r = rq.compute({0: torch.randn(200, 16)}, ['effective_rank', 'intrinsic_dimension/twonn']); print(rq.__version__, len(rq.list_metrics()), [x.value for x in r])"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

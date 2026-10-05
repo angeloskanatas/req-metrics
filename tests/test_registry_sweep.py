@@ -20,7 +20,7 @@ class RegistrySweepTests(unittest.TestCase):
     def test_point_metrics(self):
         names = [m for m in rq.list_metrics() if rq.get_metric(m).inputs == rq.InputKind.POINTS]
         x = torch.randn(600, 24) @ torch.diag(torch.linspace(1, 0.1, 24))
-        self._assert_clean(rq.compute({0: x, 1: 2 * x + 1}, names, n=600, params=SMALL))
+        self._assert_clean(rq.compute({0: x, 1: 2 * x + 1}, names, n_items=600, params=SMALL))
 
     def test_point_metrics_at_sample_and_population_levels(self):
         names = [
@@ -30,8 +30,8 @@ class RegistrySweepTests(unittest.TestCase):
             and m not in ("intrinsic_dimension/mst", "local_rectifiability")
         ]  # slow per clip
         clips = [torch.randn(80, 16) for _ in range(6)]
-        self._assert_clean(rq.compute({0: clips}, names, level="sample", n=6, params=SMALL))
-        self._assert_clean(rq.compute({0: clips}, names, level="population", n=400, params=SMALL))
+        self._assert_clean(rq.compute({0: clips}, names, level="sample", n_items=6, params=SMALL))
+        self._assert_clean(rq.compute({0: clips}, names, level="population", n_tokens=400, params=SMALL))
 
     def test_trajectory_and_token_metrics(self):
         traj = [torch.cumsum(torch.randn(60, 16), dim=0) for _ in range(5)]
@@ -66,8 +66,12 @@ class RegistrySweepTests(unittest.TestCase):
             )
         )
         layers = {0: base, 1: base[:, :8] + 0.2 * torch.randn(300, 8)}
-        self._assert_clean(rq.compute_pairs(layers))
-        self._assert_clean(rq.compute_pairs(layers, metric="neighborhood_overlap", k=10))
+        self._assert_clean(
+            rq.compute_pairs(layers, metrics=["information_imbalance", "cka", "svcca", "rsa", "cycle_knn"])
+        )
+        self._assert_clean(
+            rq.compute_pairs(layers, metrics=["neighborhood_overlap"], params={"neighborhood_overlap": {"k": 10}})
+        )
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ class RSATests(unittest.TestCase):
 
     def test_compute_pairs_map_and_item_cap(self):
         layers = {0: self.x, 1: self.x + 0.5 * torch.randn(300, 8), 2: torch.randn(300, 8)}
-        rec = rq.compute_pairs(layers, metric="rsa")
+        rec = rq.compute_pairs(layers, metrics=["rsa"])
         self.assertEqual(len(rec), 9)
         by = {(r.layer, r.layer_b): r for r in rec}
         self.assertAlmostEqual(by[(0, 0)].value, 1.0, places=6)
@@ -50,8 +50,8 @@ class RSATests(unittest.TestCase):
         self.assertGreater(by[(0, 1)].value, by[(0, 2)].value)
         self.assertEqual(rq.get_metric("rsa").inputs, rq.InputKind.PAIR)
         big = {0: torch.randn(4500, 4), 1: torch.randn(4500, 4)}
-        self.assertEqual(rq.compute_pairs(big, metric="rsa")[0].n_items, 4000)
-        eu = rq.compute_pairs(layers, metric="rsa", params={"distance": "euclidean", "method": "pearson"})
+        self.assertEqual(rq.compute_pairs(big, metrics=["rsa"])[0].n_items, 4000)
+        eu = rq.compute_pairs(layers, metrics=["rsa"], params={"rsa": {"distance": "euclidean", "method": "pearson"}})
         self.assertEqual(eu[0].params, {"distance": "euclidean", "method": "pearson"})
 
 

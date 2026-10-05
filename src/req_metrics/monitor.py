@@ -640,7 +640,8 @@ class LayerMonitor:
             layers,
             self.metrics,
             level=self.level,
-            n=self.n_tokens if self.level == "population" else self.n_items,
+            n_items=self.n_items,
+            n_tokens=self.n_tokens if self.level == "population" else None,
             seed=self.seed,
             params=self.params,
             device=device,
@@ -671,7 +672,7 @@ class LayerMonitor:
                 compute(
                     view_layers,
                     self.view_metrics,
-                    n=self.n_items,
+                    n_items=self.n_items,
                     seed=self.seed,
                     params=self.params,
                     views=self.view_spec,

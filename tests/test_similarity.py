@@ -98,7 +98,7 @@ class PairPipelineTests(unittest.TestCase):
 
     def test_matches_direct_calls_and_is_symmetric(self):
         for metric, params, fn in (("cka", {"debiased": True}, rq.cka), ("svcca", {"threshold": 0.9}, rq.svcca)):
-            recs = rq.compute_pairs(self.layers, metric=metric, params=params)
+            recs = rq.compute_pairs(self.layers, metrics=[metric], params={metric: params})
             table = {(r.layer, r.layer_b): r for r in recs.rows}
             self.assertEqual(len(table), 9)
             self.assertAlmostEqual(table[(0, 2)].value, fn(self.layers[0], self.layers[2], **params).value, places=12)
@@ -108,7 +108,7 @@ class PairPipelineTests(unittest.TestCase):
 
     def test_two_checkpoints(self):
         later = {i: x + 0.05 * torch.randn_like(x) for i, x in self.layers.items()}
-        recs = rq.compute_pairs(self.layers, later, metric="cka", model="step1000", model_b="step2000")
+        recs = rq.compute_pairs(self.layers, later, metrics=["cka"], model="step1000", model_b="step2000")
         self.assertEqual(recs.rows[0].model, "step1000->step2000")
         self.assertGreater(min(r.value for r in recs.rows if r.layer == r.layer_b), 0.95)
 

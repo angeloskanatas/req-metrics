@@ -29,9 +29,9 @@ class DeviceAgreementTests(unittest.TestCase):
     def test_compute_device_argument_matches_the_cpu(self):
         g = torch.Generator().manual_seed(1)
         clips = {l: [torch.randn(50, 8, generator=g).cumsum(0) for _ in range(30)] for l in range(2)}
-        for level, n in (("sample", 10), ("population", 600)):
-            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, n=n)
-            gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, n=n, device="cuda")
+        for level, cap in (("sample", {"n_items": 10}), ("population", {"n_tokens": 600})):
+            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, **cap)
+            gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, device="cuda", **cap)
             for a, b in zip(cpu, gpu, strict=True):
                 self.assertAlmostEqual(a.value, b.value, delta=1e-6 * max(1.0, abs(a.value)), msg=level)
 
