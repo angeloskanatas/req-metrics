@@ -18,7 +18,7 @@ sample at the sample level, the population tokens at the population level. The e
 largest token's channel energies, after Jiang et al. (2025) and Sun et al. (2024).
 
 Args:
-    tokens: One clip's tokens (T, D), class tokens removed.
+    tokens: One sample's tokens (T, D), class tokens removed.
     factor: Cutoff relative to the median norm.
     cutoff: Absolute cutoff overriding factor.
 

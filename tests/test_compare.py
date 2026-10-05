@@ -67,6 +67,15 @@ class NeighborhoodOverlapTests(unittest.TestCase):
         )
         self.assertEqual(rq.get_metric("neighborhood_overlap").inputs, rq.InputKind.PAIR)
 
+    def test_l2_ranks_cosine_neighbors(self):
+        y = self.x * torch.rand(800, 1).add(0.5)  # same directions, different norms
+        self.assertLess(rq.neighborhood_overlap(self.x, y, k=10).value, 1.0)
+        self.assertAlmostEqual(rq.neighborhood_overlap(self.x, y, k=10, l2=True).value, 1.0, places=12)
+        self.assertAlmostEqual(rq.information_imbalance(self.x, y, l2=True).value, 2.0 / 800, places=9)
+        rec = rq.compute_pairs({0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"l2": True})
+        self.assertAlmostEqual(rec[0].value, 1.0, places=12)
+        self.assertEqual((rec[0].preprocess, rec[0].params), ("l2", {"k": 10, "l2": True}))
+
     def test_compute_pairs_overlap(self):
         layers = {0: self.x, 1: self.x + 0.5 * torch.randn(800, 8), 2: torch.randn(800, 8)}
         rec = rq.compute_pairs(layers, metric="neighborhood_overlap", k=10)

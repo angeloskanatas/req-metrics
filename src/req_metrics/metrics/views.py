@@ -1,4 +1,4 @@
-"""Metrics over augmented views of the same clips: views has shape (q, N, D)."""
+"""Metrics over augmented views of the same samples: views has shape (q, N, D)."""
 
 from __future__ import annotations
 
@@ -21,16 +21,16 @@ def _check_views(views: Tensor, min_q: int) -> tuple[int, int, int]:
 def lidar(
     views: Tensor, *, delta: float = 1e-4, unbiased: bool = True, max_eigenvalues: int | None = None
 ) -> MetricResult:
-    """LiDAR: effective rank of the LDA matrix, with clips as classes and their views as samples.
+    """LiDAR: effective rank of the LDA matrix, with samples as classes and their views as within-class points.
 
     Thilak et al. (2024, ICLR, arXiv:2312.04000, Eqs. 1-2; Eqs. 1-4 in arXiv v1): S_b is the
-    scatter of the clips' view means and S_w the scatter of the views around their clip mean plus
+    scatter of the samples' view means and S_w the scatter of the views around their sample mean plus
     delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
-    S_w^{-1/2} S_b S_w^{-1/2}. The clean clip names the class and is not one of the q views. Use
+    S_w^{-1/2} S_b S_w^{-1/2}. The clean sample names the class and is not one of the q views. Use
     the training objective's own positives when monitoring one model (their Sec. 4.2) and one
     shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
     leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
-    within-clip variance approaches delta. Directions without clip signal keep eigenvalues of
+    within-sample variance approaches delta. Directions without sample signal keep eigenvalues of
     order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
     epsilon is omitted.
 
@@ -41,7 +41,7 @@ def lidar(
         max_eigenvalues: Keep only the largest eigenvalues.
 
     Returns:
-        value: LiDAR; 0 when the LDA matrix has no positive eigenvalue (no clip separates).
+        value: LiDAR; 0 when the LDA matrix has no positive eigenvalue (no sample separates).
         extras: entropy, n_positive_eigenvalues.
     """
     q, n, d = _check_views(views, 2)
@@ -57,7 +57,7 @@ def lidar(
     inv_sqrt = evecs[:, pos] @ torch.diag(evals[pos].pow(-0.5)) @ evecs[:, pos].T
     lam = torch.linalg.eigvalsh(inv_sqrt @ sigma_b @ inv_sqrt)
     lam = lam[lam > 0]
-    if lam.numel() == 0:  # collapse: no direction separates the clips
+    if lam.numel() == 0:  # collapse: no direction separates the samples
         return MetricResult(0.0, {"n_positive_eigenvalues": 0.0})
     if max_eigenvalues is not None and lam.numel() > max_eigenvalues:
         lam = lam[-max_eigenvalues:]
@@ -67,10 +67,10 @@ def lidar(
 
 
 def alignment(views: Tensor, *, alpha: float = 2.0) -> MetricResult:
-    """Alignment: mean distance between L2-normalized views of the same clip, to the power alpha.
+    """Alignment: mean distance between L2-normalized views of the same sample, to the power alpha.
 
     Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.1), alpha = 2: 0 for perfectly aligned
-    views, 2 for unrelated unit vectors in high dimension; averaged over all view pairs and clips.
+    views, 2 for unrelated unit vectors in high dimension; averaged over all view pairs and samples.
 
     Args:
         views: Augmented representations (q, N, D), q >= 2.
@@ -99,10 +99,10 @@ def infonce(
     symmetric: bool = False,
     anchor: int | None = None,
 ) -> MetricResult:
-    """InfoNCE loss between augmented views of the same clips.
+    """InfoNCE loss between augmented views of the same samples.
 
     van den Oord, Li and Vinyals (2018, arXiv:1807.03748, Eq. 4): the cross-entropy of
-    identifying each clip's view b among all N clips' views b from its view a, with cosine
+    identifying each sample's view b among all N samples' views b from its view a, with cosine
     logits over the temperature (rows centered and L2-normalized, as in Skean et al., 2025).
     Lower is more invariant to the augmentations. With q > 2 views the loss is averaged over
     the pairs a < b, the full graph of Tian et al. (2020, Eq. 8), or over the pairs (anchor,
@@ -115,7 +115,7 @@ def infonce(
     Args:
         views: Views (q, N, D), q >= 2.
         temperature: Softmax temperature.
-        center: Mean-center each view over clips.
+        center: Mean-center each view over samples.
         l2: Scale rows to unit norm.
         symmetric: Average both directions of each pair.
         anchor: View paired with every other view; None pairs all views.

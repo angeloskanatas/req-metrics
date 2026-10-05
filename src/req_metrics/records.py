@@ -23,7 +23,7 @@ class Record:
         model: Label of the representation source.
         level: "sequence", "sample" or "population".
         pooling: Label of how pooled vectors were formed ("time-mean", "final-token").
-        corpus: Label of the input clips.
+        corpus: Label of the input items.
         n_items: Samples (tokens at the population level) the estimator saw after subsetting.
         dim: Representation width.
         n_views: Views per sample for view metrics; shifts for PTE.
@@ -93,7 +93,7 @@ _ATLAS_NAMES = {
     "effective_rank": ("effective_rank", "default"),
     "anisotropy": ("anisotropy", "spectral"),
     "cosine_anisotropy": ("anisotropy", "cosine"),
-    "intrinsic_dimension": ("id", "twonn"),
+    "intrinsic_dimension/twonn": ("id", "twonn"),
     "intrinsic_dimension/mle": ("id", "mle"),
     "intrinsic_dimension/mlid": ("id", "mlid"),
     "alpha_req": ("alpha", "default"),
@@ -137,11 +137,13 @@ _OLD_LEVELS = {"pooled": "sequence", "frames": "sample", "tokens": "population"}
 
 
 def _upgrade(row: dict[str, Any]) -> dict[str, Any]:
-    """Record fields of a stored row; rows written before the population field was renamed are mapped."""
+    """Record fields of a stored row; names of development versions (population field, bare TwoNN) are mapped."""
     row = {**row, "tags": tuple(row.get("tags", ()))}
     if "population" in row:
         old = row.pop("population")
         row["level"] = _OLD_LEVELS.get(old, old)
+    if row.get("metric") == "intrinsic_dimension":
+        row["metric"] = "intrinsic_dimension/twonn"
     return row
 
 

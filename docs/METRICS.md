@@ -9,7 +9,7 @@ applies across metrics.
 
 - Estimators are pure functions on tensors. `x` is a point cloud `(N, D)`, `z`
   a single trajectory `(T, D)`, `views` a stack `(q, N, D)` of `q` views of
-  the same `N` clips, a token field is `(T, D)` per clip. Each returns
+  the same `N` samples, a token field is `(T, D)` per sample. Each returns
   `MetricResult(value, extras)`.
 - Layouts: metrics never see token grids. `layouts.py` turns an `(F, T, D)`
   spectrogram-patch grid into a `(T, F * D)` trajectory by concatenating the
@@ -56,8 +56,8 @@ applies across metrics.
 |---|---|---|
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
-| Manifold | dimension: intrinsic_dimension (TwoNN), intrinsic_dimension/gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (layer pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
+| Manifold | dimension: intrinsic_dimension/twonn, /gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
+| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -158,7 +158,7 @@ implementation deviates from the published definition, the docstring says so.
   reference matrix-entropy code clamps negative Gram entries to zero, which
   raised the entropy by 13 to 22 percent on audio foundation-model states; the
   Gram matrix is not clamped here. RankMe-t (Aldeneh et al., 2024) is the
-  effective rank of time-summed clip vectors; for clips of equal length this is the
+  effective rank of time-summed sample vectors; for samples of equal length this is the
   effective rank of the mean-pooled vectors, since the two differ by one global
   scale.
 - Neighbor group. TwoNN and GRIDE follow DADApy step for step and reproduce
@@ -207,7 +207,7 @@ canonical set:
 
 | metric | estimator / variant | preprocessing | level | views |
 |---|---|---|---|---|
-| intrinsic_dimension | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | sequence | 1 |
+| intrinsic_dimension/twonn, /gride | TwoNN; GRIDE at the 8th-neighbor scale, reported as consistent | none | sequence | 1 |
 | effective_rank | singular spectrum, largest 2048 values | center | sequence | 1 |
 | anisotropy | spectral | center + L2 | sequence | 1 |
 | trajectory_curvature | k = 1, signed; the folded convention is in the extras | none | sample | 1 |
@@ -276,7 +276,7 @@ and rho = -0.999 with diffusion spectral entropy.
 uniformity: log of the mean pairwise Gaussian potential exp(-t ||u - v||^2) over
 L2-normalized points, t = 2, computed from Gram blocks in float64. Corollary 1 range
 [-2t + log 0F1(; D/2; t^2), 0], the lower end only for a perfectly uniform encoder
-(extras: lower_bound, gap). alignment: mean over view pairs and clips of ||u_a -
+(extras: lower_bound, gap). alignment: mean over view pairs and samples of ||u_a -
 u_b||^alpha, alpha = 2, on L2-normalized views (input kind views). Both equal the
 two-line reference implementation.
 
@@ -339,32 +339,88 @@ sparse.
 ## 7. neighborhood_overlap
 
 Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1); Valeriani
-et al. (2023, NeurIPS) for the transformer use. Layer-pair input: the mean over
-items of the fraction of k nearest neighbors (Euclidean, self excluded) shared
-between two representations; 1 when neighborhoods are preserved, k/(N-1) at chance.
-k = 30 in both papers at ImageNet scale, trend robust to k.
-`compute_pairs(layers, metric="neighborhood_overlap")` builds one k-NN table per
-layer and intersects them for every pair. Symmetric, so it answers a different
-question from the information imbalance (directional predictability of neighbor
-ranks); the two are the layer-pair family. The retention score of Jiang et al.
-(2026) is the Jaccard variant of this quantity.
+et al. (2023, NeurIPS) for the transformer use. Pair input: the mean over items of
+the fraction of k nearest neighbors (self excluded) shared by two representations; 1
+when neighborhoods are preserved, k/(N - 1) in expectation for unrelated spaces
+(Gröger, Wen and Brbić, 2026, Prop. 4.2). The mutual k-nearest-neighbor alignment of
+Huh et al. (2024, ICML, App. A, Eq. 11) is the same quantity: they compute it with k
+= 10 on 1,024 image-caption pairs after clamping each dimension at its 0.95 quantile
+and L2-normalizing, so that inner-product neighbors are cosine neighbors; `l2=True`
+ranks cosine neighbors here and is recorded as preprocessing. k = 30 in Doimo et al.
+and Valeriani et al. at ImageNet scale. Koepke et al. (2026) show that at fixed k
+the value falls as the gallery grows (0.135 at n = 1,024 to 0.008 at 15 million for
+k = 10, DINOv2 against OpenLlama), while k = n/100 is stable, and that it also falls
+when an item has several valid partners (many captions per image), which RSA and CKA
+do not register: compare values at equal n and k on one-to-one pairs, and read them
+as a local statistic. `compute_pairs(layers, metric="neighborhood_overlap")` builds
+one k-NN table per layer and intersects them for every pair. Symmetric, so it
+answers a different question from the information imbalance (directional
+predictability of neighbor ranks); the two are the pair family. The retention score
+of Jiang et al. (2026) is the Jaccard variant of this quantity.
 
 ## 8. cka and svcca
 
-Layer-pair similarity indices for the same items in two representations. `cka` is
-linear centered kernel alignment (Kornblith et al., 2019, ICML, arXiv:1905.00414,
-Table 1), invariant to orthogonal maps and isotropic scaling; `debiased=True` uses
-the unbiased HSIC estimator, which matters when N is not large relative to the
-widths. `svcca` (Raghu et al., 2017, NeurIPS, arXiv:1706.05806) keeps the SVD
-directions that carry 99 percent of the summed singular values (App. A) and averages
-the canonical correlations between them (Eq. 1); it is invariant to invertible
-linear maps of the kept subspaces and therefore needs N well above the kept widths.
-Post hoc, `compute_pairs` gives the layer-by-layer similarity map of a model. During
+Pair similarity indices for the same items in two representations. `cka` is linear
+centered kernel alignment (Kornblith et al., 2019, ICML, arXiv:1905.00414, Table 1),
+invariant to orthogonal maps and isotropic scaling; `debiased=True` uses the
+unbiased HSIC estimator, which matters when N is not large relative to the widths.
+`svcca` (Raghu et al., 2017, NeurIPS, arXiv:1706.05806) keeps the SVD directions
+that carry 99 percent of the summed singular values (App. A) and averages the
+canonical correlations between them (Eq. 1); it is invariant to invertible linear
+maps of the kept subspaces and therefore needs N well above the kept widths. Post
+hoc, `compute_pairs` gives the layer-by-layer similarity map of a model. During
 training, the same fixed items at two checkpoints give the drift of each layer, the
 use of Raghu et al., Sec. 4.1, who compare every layer during training with its
 final state. Both are closed-form; per-layer summaries are computed once per call.
+Under independence the biased linear CKA has a baseline of order D/N (Gröger et al.,
+2026, Prop. 4.1; Murphy, Zylberberg and Fyshe, 2024), which `debiased=True` removes;
+Gröger et al. find that their permutation calibration agrees with that correction.
+The maximum over the L_A x L_B pairs of a map is inflated by the number of pairs
+(their Sec. 4.2): report the map, and calibrate a reported maximum against pairings
+permuted over items.
 
-## 9. cluster_quality
+## 9. Pairs across models and modalities
+
+The pair metrics take any two representations of the same items with aligned rows:
+the layers of one model, two checkpoints, two models, or two modalities with paired
+items. Cheng et al. (2025, ICLR, Fig. 4, App. G and H) compare the layers of two
+language models with the information imbalance and linear CKA on the last-token
+states of 10,000 sequences of 20 tokens, averaged over corpora and partitions, and
+find the lowest imbalance where the intrinsic-dimension peaks of the two models
+intersect. Acevedo et al. (2025) compare translations of one sentence across
+languages, images of one class, and image-caption pairs (DeepSeek-V3 against DINOv2
+and image-GPT on Flickr30k): the imbalance reaches its minimum in each model's
+semantic layers and is asymmetric between modalities. Their protocol concatenates
+the last 20 text tokens or the last 200 image tokens (a `pool` callable here),
+binarizes activations with the sign function and ranks Hamming distances, which are
+the Euclidean ranks of the signed vectors (`torch.sign(x)`), on 5,000 pairs; a
+shuffled pairing gives 1 at every layer. Huh et al. (2024) measure cross-modal
+alignment as the neighborhood overlap of paired images and captions (Section 7) and
+report that it rises with language-model performance. Koepke et al. (2026) find that
+the rise saturates for recent models, that fixed-k overlap decays with gallery size
+and with many-to-many pairing while representational similarity analysis
+(Kriegeskorte, Mur and Bandettini, 2008) and CKA stay stable, and that the agreement
+which survives is coarse: cross-modal RSA peaks on the top three eigenmodes and
+erodes as finer modes are added. Gröger et al. (2026) find that after permutation
+calibration the convergence reported by CKA, SVCCA and Procrustes distance
+disappears while the neighborhood overlap keeps it. For this library: the sample
+size, k, preprocessing and pairing are part of a pair record and are compared only
+at equal values; the imbalance and the overlap read neighborhoods, CKA and SVCCA the
+global geometry, and a cross-model claim rests on both; the full L_A x L_B map is
+reported rather than its maximum.
+
+Considered and not adopted from this literature: the centered kernel
+nearest-neighbor alignment of Huh et al. (2024, App. A), a k-NN-masked CKA; the
+variable-k overlap of Koepke et al. (2026), defined for a query set inside a growing
+gallery; the permutation null calibration of Gröger et al. (2026), whose baselines
+for the overlap and the imbalance are analytic and in the records and whose CKA
+correction `debiased=True` provides; the displacement cosine of Shang et al. (2026),
+which fits an orthogonal map on held-out items; the barycentric consistency of Saha,
+He and Khosla (2026) and the Procrustes dispersion of Hosseini et al. (2026), which
+score items across a pool of models; and the ridge predictivity of He, Trott and
+Khosla (2025), a fitted mapping.
+
+## 10. cluster_quality
 
 Whetten et al. (2025, Interspeech): k-means with k = 1024 and k-means++ seeding on
 the frame embeddings of a layer, reported as the inertia and the Davies-Bouldin
@@ -373,7 +429,7 @@ two correlate with recognition in opposite directions, so they are read together
 compared at the same layer, N and k. Full-batch Lloyd iterations with a seed replace
 the paper's mini-batch k-means, so values are reproducible.
 
-## 10. jacobian_effective_rank
+## 11. jacobian_effective_rank
 
 Chung and Kim (2026, ICML, arXiv:2602.03282, Eq. 1): the participation ratio (sum
 s_i)^2 / sum s_i^2 of the k leading singular values of a readout's input-output

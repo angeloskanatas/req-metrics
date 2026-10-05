@@ -10,6 +10,7 @@ from torch import Tensor
 
 from req_metrics._types import InputKind, MetricResult, Preprocess
 from req_metrics.neighbors import Neighbors, _cdist_mode
+from req_metrics.preprocess import l2_normalize
 from req_metrics.registry import register_metric
 
 
@@ -33,7 +34,13 @@ def _mean_rank_in_b(x_b: Tensor, nn_a: Tensor, chunk: int = 512) -> float:
 
 
 def information_imbalance(
-    x_a: Tensor, x_b: Tensor, *, k: int = 1, neighbors_a: Neighbors | None = None, neighbors_b: Neighbors | None = None
+    x_a: Tensor,
+    x_b: Tensor,
+    *,
+    k: int = 1,
+    l2: bool = False,
+    neighbors_a: Neighbors | None = None,
+    neighbors_b: Neighbors | None = None,
 ) -> MetricResult:
     """Information imbalance from representation A to representation B.
 
@@ -41,12 +48,16 @@ def information_imbalance(
     / N, the mean rank in B of each point's nearest neighbor in A; about 2/N for identical spaces
     and 1 for independent ones. A small Delta(A -> B) with a large Delta(B -> A) means A contains
     the information in B. k > 1 averages the ranks of the k nearest A-neighbors, as in DADApy.
-    Ranks are counted exactly, without an N x N table.
+    Ranks are counted exactly, without an N x N table. Used between the layers of one model and
+    between models by Cheng et al. (2025, ICLR), and between languages, images and image-caption
+    pairs by Acevedo et al. (2025), who binarize activations and rank Hamming distances: pass
+    torch.sign(x), whose Euclidean ranks are the Hamming ranks.
 
     Args:
         x_a: Representation A, (N, D_a).
-        x_b: Representation B, (N, D_b).
+        x_b: Representation B, (N, D_b), rows of the same items as x_a.
         k: Nearest A-neighbors whose B-ranks are averaged.
+        l2: Scale rows to unit norm first, so neighbors and ranks are cosine ones.
         neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
     Returns:
@@ -55,7 +66,7 @@ def information_imbalance(
     """
     if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
         raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
-    xa, xb = x_a.double(), x_b.double()
+    xa, xb = (l2_normalize(x_a.double()), l2_normalize(x_b.double())) if l2 else (x_a.double(), x_b.double())
     nb_a = neighbors_a if neighbors_a is not None else Neighbors.from_points(xa, k)
     nb_b = neighbors_b if neighbors_b is not None else Neighbors.from_points(xb, k)
     if nb_a.k < k or nb_b.k < k:
@@ -74,17 +85,29 @@ def _shared_neighbor_fraction(nn_a: Tensor, nn_b: Tensor) -> Tensor:
 
 
 def neighborhood_overlap(
-    x_a: Tensor, x_b: Tensor, *, k: int = 30, neighbors_a: Neighbors | None = None, neighbors_b: Neighbors | None = None
+    x_a: Tensor,
+    x_b: Tensor,
+    *,
+    k: int = 30,
+    l2: bool = False,
+    neighbors_a: Neighbors | None = None,
+    neighbors_b: Neighbors | None = None,
 ) -> MetricResult:
     """Neighborhood overlap: mean fraction of the k nearest neighbors shared by two representations.
 
     Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1): 1 when every point
-    keeps its neighbors, k/(N-1) in expectation for unrelated spaces. Euclidean neighbors, the
-    point itself excluded; k = 30 as in Doimo et al. and Valeriani et al. (2023).
+    keeps its neighbors, k/(N-1) in expectation for unrelated spaces (Groger, Wen and Brbic, 2026,
+    Prop. 4.2). Euclidean neighbors, the point itself excluded; k = 30 as in Doimo et al. and
+    Valeriani et al. (2023). The mutual k-nearest-neighbor alignment of Huh et al. (2024, ICML,
+    App. A) is the same quantity on cosine neighbors with k = 10 on 1,024 image-caption pairs;
+    l2=True ranks cosine neighbors. At fixed k the value falls as N grows and when an item has
+    several valid partners (Koepke et al., 2026), so compare at equal N and k on one-to-one pairs.
 
     Args:
-        x_a, x_b: (N, D_a) and (N, D_b).
+        x_a, x_b: (N, D_a) and (N, D_b), rows of the same items: two layers, checkpoints, models
+            or modalities.
         k: Neighborhood size.
+        l2: Scale rows to unit norm first, so Euclidean neighbors are cosine neighbors.
         neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
     Returns:
@@ -96,8 +119,9 @@ def neighborhood_overlap(
     n = x_a.shape[0]
     if k < 1 or k > n - 1:
         raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
-    nb_a = neighbors_a if neighbors_a is not None else Neighbors.from_points(x_a.double(), k)
-    nb_b = neighbors_b if neighbors_b is not None else Neighbors.from_points(x_b.double(), k)
+    xa, xb = (l2_normalize(x_a.double()), l2_normalize(x_b.double())) if l2 else (x_a.double(), x_b.double())
+    nb_a = neighbors_a if neighbors_a is not None else Neighbors.from_points(xa, k)
+    nb_b = neighbors_b if neighbors_b is not None else Neighbors.from_points(xb, k)
     if nb_a.k < k or nb_b.k < k:
         raise ValueError("Neighbors tables need at least k neighbors")
     per_point = _shared_neighbor_fraction(nb_a.indices[:, 1 : k + 1], nb_b.indices[:, 1 : k + 1])
@@ -203,7 +227,7 @@ register_metric(
     preprocess=Preprocess(),
     citation=("kornblith2019similarity",),
     arxiv="1905.00414",
-    description="Linear centered kernel alignment between two layers (Kornblith et al., 2019).",
+    description="Linear centered kernel alignment between two representations of the same items (Kornblith et al., 2019).",
 )(cka)
 register_metric(
     "svcca",
@@ -211,13 +235,13 @@ register_metric(
     preprocess=Preprocess(),
     citation=("raghu2017svcca",),
     arxiv="1706.05806",
-    description="Mean canonical correlation of the leading SVD directions of two layers (Raghu et al., 2017).",
+    description="Mean canonical correlation of the leading SVD directions of two representations (Raghu et al., 2017).",
 )(svcca)
 register_metric(
     "neighborhood_overlap",
     inputs=InputKind.PAIR,
     preprocess=Preprocess(),
-    citation=("doimo2020nucleation", "valeriani2023geometry", "glielmo2022dadapy"),
+    citation=("doimo2020nucleation", "valeriani2023geometry", "huh2024platonic", "glielmo2022dadapy"),
     arxiv="2007.03506",
     tags=("relational",),
 )(neighborhood_overlap)
@@ -225,6 +249,6 @@ register_metric(
     "information_imbalance",
     inputs=InputKind.PAIR,
     preprocess=Preprocess(),
-    citation=("glielmo2022imbalance", "glielmo2022dadapy"),
+    citation=("glielmo2022imbalance", "cheng2025emergence", "acevedo2025semantic", "glielmo2022dadapy"),
     arxiv="2104.15079",
 )(information_imbalance)

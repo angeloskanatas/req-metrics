@@ -20,8 +20,9 @@ class MetricSpec:
     """Registry entry for one metric.
 
     Attributes:
-        name: Registry key, lowercase with underscores; another estimator of the
-            same quantity takes a slash suffix, e.g. "intrinsic_dimension/gride".
+        name: Registry key, lowercase with underscores. Estimators of one quantity
+            share a prefix and are named by their method after a slash, e.g.
+            "intrinsic_dimension/twonn" and "intrinsic_dimension/gride"; none is a default.
         fn: The estimator.
         inputs: Tensor contract the estimator expects.
         preprocess: fn's default preprocessing. For cache="spectrum" the pipeline
@@ -106,4 +107,6 @@ def get_metric(name: str) -> MetricSpec:
     try:
         return _REGISTRY[name]
     except KeyError:
-        raise KeyError(f"unknown metric {name!r}; see list_metrics()") from None
+        variants = list_metrics(f"{name}/*")
+        hint = f"; its estimators are {', '.join(variants)}" if variants else "; see list_metrics()"
+        raise KeyError(f"unknown metric {name!r}{hint}") from None

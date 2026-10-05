@@ -1,7 +1,7 @@
 """Construction and description of augmented views and pitch-shifted copies.
 
 LiDAR, InfoNCE and DiME consume a (q, N, D) stack of views of the same N
-clips. What a view is decides what the score means: LiDAR measures
+samples. What a view is decides what the score means: LiDAR measures
 invariance to exactly the perturbations that produced the views (Thilak et
 al., 2024, Sec. 3), so a run with the objective's own positive-pair
 construction and a run with a shared augmentation chain answer different
@@ -30,7 +30,7 @@ class ViewSpec:
             views differ only by the random crop.
         augmentations: Names with parameters, e.g. "PitchShift(-4..4 semitones, p=0.5)".
         excluded: Augmentations deliberately left out, e.g. "PitchShift" for tonal tasks.
-        q: Number of views per clip.
+        q: Number of views per sample.
         seed: Seed of the augmentation draws, if any.
         notes: Anything else needed to reproduce the views.
     """
@@ -73,17 +73,17 @@ def make_views(
     """Build a (q, N, D) view stack from encoder and augmentation callables.
 
     Each of q passes draws a seeded generator, augments every batch with it and encodes it.
-    Keep inputs in a fixed order so row i is the same clip in every view. For masked objectives,
+    Keep inputs in a fixed order so row i is the same sample in every view. For masked objectives,
     put the mask draw inside `encode` (train mode, zero dropout). For stored embeddings, use
     stack_views.
 
     Args:
         encode: Maps an augmented batch to (B, D).
-        inputs: Indexable clips in a fixed order (list, tensor, dataset).
+        inputs: Indexable samples in a fixed order (list, tensor, dataset).
         augment: Perturbs a batch given a torch.Generator.
         q: Number of views.
         seed: Base seed; pass p uses seed + p.
-        batch_size: Clips per encode call.
+        batch_size: Samples per encode call.
         collate: Builds a batch from a list of items; default torch.stack for tensors.
 
     Returns:
@@ -144,17 +144,17 @@ def make_shifted(
     batch_size: int = 64,
     collate: Callable[[list], object] | None = None,
 ) -> dict[int, Tensor]:
-    """Encode k-semitone shifted copies of every clip: {k: (N, D)} aligned with the unshifted rows.
+    """Encode k-semitone shifted copies of every sample: {k: (N, D)} aligned with the unshifted rows.
 
     `shift(batch, k) -> batch` is the user's audio pitch shift (deterministic given k);
     `encode(batch) -> (B, D)` the user's layer readout.
 
     Args:
         encode: Maps a batch to a (B, D) tensor.
-        inputs: Indexable clips in a fixed order.
+        inputs: Indexable samples in a fixed order.
         shift: Applies a k-semitone pitch shift to a batch.
         semitones: Nonzero shifts to produce.
-        batch_size: Clips per encode call.
+        batch_size: Samples per encode call.
         collate: Builds a batch from a list of items; default torch.stack for tensors, list otherwise.
 
     Returns:

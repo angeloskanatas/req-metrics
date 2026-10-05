@@ -1,4 +1,4 @@
-"""Metrics of one clip's frame trajectory (time-ordered rows)."""
+"""Metrics of one sample's frame trajectory (time-ordered rows)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
     2024, Def. 3.2) and is not scale-free. All readings are in the extras.
 
     Args:
-        z: One clip's frames (T, D), time-ordered; T >= 2k + 1.
+        z: One sample's frames (T, D), time-ordered; T >= 2k + 1.
         k: Frame gap of the displacements.
         convention: "signed" or "abs".
         normalize: "none" or "path_length".

@@ -1,6 +1,6 @@
 # `token_cosine`
 
-Mean cosine similarity between distinct tokens of one clip.
+Mean cosine similarity between distinct tokens of one sample.
 
 - Input: `tokens`
 - Canonical preprocessing: `none`
@@ -15,7 +15,7 @@ Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token fie
 up to n_tokens tokens sampled without replacement.
 
 Args:
-    tokens: One clip's tokens (T, D), class tokens removed.
+    tokens: One sample's tokens (T, D), class tokens removed.
     n_tokens: Tokens sampled when T exceeds it.
     seed: Sampling seed.
 

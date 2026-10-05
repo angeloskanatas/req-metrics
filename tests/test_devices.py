@@ -30,8 +30,8 @@ class DeviceAgreementTests(unittest.TestCase):
         g = torch.Generator().manual_seed(1)
         clips = {l: [torch.randn(50, 8, generator=g).cumsum(0) for _ in range(30)] for l in range(2)}
         for level, n in (("sample", 10), ("population", 600)):
-            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension"], level=level, n=n)
-            gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension"], level=level, n=n, device="cuda")
+            cpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, n=n)
+            gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, n=n, device="cuda")
             for a, b in zip(cpu, gpu, strict=True):
                 self.assertAlmostEqual(a.value, b.value, delta=1e-6 * max(1.0, abs(a.value)), msg=level)
 

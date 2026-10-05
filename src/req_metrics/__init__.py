@@ -15,7 +15,7 @@ from req_metrics.layouts import (
     grid_to_pooled,
     grid_to_tokens,
     grid_to_trajectory,
-    stack_clips,
+    stack_samples,
     strip_prefix_tokens,
 )
 from req_metrics.metrics.clustering import cluster_quality
@@ -131,7 +131,7 @@ __all__ = [
     "grid_to_pooled",
     "frame_tokens_to_pooled",
     "strip_prefix_tokens",
-    "stack_clips",
+    "stack_samples",
     "alignment",
     "normalized_std",
     "self_clustering",

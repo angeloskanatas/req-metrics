@@ -1,4 +1,4 @@
-"""Token-field metrics of one clip's tokens (T, D), read before pooling.
+"""Token-field metrics of one sample's tokens (T, D), read before pooling.
 
 High-norm outlier tokens, their channel concentration, the pairwise cosine structure, and its
 drift during training.
@@ -29,7 +29,7 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
     largest token's channel energies, after Jiang et al. (2025) and Sun et al. (2024).
 
     Args:
-        tokens: One clip's tokens (T, D), class tokens removed.
+        tokens: One sample's tokens (T, D), class tokens removed.
         factor: Cutoff relative to the median norm.
         cutoff: Absolute cutoff overriding factor.
 
@@ -58,13 +58,13 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
 
 
 def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> MetricResult:
-    """Mean cosine similarity between distinct tokens of one clip.
+    """Mean cosine similarity between distinct tokens of one sample.
 
     Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. Exact on
     up to n_tokens tokens sampled without replacement.
 
     Args:
-        tokens: One clip's tokens (T, D), class tokens removed.
+        tokens: One sample's tokens (T, D), class tokens removed.
         n_tokens: Tokens sampled when T exceeds it.
         seed: Sampling seed.
 
@@ -84,13 +84,13 @@ def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> Metric
 
 
 def cls_patch_cosine(tokens_with_cls: Tensor, *, n_prefix: int = 1) -> MetricResult:
-    """Mean cosine between the class token(s) and the patch tokens of one clip.
+    """Mean cosine between the class token(s) and the patch tokens of one sample.
 
     Marouani et al. (2026, ICLR, arXiv:2602.08626) show class and patch tokens diverging at
     specific layers.
 
     Args:
-        tokens_with_cls: The clip's full token sequence (n_prefix + T, D).
+        tokens_with_cls: The sample's full token sequence (n_prefix + T, D).
         n_prefix: Leading class or register tokens.
 
     Returns:
@@ -105,16 +105,16 @@ def cls_patch_cosine(tokens_with_cls: Tensor, *, n_prefix: int = 1) -> MetricRes
 
 
 def token_gram_drift(tokens: Tensor, reference: Tensor) -> MetricResult:
-    """Drift of a clip's token cosine Gram matrix against a reference field.
+    """Drift of a sample's token cosine Gram matrix against a reference field.
 
     DINOv3's Gram anchoring term (Simeoni et al., 2025, arXiv:2508.10104, Sec. 4): ||X_S X_S^T -
-    X_G X_G^T||_F^2 on L2-normalized tokens, divided by P^2 here so clips of different length
+    X_G X_G^T||_F^2 on L2-normalized tokens, divided by P^2 here so samples of different length
     compare. As a monitor, the reference is an earlier sweep of the same model. Called directly;
     compute() and compute_pairs() do not route it.
 
     Args:
         tokens: Current token field (T, D).
-        reference: Reference field of the same clip (T, D_ref).
+        reference: Reference field of the same sample (T, D_ref).
 
     Returns:
         value: mean squared difference of the two cosine Gram matrices.
@@ -158,5 +158,5 @@ register_metric(
     preprocess=Preprocess(),
     citation=("simeoni2025dinov3",),
     arxiv="2508.10104",
-    description="Squared Frobenius drift of a clip's token cosine Gram matrix against a reference field.",
+    description="Squared Frobenius drift of a sample's token cosine Gram matrix against a reference field.",
 )(token_gram_drift)

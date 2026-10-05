@@ -1,6 +1,6 @@
 # `svcca`
 
-Mean canonical correlation of the leading SVD directions of two layers (Raghu et al., 2017).
+Mean canonical correlation of the leading SVD directions of two representations (Raghu et al., 2017).
 
 - Input: `pair`
 - Canonical preprocessing: `none`

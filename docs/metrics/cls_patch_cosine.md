@@ -1,6 +1,6 @@
 # `cls_patch_cosine`
 
-Mean cosine between the class token(s) and the patch tokens of one clip.
+Mean cosine between the class token(s) and the patch tokens of one sample.
 
 - Input: `tokens`
 - Canonical preprocessing: `none`
@@ -15,7 +15,7 @@ Marouani et al. (2026, ICLR, arXiv:2602.08626) show class and patch tokens diver
 specific layers.
 
 Args:
-    tokens_with_cls: The clip's full token sequence (n_prefix + T, D).
+    tokens_with_cls: The sample's full token sequence (n_prefix + T, D).
     n_prefix: Leading class or register tokens.
 
 Returns:

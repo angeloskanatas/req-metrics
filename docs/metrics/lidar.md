@@ -1,6 +1,6 @@
 # `lidar`
 
-LiDAR: effective rank of the LDA matrix, with clips as classes and their views as samples.
+LiDAR: effective rank of the LDA matrix, with samples as classes and their views as within-class points.
 
 - Input: `views`
 - Canonical preprocessing: `none`
@@ -12,13 +12,13 @@ LiDAR: effective rank of the LDA matrix, with clips as classes and their views a
 ## Definition, protocol and pitfalls
 
 Thilak et al. (2024, ICLR, arXiv:2312.04000, Eqs. 1-2; Eqs. 1-4 in arXiv v1): S_b is the
-scatter of the clips' view means and S_w the scatter of the views around their clip mean plus
+scatter of the samples' view means and S_w the scatter of the views around their sample mean plus
 delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
-S_w^{-1/2} S_b S_w^{-1/2}. The clean clip names the class and is not one of the q views. Use
+S_w^{-1/2} S_b S_w^{-1/2}. The clean sample names the class and is not one of the q views. Use
 the training objective's own positives when monitoring one model (their Sec. 4.2) and one
 shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
 leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
-within-clip variance approaches delta. Directions without clip signal keep eigenvalues of
+within-sample variance approaches delta. Directions without sample signal keep eigenvalues of
 order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
 epsilon is omitted.
 
@@ -29,5 +29,5 @@ Args:
     max_eigenvalues: Keep only the largest eigenvalues.
 
 Returns:
-    value: LiDAR; 0 when the LDA matrix has no positive eigenvalue (no clip separates).
+    value: LiDAR; 0 when the LDA matrix has no positive eigenvalue (no sample separates).
     extras: entropy, n_positive_eigenvalues.

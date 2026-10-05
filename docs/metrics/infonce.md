@@ -1,6 +1,6 @@
 # `infonce`
 
-InfoNCE loss between augmented views of the same clips.
+InfoNCE loss between augmented views of the same samples.
 
 - Input: `views`
 - Canonical preprocessing: `center+l2`
@@ -12,7 +12,7 @@ InfoNCE loss between augmented views of the same clips.
 ## Definition, protocol and pitfalls
 
 van den Oord, Li and Vinyals (2018, arXiv:1807.03748, Eq. 4): the cross-entropy of
-identifying each clip's view b among all N clips' views b from its view a, with cosine
+identifying each sample's view b among all N samples' views b from its view a, with cosine
 logits over the temperature (rows centered and L2-normalized, as in Skean et al., 2025).
 Lower is more invariant to the augmentations. With q > 2 views the loss is averaged over
 the pairs a < b, the full graph of Tian et al. (2020, Eq. 8), or over the pairs (anchor,
@@ -25,7 +25,7 @@ equal N and temperature, and read contrastive_accuracy, which has no such ceilin
 Args:
     views: Views (q, N, D), q >= 2.
     temperature: Softmax temperature.
-    center: Mean-center each view over clips.
+    center: Mean-center each view over samples.
     l2: Scale rows to unit norm.
     symmetric: Average both directions of each pair.
     anchor: View paired with every other view; None pairs all views.

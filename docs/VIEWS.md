@@ -1,8 +1,8 @@
 # Views for LiDAR, InfoNCE and DiME
 
 The three view-based metrics take a tensor of shape (q, N, D): q views of the same N
-clips at one layer. The views are augmented draws; the clean input names the clip
-and is not one of them (Thilak et al., 2024, Section 3; Skean et al., 2025, Appendix
+samples at one layer. The views are augmented draws; the clean input names the
+sample and is not one of them (Thilak et al., 2024, Section 3; Skean et al., 2025, Appendix
 D). How the views were made determines what the score means, so every view-based
 result carries a `ViewSpec` describing it.
 
@@ -20,9 +20,9 @@ and `augment` the user's perturbation, with seeded passes; during training,
 `LayerMonitor` does the same, reading a live loader for the crops. Both draw each
 view independently. Positives that an objective draws around a shared anchor, such
 as crops within a neighborhood of one center, come from a view loader whose dataset
-fixes the anchor per clip and draws each view's offset per pass, or post hoc from a
+fixes the anchor per sample and draws each view's offset per pass, or post hoc from a
 stack built by the caller. No published LiDAR protocol states how to mix views of
-different kinds, such as global and local crops, within one clip's class.
+different kinds, such as global and local crops, within one sample's class.
 `ViewSpec(source="objective", ...)` records it.
 
 **Post-hoc comparison across models, a shared chain.** When models trained
@@ -41,9 +41,9 @@ was trained on.
 
 ## What each metric does with the views
 
-- LiDAR: clips are classes, views are within-class samples; the other clips
+- LiDAR: samples are classes, views are within-class points; the other samples
   act as negatives only through the between-class scatter. Needs N above D.
-- InfoNCE: two views, or the mean over view pairs for q > 2; every other clip
+- InfoNCE: two views, or the mean over view pairs for q > 2; every other sample
   is a negative, so the loss depends on N and the temperature. log N - L and the
   contrastive accuracy are in the extras.
 - DiME: exactly two views; the baseline is the joint entropy under random

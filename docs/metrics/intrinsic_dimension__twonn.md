@@ -1,4 +1,4 @@
-# `intrinsic_dimension`
+# `intrinsic_dimension/twonn`
 
 TwoNN intrinsic dimension (Facco et al.).
 

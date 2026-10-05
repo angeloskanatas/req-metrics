@@ -39,8 +39,8 @@ class LayoutTests(unittest.TestCase):
         tokens = torch.randn(3, 11, 5)  # (N, 1 + 10 patches, D)
         self.assertEqual(tuple(rq.strip_prefix_tokens(tokens).shape), (3, 10, 5))
         with self.assertRaises(ValueError):
-            rq.stack_clips([torch.randn(4, 3), torch.randn(5, 3)])
-        self.assertEqual(tuple(rq.stack_clips([torch.randn(4, 3), torch.randn(4, 3)]).shape), (2, 4, 3))
+            rq.stack_samples([torch.randn(4, 3), torch.randn(5, 3)])
+        self.assertEqual(tuple(rq.stack_samples([torch.randn(4, 3), torch.randn(4, 3)]).shape), (2, 4, 3))
 
     def test_grid_trajectory_feeds_the_sample_level(self):
         g = torch.Generator().manual_seed(0)

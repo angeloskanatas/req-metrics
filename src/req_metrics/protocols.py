@@ -46,7 +46,7 @@ KANATAS2026 = Protocol(
     paper="Kanatas et al., What Makes a Good Layer? Assessing the Layer-Wise Intrinsic Properties of Music "
     "Foundation Models, ISMIR 2026, arXiv:2608.14819",
     sequence=(
-        ("intrinsic_dimension", {}),  # TwoNN
+        ("intrinsic_dimension/twonn", {}),
         ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # profiles consistent with TwoNN
         ("effective_rank", {"spectrum": "singular", "center": True, "max_eigenvalues": 2048}),
         ("anisotropy", {"center": True, "l2": True}),

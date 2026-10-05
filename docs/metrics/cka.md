@@ -1,6 +1,6 @@
 # `cka`
 
-Linear centered kernel alignment between two layers (Kornblith et al., 2019).
+Linear centered kernel alignment between two representations of the same items (Kornblith et al., 2019).
 
 - Input: `pair`
 - Canonical preprocessing: `none`

@@ -8,7 +8,7 @@ comparable with curves computed on stored embeddings. OnlineBuffer hooks the
 same modules during the ordinary training forward passes and keeps the most
 recent rows, without extra forward passes, as a collapse indicator on the
 training-time representation. Which modules are layers, how a block output becomes one
-vector per clip, and how an augmented view is drawn are arguments.
+vector per sample, and how an augmented view is drawn are arguments.
 """
 
 from __future__ import annotations
@@ -445,7 +445,7 @@ class LayerMonitor:
             when positives differ by random crops, pass a view_loader to sweep() that draws them.
             augment runs in the mode its own modules are in; sweep() switches only the model and
             the hooked layers.
-        q: Views per clip for the view metrics.
+        q: Views per sample for the view metrics.
         view_spec: Description of the view construction, recorded with the view records.
         views_in_train_mode: Run the q augmented passes with the model in train mode, for
             objectives whose positives come from stochasticity inside the model, such as token
@@ -572,7 +572,7 @@ class LayerMonitor:
             sinks: Callables receiving (records, step): csv_sink, json_sink, tensorboard_sink,
                 wandb_sink, or any callable of your own.
             module: The model forward runs, when forward is not itself a module.
-            view_loader: Iterable read by the q augmented passes instead of loader: the same clips
+            view_loader: Iterable read by the q augmented passes instead of loader: the same samples
                 in the same order, e.g. a DataLoader whose dataset draws a random crop per item
                 while loader is a cached list of one draw.
 

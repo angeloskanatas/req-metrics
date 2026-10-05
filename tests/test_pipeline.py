@@ -117,7 +117,7 @@ class SharedNeighborTableTests(unittest.TestCase):
     def test_twonn_reads_the_shared_table(self):
         x = pooled_layers(n=300, d=10, n_layers=1)[0]
         x = torch.cat([x, x[:5]])  # duplicates are dropped before the table is built
-        rec = rq.compute({0: x}, ["intrinsic_dimension", "intrinsic_dimension/gride", "intrinsic_dimension/mlid"])
+        rec = rq.compute({0: x}, ["intrinsic_dimension/twonn", "intrinsic_dimension/gride", "intrinsic_dimension/mlid"])
         direct = rq.twonn(x)
         self.assertEqual(rec[0].value, direct.value)
         self.assertEqual(rec[0].extras["n_distinct"], 300)
@@ -149,18 +149,18 @@ class FramesAndTokensTests(unittest.TestCase):
         g = torch.Generator().manual_seed(5)
         centers = 20 * torch.randn(30, 6, generator=g)
         tight = {0: [c + 0.01 * torch.randn(100, 6, generator=g) for c in centers]}
-        mets = ["intrinsic_dimension", "intrinsic_dimension/mle", "effective_rank"]
+        mets = ["intrinsic_dimension/twonn", "intrinsic_dimension/mle", "effective_rank"]
         by = {r.metric: r for r in rq.compute(tight, mets, level="population", n=3000)}
         self.assertEqual(by["effective_rank"].extras["n_samples"], 30)
         self.assertNotIn("same_sample_fraction", by["effective_rank"].extras)
-        self.assertEqual(by["intrinsic_dimension"].extras["same_sample_fraction"], 1.0)  # k = 2 < 100 frames per clip
+        self.assertEqual(by["intrinsic_dimension/twonn"].extras["same_sample_fraction"], 1.0)  # k = 2 < 100 per sample
         self.assertEqual(by["intrinsic_dimension/mle"].extras["same_sample_fraction"], 1.0)  # k = 20 < 100
         single = {0: [c.unsqueeze(0) for c in centers]}  # one frame per clip: every neighbor is another clip
-        rec = rq.compute(single, ["intrinsic_dimension"], level="population")
+        rec = rq.compute(single, ["intrinsic_dimension/twonn"], level="population")
         self.assertEqual(rec[0].extras["same_sample_fraction"], 0.0)
 
     def test_device_argument_gives_the_same_records(self):
-        mets = ["effective_rank", "intrinsic_dimension"]
+        mets = ["effective_rank", "intrinsic_dimension/twonn"]
         for level, n in (("sample", 10), ("population", 500)):
             base = rq.compute(self.clips, mets, level=level, n=n, seed=3)
             moved = rq.compute(self.clips, mets, level=level, n=n, seed=3, device="cpu")
@@ -240,9 +240,11 @@ class RecordsIOTests(unittest.TestCase):
             for row, old in zip(rows, ("pooled", "frames", "tokens", "pooled"), strict=True):
                 row["population"] = old
                 del row["level"]
+            rows[0]["metric"] = "intrinsic_dimension"
             j.write_text(json.dumps(rows))
-            levels = [r.level for r in rq.Records.from_json(j)]
-            self.assertEqual(levels, ["sequence", "sample", "population", "sequence"])
+            old_rows = rq.Records.from_json(j)
+            self.assertEqual([r.level for r in old_rows], ["sequence", "sample", "population", "sequence"])
+            self.assertEqual(old_rows[0].metric, "intrinsic_dimension/twonn")
         try:
             import pandas  # noqa: F401
 

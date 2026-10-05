@@ -1,9 +1,9 @@
 """Intrinsic-dimension estimators of a point cloud.
 
 TwoNN and GRIDE are ports of DADApy (Glielmo et al., 2022, Patterns; Copyright 2021-2023
-The DADApy Authors, Apache License 2.0; see NOTICE) on torch tensors. GRIDE, the MLE and
-mLID read one shared Neighbors table; TwoNN builds its own two-neighbor table on the
-distinct points, and the MST dimension uses spanning trees.
+The DADApy Authors, Apache License 2.0; see NOTICE) on torch tensors. TwoNN, GRIDE, the MLE
+and mLID read one shared Neighbors table of the distinct points; the MST dimension uses
+spanning trees. No estimator is a default: each is a named variant of intrinsic_dimension.
 """
 
 from __future__ import annotations
@@ -254,7 +254,7 @@ def mst_dimension(x: Tensor, *, n_min: int | None = None, step: int | None = Non
 
 _P = InputKind.POINTS
 register_metric(
-    "intrinsic_dimension",
+    "intrinsic_dimension/twonn",
     cache="neighbors",
     inputs=_P,
     preprocess=Preprocess(),

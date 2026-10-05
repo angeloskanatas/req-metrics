@@ -29,7 +29,7 @@ from torch import Tensor
 from req_metrics import __version__
 from req_metrics._types import InputKind, MetricResult, Preprocess
 from req_metrics.neighbors import Neighbors, _cdist_mode
-from req_metrics.preprocess import apply_preprocess
+from req_metrics.preprocess import apply_preprocess, l2_normalize
 from req_metrics.records import Record, Records
 from req_metrics.registry import MetricSpec, get_metric
 from req_metrics.spectrum import Spectrum
@@ -38,7 +38,7 @@ from req_metrics.view_construction import ShiftSpec, ViewSpec
 # Estimators reading the shared neighbor table: the argument that sizes their table and the
 # one that sets the neighbors behind their value (None: TwoNN, which reads two).
 _NEIGHBOR_ARGS: dict[str, tuple[str | None, str | None]] = {
-    "intrinsic_dimension": (None, None),
+    "intrinsic_dimension/twonn": (None, None),
     "intrinsic_dimension/gride": ("range_max", "scale"),
     "intrinsic_dimension/mle": ("k_range", "k_range"),
     "intrinsic_dimension/mlid": ("k", "k"),
@@ -486,21 +486,24 @@ def compute_pairs(
     params: Mapping[str, Any] | None = None,
     device: str | torch.device | None = None,
 ) -> Records:
-    """A layer-pair metric between every layer of A and every layer of B (B defaults to A).
+    """A pair metric between every layer of A and every layer of B (B defaults to A).
 
-    Rows of all layers must describe the same clips in the same order. One
-    Record per (layer_a, layer_b). metric is "information_imbalance" (default
-    k = 1; value Delta(A -> B), extras["reverse"]), "neighborhood_overlap"
-    (default k = 30; symmetric), "cka" or "svcca" (symmetric; params passes
-    debiased or threshold). For the imbalance the cost is one chunked rank
+    A and B are two representations of the same items with aligned rows: the layers
+    of one model, two checkpoints, two models, or two modalities with paired items
+    (image i and caption i); widths may differ. One Record per (layer_a, layer_b).
+    metric is "information_imbalance" (default k = 1; value Delta(A -> B),
+    extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cka" or
+    "svcca" (symmetric). params passes the estimator's options: debiased for CKA,
+    threshold for SVCCA, and l2 for the two neighbor metrics, which then rank cosine
+    neighbors (unit-norm rows) as Huh et al. (2024) do; the preprocessing is recorded.
+    For the imbalance the cost is one chunked rank
     table per layer rather than one per pair: for each target layer the ranks
     of all items are computed once and gathered at the k nearest neighbors of
     every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D).
     For the overlap only the k-nearest-neighbor tables are needed, once per
     layer; for CKA the centered features and their norms, and for SVCCA the
-    kept singular directions, are also computed once per layer. To follow a
-    layer through training, pass the same items at two checkpoints as A and B. device is
-    as in compute().
+    kept singular directions, are also computed once per layer. device is as in
+    compute().
     """
     dev = _device(device)
     if metric in ("cka", "svcca"):
@@ -511,14 +514,16 @@ def compute_pairs(
         raise ValueError(f"unknown layer-pair metric {metric!r}")
     if k is None:
         k = 1 if metric == "information_imbalance" else 30
+    l2 = bool(dict(params or {}).get("l2", False))
     spec = get_metric(metric)
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
     ids_a, ids_b = sorted(layers_a), sorted(b_map)
     first = _tensor(layers_a[ids_a[0]])
     idx = choose_indices(first.shape[0], n, seed, group_ids)
-    xa = {l: _to(_tensor(layers_a[l])[idx], dev).double() for l in ids_a}
-    xb = xa if same else {l: _to(_tensor(b_map[l])[idx], dev).double() for l in ids_b}
+    prep = l2_normalize if l2 else (lambda t: t)
+    xa = {l: prep(_to(_tensor(layers_a[l])[idx], dev).double()) for l in ids_a}
+    xb = xa if same else {l: prep(_to(_tensor(b_map[l])[idx], dev).double()) for l in ids_b}
     n_items = len(idx)
     nn_a = {l: Neighbors.from_points(xa[l], k).indices[:, 1 : k + 1] for l in ids_a}
     nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k).indices[:, 1 : k + 1] for l in ids_b}
@@ -543,8 +548,8 @@ def compute_pairs(
                         corpus=corpus,
                         n_items=n_items,
                         dim=int(xa[la].shape[-1]),
-                        preprocess="none",
-                        params={"k": k},
+                        preprocess="l2" if l2 else "none",
+                        params={"k": k, "l2": l2},
                         seed=seed,
                         tags=spec.tags,
                         extras={"std": float(frac.std()), "chance": k / (n_items - 1)},
@@ -588,8 +593,8 @@ def compute_pairs(
                     corpus=corpus,
                     n_items=n_items,
                     dim=int(xa[la].shape[-1]),
-                    preprocess="none",
-                    params={"k": k},
+                    preprocess="l2" if l2 else "none",
+                    params={"k": k, "l2": l2},
                     seed=seed,
                     tags=spec.tags,
                     extras={"reverse": sums_ba[(la, lb)] / scale},

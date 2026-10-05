@@ -2,7 +2,7 @@
 
 Frame-sequence encoders (one token per time step) already yield (T, D)
 trajectories and (N, D) pooled vectors. Spectrogram-patch encoders yield a
-(F, T, D) grid of tokens per clip; the metrics do not know about grids, so the
+(F, T, D) grid of tokens per sample; the metrics do not know about grids, so the
 caller chooses a layout here and the choice is recorded in the pooling label.
 """
 
@@ -22,7 +22,7 @@ def grid_to_trajectory(grid: Tensor, *, time_axis: int = 1, mode: str = "freq_co
     them into (T, D). The result is a valid input for trajectory metrics at the sample level.
 
     Args:
-        grid: One clip's tokens (F, T, D) with time on `time_axis`, class tokens removed.
+        grid: One sample's tokens (F, T, D) with time on `time_axis`, class tokens removed.
         time_axis: Which of the first two axes is time.
         mode: "freq_concat" or "freq_mean".
 
@@ -47,7 +47,7 @@ def grid_to_tokens(grid: Tensor) -> Tensor:
 
 
 def grid_to_pooled(grid: Tensor, *, mode: str = "gap", freq_chunks: int = 1, time_chunks: int = 1) -> Tensor:
-    """One vector per clip from a (F, T, D) patch grid, with the fixed readouts of the audio literature.
+    """One vector per sample from a (F, T, D) patch grid, with the fixed readouts of the audio literature.
 
     "gap": mean over all patches, (D,). "freq_concat_mean": frequency patches concatenated,
     then the mean over time, (F * D,); the standard global readout of the
@@ -58,7 +58,7 @@ def grid_to_pooled(grid: Tensor, *, mode: str = "gap", freq_chunks: int = 1, tim
     All three are parameter-free, so metrics computed on them stay label-free.
 
     Args:
-        grid: Tokens of one clip, shape (F, T, D); class tokens removed.
+        grid: Tokens of one sample, shape (F, T, D); class tokens removed.
         mode: "gap", "freq_concat_mean" or "partitioned".
         freq_chunks, time_chunks: Block counts for "partitioned".
 
@@ -84,7 +84,7 @@ def frame_tokens_to_pooled(frames: Tensor, *, mode: str = "mean") -> Tensor:
     """One (D,) vector from a (T, D) frame sequence: "mean" or "max" over time, or the "last" frame.
 
     Mean pooling is the usual readout of encoders; the final token is the
-    readout for causal decoders, whose last position attends to the whole clip.
+    readout for causal decoders, whose last position attends to the whole sequence.
     All are parameter-free. Learnable poolers trained with task labels
     (attention pooling, learned layer fusion) are probe-side readouts and are
     not inputs for label-free metrics.
@@ -107,9 +107,9 @@ def strip_prefix_tokens(tokens: Tensor, n_prefix: int = 1) -> Tensor:
     return tokens[..., n_prefix:, :]
 
 
-def stack_clips(clips: Sequence[Tensor]) -> Tensor:
-    """Stack equal-length per-clip tensors into one batch tensor along a new first axis."""
-    shapes = {tuple(c.shape) for c in clips}
+def stack_samples(samples: Sequence[Tensor]) -> Tensor:
+    """Stack equal-length per-sample tensors into one batch tensor along a new first axis."""
+    shapes = {tuple(c.shape) for c in samples}
     if len(shapes) != 1:
-        raise ValueError(f"clips have different shapes {sorted(shapes)}; keep them as a list for the sample level")
-    return torch.stack(list(clips), dim=0)
+        raise ValueError(f"samples have different shapes {sorted(shapes)}; keep them as a list for the sample level")
+    return torch.stack(list(samples), dim=0)

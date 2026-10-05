@@ -82,7 +82,7 @@ class LocalGeometryTests(unittest.TestCase):
 class RegistryTests(unittest.TestCase):
     def test_registered(self):
         for name in (
-            "intrinsic_dimension",
+            "intrinsic_dimension/twonn",
             "intrinsic_dimension/gride",
             "intrinsic_dimension/mle",
             "intrinsic_dimension/mlid",
@@ -91,7 +91,7 @@ class RegistryTests(unittest.TestCase):
             "local_rectifiability",
         ):
             self.assertIn(name, rq.list_metrics())
-        self.assertIn("paper-canonical", rq.get_metric("intrinsic_dimension").tags)
+        self.assertIn("paper-canonical", rq.get_metric("intrinsic_dimension/twonn").tags)
 
 
 if __name__ == "__main__":

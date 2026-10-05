@@ -52,7 +52,7 @@ def main() -> None:
     timed("intrinsic_dimension/mlid (from Neighbors)", lambda: rq.mlid(nb, k=64))
     timed("intrinsic_dimension/gride (from Neighbors, range 64)", lambda: rq.gride(nb, scale=8, range_max=64))
     timed("intrinsic_dimension/mle (from Neighbors)", lambda: rq.mle(nb))
-    timed("intrinsic_dimension (twonn, own kNN)", lambda: rq.twonn(x))
+    timed("intrinsic_dimension/twonn (own kNN)", lambda: rq.twonn(x))
     timed("neighborhood_curvature (from Neighbors)", lambda: rq.neighborhood_curvature(x, k=64, neighbors=nb))
     timed("gaussianity (256 directions, all three statistics)", lambda: rq.gaussianity(x))
     timed("sparsity", lambda: rq.sparsity(x))

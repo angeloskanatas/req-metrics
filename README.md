@@ -4,26 +4,18 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/LICENSE)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/pyproject.toml)
 
-Label-free representation-quality metrics for layer-wise analysis of pretrained
-models and for monitoring during training: intrinsic dimension, effective rank,
-anisotropy, self-clustering, uniformity, trajectory curvature, LiDAR, InfoNCE,
-alignment, pitch-transposition equivariance and more, as pure functions on
-embedding tensors. Every result records the preprocessing, the sample size and
-the citation of the metric it reports.
+req-metrics computes label-free metrics of learned representations: effective rank,
+intrinsic dimension, anisotropy, LiDAR, InfoNCE, pitch-transposition equivariance
+and thirty others, as functions on embedding tensors. It serves two uses: layer-wise
+analysis of trained models, and monitoring during training, where the same metrics
+flag collapse and compare runs and checkpoints without labels.
 
-Post hoc, such metrics characterize the layers of a trained model and predict
-which layer transfers. During training, they flag collapse and select
-checkpoints and hyperparameters without labels. The inputs are embedding
-tensors of any modality; the documentation says clips for the items of a
-corpus, and only the pitch-transposition equivariance metric is specific to
-music. The literature behind both uses is listed in `docs/DESIGN.md`.
-
-The registry holds 36 metrics in twelve groups: spectral, intrinsic dimension, local
-geometry, relational, clustering, distribution, trajectory, views, equivariance, layer
-pairs, token fields and functional. Each metric has a published definition and is
-checked against the implementation it was adopted from. The same estimators run
-post hoc on extracted embeddings and, through forward hooks, on every layer of a
-model while it trains.
+Estimators are PyTorch functions on tensors. The pipeline adds shared spectra and
+neighbor tables, seeded subsampling, three levels (one vector per sample, the tokens
+of each sample, the tokens of all samples) and records that carry the estimator
+parameters, preprocessing, sample size and citation of every value. Each metric
+follows a published definition and is checked against its reference implementation.
+Inputs are embeddings of any modality; only `pte` is specific to music.
 
 ## Installation
 
@@ -52,23 +44,24 @@ recorded through the `model` and `pooling` labels.
 ```python
 import req_metrics as rq
 
-layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per clip (sequence level)
+layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per sample (sequence level)
 rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
                  n=10000, seed=42, model="my-encoder", pooling="time-mean")
 rec.profile("effective_rank")                        # [(layer, value), ...]
 rec.to_csv("my-encoder.csv")                         # or to_json, to_pandas
 
-tokens = {0: [t0_clip0, t0_clip1, ...], 1: [...]}   # (T_i, D) frames or patches per clip
-rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)  # per clip, averaged
-rq.compute(tokens, ["effective_rank"], level="population", n=10000)  # tokens of all clips as one cloud
+tokens = {0: [t0_s0, t0_s1, ...], 1: [...]}         # (T_i, D) frames or patches per sample
+rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n=2000)  # per sample, averaged
+rq.compute(tokens, ["effective_rank"], level="population", n=10000)  # tokens of all samples as one cloud
 
-views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same clips
+views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same samples
 rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
 rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
-rq.compute_pairs(layers, metric="neighborhood_overlap")
-rq.compute_pairs(layers, metric="cka")              # or "svcca"; A and B can also be two checkpoints
+rq.compute_pairs(layers, metric="cka")              # or "svcca", "neighborhood_overlap"
+rq.compute_pairs(audio_layers, text_layers, metric="neighborhood_overlap", k=10, params={"l2": True},
+                 model="audio-encoder", model_b="text-encoder")  # two models or modalities, paired items
 
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
 rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
@@ -83,9 +76,9 @@ the parameter-free readouts in `req_metrics.layouts`.
 
 ### Monitoring during training
 
-The same records, produced while a model trains, for watching collapse and
-geometry during a run and for comparing runs or checkpoints without labels.
-With PyTorch Lightning it is one callback. It finds the blocks, draws a fixed
+During training the same records come from forward hooks, to watch collapse and
+geometry within a run and to compare runs or checkpoints without labels. With
+PyTorch Lightning it is one callback. It finds the blocks, draws a fixed
 monitoring subset of the training set, sweeps every layer at the start of
 training and on the schedule you give, and logs to the trainer's logger
 (`layer_metrics/<metric>_layer_<l>`, plus layer-profile plots on Weights & Biases).
@@ -132,24 +125,24 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 | Group | Metrics | Input |
 |---|---|---|
 | Spectral | `alpha_req`, `anisotropy`, `effective_rank`, `eigenvalue_early_enrichment`, `matrix_entropy`, `participation_ratio` | `(N, D)` points |
-| Intrinsic dimension | `intrinsic_dimension`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `intrinsic_dimension/mlid`, `intrinsic_dimension/mst` | `(N, D)` points |
+| Intrinsic dimension | `intrinsic_dimension/twonn`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `intrinsic_dimension/mlid`, `intrinsic_dimension/mst` | `(N, D)` points |
 | Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
 | Relational | `cosine_anisotropy`, `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
 | Clustering | `cluster_quality` | `(N, D)` points |
-| Trajectory | `trajectory_curvature` | `(T, D)` per clip, time-ordered |
+| Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
 | Equivariance | `pte` | embeddings of pitch-shifted copies |
-| Layer pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two layers |
+| Representation pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
-| Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per clip |
+| Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
 
 `rq.list_metrics()` and `rq.get_metric(name)` expose the registry: input contract,
-preprocessing, citation keys and item cap of every metric. A name with a slash is
-another published estimator of the same property, computed separately (TwoNN is
-`intrinsic_dimension`, GRIDE is `intrinsic_dimension/gride`). Settings of one
-computation, such as a bias correction or a spectrum convention, are arguments, and
-every alternative is in the extras of the record.
+preprocessing, citation keys and item cap of every metric. Estimators of one quantity
+share a prefix and are named by their method (`intrinsic_dimension/twonn`,
+`intrinsic_dimension/gride`); none is a default. Settings of one computation, such as
+a bias correction or a spectrum convention, are arguments, and every alternative is in
+the extras of the record.
 
 ## Documentation
 
@@ -184,10 +177,9 @@ companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
 - Arputharaj, Jönsson and Eilertsen (TMLR 2026, arXiv:2608.23182): a comparative
   study of seven label-free metrics on 260 vision models.
 
-req-metrics collects these families in one registry with recorded protocol and
-provenance, shares the singular spectrum and the neighbor table across
-estimators, separates the level a metric is computed at from the estimator, and
-produces the same records during training and post hoc, for every layer.
+req-metrics differs in holding these families in one registry with recorded protocol,
+sharing spectra and neighbor tables across estimators, and producing the same records
+during training and post hoc.
 
 ## Development
 

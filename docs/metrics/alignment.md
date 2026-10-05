@@ -1,6 +1,6 @@
 # `alignment`
 
-Alignment: mean distance between L2-normalized views of the same clip, to the power alpha.
+Alignment: mean distance between L2-normalized views of the same sample, to the power alpha.
 
 - Input: `views`
 - Canonical preprocessing: `l2`
@@ -12,7 +12,7 @@ Alignment: mean distance between L2-normalized views of the same clip, to the po
 ## Definition, protocol and pitfalls
 
 Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.1), alpha = 2: 0 for perfectly aligned
-views, 2 for unrelated unit vectors in high dimension; averaged over all view pairs and clips.
+views, 2 for unrelated unit vectors in high dimension; averaged over all view pairs and samples.
 
 Args:
     views: Augmented representations (q, N, D), q >= 2.

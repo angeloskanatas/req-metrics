@@ -28,12 +28,12 @@ the library version, because a score without them cannot be compared.
 
 ## 2b. Readouts and layouts
 
-Spectrogram-patch encoders yield an (F, T, D) token grid per clip. The layout is
+Spectrogram-patch encoders yield an (F, T, D) token grid per sample. The layout is
 chosen explicitly and recorded in the `pooling` label: `grid_to_trajectory`
 concatenates the frequency patches of each time step into a (T, F * D) trajectory
 (the frequency-preserving readout of MSM-MAE), `grid_to_tokens` flattens all patches
 into the token set of the sample and population levels, and `grid_to_pooled` gives
-one vector per clip by `gap`, `freq_concat_mean` (frequency-concatenated time mean)
+one vector per sample by `gap`, `freq_concat_mean` (frequency-concatenated time mean)
 or block-`partitioned` means. All readouts are parameter-free: metrics on
 label-trained poolers would measure the probe, not the representation.
 Frame-sequence encoders need nothing: their (T, D) output is already a trajectory,
@@ -42,9 +42,9 @@ decoders). A 2D grid therefore has three valid readings and the record says whic
 was used: the patch cloud (all patches as points, the vision convention for
 token-level geometry), the frequency-concatenated trajectory (time steps as points
 in F * D dimensions, which keeps the frequency axis that tonal tasks need) and one
-pooled vector per clip. Point metrics accept all three; the trajectory curvature
+pooled vector per sample. Point metrics accept all three; the trajectory curvature
 needs a time-ordered sequence; the token-field metrics read the patch cloud of one
-clip. During training the same readouts are available by name through `make_pooler`.
+sample. During training the same readouts are available by name through `make_pooler`.
 
 ## 3. Efficiency
 
@@ -55,34 +55,37 @@ estimator that reads them. Spectra, kNN and LDA run in float64;
 `Spectrum.from_points` and `Neighbors.from_points` take a dtype for GPUs with slow
 double precision. In float64 the matmul expansion of pairwise distances is used, in
 float32 the direct path, because the expansion loses the small distances that ratio
-estimators depend on. Computation runs on the device of the inputs, or on
-`compute(..., device=)`, to which each layer, sample or population token cloud is
-moved after subsetting, one at a time; MPS maps to the CPU, since it has no float64.
-The sample and population levels take per-sample token sequences, so a corpus of
-memory-mapped clips is read clip by clip, and the population token cloud is drawn
-before any clip is concatenated. The information-imbalance matrix builds one rank
-table per layer and gathers it for every other layer, O(L N^2 D) instead of O(L^2
-N^2 D). GRIDE needs a neighbor table with `range_max` neighbors, so keep that modest
-unless reproducing the published ID row at 8,192. Sharding over layers, models or
-partitions belongs to the caller, which composes with any scheduler. Estimators
-whose cost grows faster than N log N (the MST dimension, local rectifiability, DiME)
-carry a `max_items` cap in the registry; `compute(..., limits=)` overrides it per
-metric. Above the cap the pipeline draws a seeded subsample, builds that subsample's
-own spectrum or neighbor table, and records the count in `extras["n_items_used"]`
-next to the full size. Cost classes rather than timings, since wall-clock numbers
-depend on the machine and on BLAS threading. Spectral metrics are one SVD per
-(layer, preprocessing). The neighbor-based estimators share one chunked kNN table,
-O(N^2 D), as does uniformity. The MST dimension builds dense distance matrices over
-subsamples up to N (O(N^2) memory); DiME eigendecomposes N x N Gram matrices for
-each of its re-pairings (O(N^3)); local rectifiability is linear in N per anchor set
-but repeated over scales. Those three carry item caps. Gaussianity computes all
-three statistics on every call, with one Kolmogorov-Smirnov test per random
-direction. View metrics scale with q and PTE trains a probe. `scripts/benchmark.py`
-measures every registered metric on the machine at hand.
+estimators depend on.
+
+Computation runs on the device of the inputs, or on `compute(..., device=)`, to
+which each layer, sample or population token cloud is moved after subsetting, one at
+a time; MPS maps to the CPU, since it has no float64. The sample and population
+levels take per-sample token sequences, so a corpus of memory-mapped samples is read
+one sample at a time, and the population token cloud is drawn before any sample is
+concatenated. The information-imbalance matrix builds one rank table per layer and
+gathers it for every other layer, O(L N^2 D) instead of O(L^2 N^2 D). GRIDE needs a
+neighbor table with `range_max` neighbors, so keep that modest unless reproducing
+the published ID row at 8,192. Sharding over layers, models or partitions belongs to
+the caller, which composes with any scheduler. Estimators whose cost grows faster
+than N log N (the MST dimension, local rectifiability, DiME) carry a `max_items` cap
+in the registry; `compute(..., limits=)` overrides it per metric. Above the cap the
+pipeline draws a seeded subsample, builds that subsample's own spectrum or neighbor
+table, and records the count in `extras["n_items_used"]` next to the full size.
+
+Cost classes rather than timings, since wall-clock numbers depend on the machine and
+on BLAS threading. Spectral metrics are one SVD per (layer, preprocessing). The
+neighbor-based estimators share one chunked kNN table, O(N^2 D), as does uniformity.
+The MST dimension builds dense distance matrices over subsamples up to N (O(N^2)
+memory); DiME eigendecomposes N x N Gram matrices for each of its re-pairings
+(O(N^3)); local rectifiability is linear in N per anchor set but repeated over
+scales. Those three carry item caps. Gaussianity computes all three statistics on
+every call, with one Kolmogorov-Smirnov test per random direction. View metrics
+scale with q and PTE trains a probe. `scripts/benchmark.py` measures every
+registered metric on the machine at hand.
 
 ## 4. Monitoring
 
-`LayerMonitor` evaluates a fixed, seeded subset of clips in eval mode with the
+`LayerMonitor` evaluates a fixed, seeded subset of samples in eval mode with the
 current weights at every sweep, so a change between two sweeps is due to the model
 and the curves are comparable with post-hoc runs on checkpoints. This costs
 `n_items` forward passes per sweep, times `1 + q` with view metrics. `OnlineBuffer`
@@ -94,6 +97,7 @@ moved while the buffer filled), so its records are tagged
 mixed with fixed-subset records. Centered spectral and neighbor metrics cannot see
 representations collapsing onto one shared vector; `normalized_std` and
 `cosine_anisotropy` can, so a monitoring run logs one of them beside the others.
+
 Monitoring callbacks that read a queue of training batches, as in stable-pretraining
 (arXiv:2511.19484), measure that training-time representation; the fixed subset is
 what makes a sweep comparable with the previous sweep and with a post-hoc run on a
@@ -105,10 +109,12 @@ so a dataset that draws a random crop per item gives every view its own crop, as
 objective's positives do; with `views_in_train_mode`, buffers such as BatchNorm
 running statistics are restored after those passes. View passes are held on the CPU,
 and each layer's (q, N, D) stack moves to the device of the hooked layers for its
-metrics. An EMA target or any other branch is monitored by pointing `model_attr` at
-it, one callback per branch. Every record carries the epoch and the global step, and
-the W&B profile plots draw all sweeps so far, one line per step, so the evolution of
-a depth profile is read off one chart.
+metrics.
+
+An EMA target or any other branch is monitored by pointing `model_attr` at it, one
+callback per branch. Every record carries the epoch and the global step, and the W&B
+profile plots draw all sweeps so far, one line per step, so the evolution of a depth
+profile is read off one chart.
 
 Logging: Weights & Biases rejects `step=` values below its internal counter, so no
 sink passes `step=`; `wandb_sink` logs a `monitor/step` metric and binds
@@ -187,7 +193,9 @@ representation-prediction probes of Plachouras et al. (2025), which train a prob
 for every layer, transformation and evaluation, Task Priors (Patel and Balestriero,
 2025), whose prior kernel and temperature have no selection rule, and Q-Score
 (Kalibhat et al., 2024), a per-sample misclassification predictor whose authors do
-not extend it to ViT encoders. The reasons are in `docs/METRICS.md`, section 6.
+not extend it to ViT encoders. The pair measures of the cross-model literature that
+were not adopted are listed in `docs/METRICS.md`, section 9; the reasons for the rest
+are in its section 6.
 
 ## 6. Sample size
 
