@@ -6,7 +6,7 @@
 
 req-metrics computes label-free metrics of learned representations: effective rank,
 intrinsic dimension, anisotropy, LiDAR, InfoNCE, pitch-transposition equivariance
-and thirty-one others, as functions on embedding tensors. It serves two uses: layer-wise
+and thirty-two others, as functions on embedding tensors. It serves two uses: layer-wise
 analysis of trained models, and monitoring during training, where the same metrics
 flag collapse and compare runs and checkpoints without labels.
 
@@ -94,12 +94,17 @@ trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
     online=True)])                                      # also the training-batch buffer, as a collapse indicator
 ```
 
-Without Lightning, `LayerMonitor` does the same with a forward callable and a loader:
+Without Lightning, `LayerMonitor` does the same with a forward callable and a loader.
+`drift_metrics` adds, at every sweep, a pair metric between each layer's current state
+and its state at the first sweep (or the previous one) on the same items, the layer-wise
+training dynamics of Raghu et al. (2017):
 
 ```python
-mon = rq.LayerMonitor(model.blocks, pool="cls", metrics=["effective_rank", "intrinsic_dimension/mlid"], n_items=5000)
+mon = rq.LayerMonitor(model.blocks, pool="cls", metrics=["effective_rank", "intrinsic_dimension/mlid"],
+                      n_items=5000, drift_metrics=["cka"])
 mon.sweep(model, monitor_loader, step=epoch, sinks=[rq.wandb_sink(history=mon.history), rq.csv_sink("sweeps.csv")])
 mon.profiles("effective_rank")                       # {step: [(layer, value), ...]}
+mon.profiles("cka")                                  # drift of every layer from its first sweep
 ```
 
 Centered spectral and neighbor metrics cannot see representations collapsing onto one
@@ -132,7 +137,7 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 | Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
 | Equivariance | `pte` | embeddings of pitch-shifted copies |
-| Representation pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
+| Representation pairs | `cka`, `cycle_knn`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |

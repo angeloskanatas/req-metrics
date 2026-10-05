@@ -76,6 +76,9 @@ class LayerMonitorCallback(_Base):
         jacobian_items, jacobian_probes, jacobian_power_iters, jacobian_input, jacobian_forward:
             Jacobian effective rank of every layer's readout on the first jacobian_items
             monitoring inputs; see LayerMonitor. Off by default.
+        drift_metrics, drift_reference: Pair metrics between every layer's reference state (the
+            first sweep, or the previous one) and its current state on the monitoring items; see
+            LayerMonitor. Logged under drift_metrics/. Off by default.
         params, model, pooling, corpus: Forwarded to LayerMonitor and recorded.
         online: Also hook the training forward passes into an OnlineBuffer and compute
             online_metrics (default: the same point metrics) on the most recent online_n_items
@@ -123,6 +126,8 @@ class LayerMonitorCallback(_Base):
         jacobian_power_iters: int = 5,
         jacobian_input: Callable[[Any], Any] | None = None,
         jacobian_forward: Callable[[Any], Any] | None = None,
+        drift_metrics: Sequence[str] = (),
+        drift_reference: str = "first",
         params=None,
         model: str | None = None,
         pooling: str | None = None,
@@ -162,6 +167,7 @@ class LayerMonitorCallback(_Base):
         self.jacobian_items, self.jacobian_probes = jacobian_items, jacobian_probes
         self.jacobian_power_iters = jacobian_power_iters
         self.jacobian_input, self.jacobian_forward = jacobian_input, jacobian_forward
+        self.drift_metrics, self.drift_reference = list(drift_metrics), drift_reference
         self.labels: dict[str, Any]
         self.params, self.labels = (
             params,
@@ -202,6 +208,8 @@ class LayerMonitorCallback(_Base):
                 jacobian_power_iters=self.jacobian_power_iters,
                 jacobian_input=self.jacobian_input,
                 jacobian_forward=self.jacobian_forward,
+                drift_metrics=self.drift_metrics,
+                drift_reference=self.drift_reference,
                 seed=self.seed,
                 **self.labels,
             )
@@ -240,7 +248,6 @@ class LayerMonitorCallback(_Base):
             loggers = list(getattr(trainer, "loggers", None) or ([trainer.logger] if trainer.logger else []))
             if not loggers or not len(rec):
                 return
-            profile_prefix = metric_key_prefix(rec[0])[1]
             scalars = layer_scalars(rec, self.log_extras)
             for logger in loggers:
                 logger.log_metrics(scalars, step=trainer.global_step)
@@ -258,8 +265,9 @@ class LayerMonitorCallback(_Base):
                     history = source.history if source is not None else None
                     plots: dict[str, Any] = {"trainer/global_step": trainer.global_step}
                     for metric in sorted({r.metric for r in rec if r.layer_b is None}):
+                        first = rec.where(metric=metric)[0]
                         xs, ys, keys = _profile_series(rec, history, metric)
-                        plots[f"{profile_prefix}/{metric_key(rec.where(metric=metric)[0])}"] = wandb.plot.line_series(
+                        plots[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
                             xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                         )
                     exp.log(plots)

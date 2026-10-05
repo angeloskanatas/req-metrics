@@ -5,6 +5,7 @@ import unittest
 import torch
 
 import req_metrics as rq
+from req_metrics.neighbors import Neighbors
 
 
 class InformationImbalanceTests(unittest.TestCase):
@@ -95,6 +96,59 @@ class NeighborhoodOverlapTests(unittest.TestCase):
         ii = rq.compute_pairs(layers)  # default metric and k unchanged
         self.assertEqual(ii[0].metric, "information_imbalance")
         self.assertEqual(ii[0].params["k"], 1)
+
+
+class CycleKnnTests(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(0)
+        self.x = torch.randn(800, 8)
+
+    def test_six_point_example_of_zhang_et_al(self):
+        # Zhang et al. (2026), App. A: k = 2, cycle-kNN(X -> Y) = 5/6 and cycle-kNN(Y -> X) = 1/2.
+        x = torch.tensor([15.0, 26.0, 49.0, 60.0, 87.0, 90.0]).view(-1, 1)
+        y = torch.tensor([34.0, 56.0, 58.0, 57.0, 63.0, 37.0]).view(-1, 1)
+        res = rq.cycle_knn(x, y, k=2)
+        self.assertAlmostEqual(res.value, 5 / 6, places=12)
+        self.assertAlmostEqual(res.extras["reverse"], 1 / 2, places=12)
+        self.assertAlmostEqual(rq.cycle_knn(y, x, k=2).value, 1 / 2, places=12)
+
+    def test_k_one_is_symmetric_and_identical_spaces_count_reciprocal_neighbors(self):
+        y = torch.randn(800, 5)
+        a, b = rq.cycle_knn(self.x, y, k=1), rq.cycle_knn(y, self.x, k=1)
+        self.assertAlmostEqual(a.value, b.value, places=12)  # Zhang et al. (2026), App. A, Proposition
+        nn = Neighbors.from_points(self.x.double(), 10).indices[:, 1:11]
+        reciprocal = torch.tensor([bool((nn[nn[i]] == i).any()) for i in range(800)]).double().mean()
+        self.assertAlmostEqual(rq.cycle_knn(self.x, self.x, k=10).value, float(reciprocal), places=12)
+        self.assertLess(float(reciprocal), 1.0)
+
+    def test_matches_the_reference_implementation_on_cosine_neighbors(self):
+        y = self.x @ torch.randn(8, 12) + 0.5 * torch.randn(800, 12)
+
+        def knn(f, k):  # Huh et al. (2024), metrics.py: inner-product neighbors of unit-norm rows, self excluded
+            f = torch.nn.functional.normalize(f.double(), dim=1)
+            return (f @ f.T).fill_diagonal_(-1e8).argsort(dim=1, descending=True)[:, :k]
+
+        ka, kb = knn(self.x, 10), knn(y, 10)
+        ref = (ka[kb] == torch.arange(800).view(-1, 1, 1)).flatten(1).any(1).double().mean()
+        self.assertAlmostEqual(rq.cycle_knn(self.x, y, k=10, l2=True).value, float(ref), places=12)
+
+    def test_independent_spaces_stay_near_the_chance_bound(self):
+        res = rq.cycle_knn(torch.randn(2000, 6), torch.randn(2000, 6), k=10)
+        self.assertEqual(res.extras["chance_bound"], 100 / 1999)
+        self.assertLess(res.value, 1.5 * res.extras["chance_bound"])
+        self.assertGreater(res.value, 0.4 * res.extras["chance_bound"])
+
+    def test_compute_pairs_cycle(self):
+        layers = {0: self.x, 1: self.x + 0.5 * torch.randn(800, 8), 2: torch.randn(800, 8)}
+        rec = rq.compute_pairs(layers, metric="cycle_knn")
+        self.assertEqual(len(rec), 9)
+        self.assertEqual(rec[0].params, {"k": 10, "l2": False})
+        by = {(r.layer, r.layer_b): r for r in rec}
+        for (a, b), r in by.items():
+            self.assertAlmostEqual(r.extras["reverse"], by[(b, a)].value, places=12)
+            self.assertAlmostEqual(r.value, rq.cycle_knn(layers[a], layers[b], k=10).value, places=12)
+        self.assertGreater(by[(0, 1)].value, by[(0, 2)].value)
+        self.assertEqual(by[(0, 1)].extras["chance_bound"], 100 / 799)
 
 
 if __name__ == "__main__":

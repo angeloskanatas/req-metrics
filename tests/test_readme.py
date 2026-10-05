@@ -60,6 +60,7 @@ class PostHocExampleTests(unittest.TestCase):
                 {"metric": "cka"},
                 {"metric": "svcca"},
                 {"metric": "rsa"},
+                {"metric": "cycle_knn"},
             ):
                 self.assertEqual(len(rq.compute_pairs(layers, **kw).rows), 9)
             rq.convergence(z1, "effective_rank").to_markdown()
@@ -147,12 +148,15 @@ class MonitoringExampleTests(unittest.TestCase):
             metrics=["effective_rank", "intrinsic_dimension/mlid"],
             n_items=96,
             params={"intrinsic_dimension/mlid": {"k": 16}},
+            drift_metrics=["cka"],
         )
         with tempfile.TemporaryDirectory() as d:
             for epoch in range(2):
                 mon.sweep(model, batches, step=epoch, sinks=[rq.csv_sink(Path(d) / "sweeps.csv")])
         profiles = mon.profiles("effective_rank")
         self.assertEqual(profiles[0], profiles[1])  # same weights, eval mode: identical sweeps
+        self.assertEqual([len(p) for p in mon.profiles("cka").values()], [0, 2])  # drift from the first sweep
+        self.assertTrue(all(abs(v - 1.0) < 1e-6 for _, v in mon.profiles("cka")[1]))
 
 
 if __name__ == "__main__":

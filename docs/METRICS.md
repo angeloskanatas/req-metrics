@@ -57,7 +57,7 @@ applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
 | Manifold | dimension: intrinsic_dimension/twonn, /gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
+| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cycle_knn, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models. This
@@ -336,7 +336,7 @@ ranking layers, checkpoints or models, and its authors state that their observat
 do not directly extend to ViT encoders, whose representations are signed and not
 sparse.
 
-## 7. neighborhood_overlap
+## 7. neighborhood_overlap and cycle_knn
 
 Doimo, Glielmo, Ansuini and Laio (2020, NeurIPS, arXiv:2007.03506, Eq. 1); Valeriani
 et al. (2023, NeurIPS) for the transformer use. Pair input: the mean over items of
@@ -355,8 +355,29 @@ do not register: compare values at equal n and k on one-to-one pairs, and read t
 as a local statistic. `compute_pairs(layers, metric="neighborhood_overlap")` builds
 one k-NN table per layer and intersects them for every pair. Symmetric, so it
 answers a different question from the information imbalance (directional
-predictability of neighbor ranks); the two are the pair family. The retention score
+predictability of neighbor ranks) and from `cycle_knn` below. The retention score
 of Jiang et al. (2026) is the Jaccard variant of this quantity.
+
+`cycle_knn` is the cycle k-nearest-neighbor consistency that Huh et al. (2024, App. A,
+Table 11) list beside the mutual k-NN and compute in their code as `knn_A[knn_B]`: the
+fraction of items that are among the k nearest neighbors in A of one of their k nearest
+neighbors in B, a first hop in B and a return hop in A. Zhang et al. (2026) write it
+cycle-kNN(A -> B) and Gröger et al. (2026, Eq. 35) cycle-kNN_k(A, B). It reads the same
+k-NN tables as the overlap but is not symmetric for k >= 2: Zhang et al. prove symmetry
+for k = 1 and give a six-point example with 5/6 in one ordering and 1/2 in the other
+(App. A), and read the gap between the orderings as a difference in how compact the two
+spaces' neighborhoods are. Across 58 point-cloud, vision and language models
+they find the gap positive toward language in 530 of 638 vision-language pairs (mean
+0.010 at k = 10 on 1,024 WIT pairs), with the sign unchanged for k from 3 to 50 (App.
+E.4), where CKA and the overlap are symmetric by construction; the paper is a preprint.
+Gröger et al. find that it keeps its trend with language-model capability after
+permutation calibration, as the overlap does (App. E.8). Identical representations score
+1 only when every item is a nearest neighbor of one of its own nearest neighbors, so the
+diagonal of a layer map falls below 1 where items have no reciprocal neighbor. For
+independent representations each return hop succeeds with probability k/(N - 1) (Gröger
+et al., Prop. C.9), which bounds the chance level by k^2/(N - 1), stored as
+`chance_bound`. `compute_pairs(layers, metric="cycle_knn")` records the value A -> B for
+every ordered pair and the other ordering in `extras["reverse"]`.
 
 ## 8. cka, svcca and rsa
 
@@ -371,7 +392,9 @@ maps of the kept subspaces and therefore needs N well above the kept widths. Pos
 hoc, `compute_pairs` gives the layer-by-layer similarity map of a model. During
 training, the same fixed items at two checkpoints give the drift of each layer, the
 use of Raghu et al., Sec. 4.1, who compare every layer during training with its
-final state. Both are closed-form; per-layer summaries are computed once per call.
+final state; `LayerMonitor(drift_metrics=[...])` computes this at every sweep, each
+layer against its first or its previous sweep on the monitoring items. Both are
+closed-form; per-layer summaries are computed once per call.
 Under independence the biased linear CKA has a baseline of order D/N (Gröger et al.,
 2026, Prop. 4.1; Murphy, Zylberberg and Fyshe, 2024), which `debiased=True` removes;
 Gröger et al. find that their permutation calibration agrees with that correction.
@@ -416,18 +439,39 @@ and with many-to-many pairing while RSA (Section 8) and CKA stay stable, and tha
 the agreement which survives is coarse: cross-modal RSA peaks on the top three
 eigenmodes and erodes as finer modes are added. Gröger et al. (2026) find that after
 permutation calibration the convergence reported by CKA, SVCCA and Procrustes
-distance disappears while the neighborhood overlap keeps it. For this library: the
-sample size, k, preprocessing and pairing are part of a pair record and are compared
-only at equal values; the imbalance and the overlap read neighborhoods, CKA and
-SVCCA the global geometry, and a cross-model claim rests on both; the full L_A x L_B
-map is reported rather than its maximum.
+distance disappears while the neighborhood overlap keeps it. Zhang et al. (2026,
+preprint) use the asymmetry of `cycle_knn` (Section 7) to ask in which direction the
+convergence runs, and find vision and point-cloud models closer to the neighborhood
+structure of language than the reverse. Klabunde et al. (2025, ICLR; the ReSi
+benchmark) ground 24 similarity measures in six tests over graph, language and vision
+models: no measure wins everywhere; the k-NN Jaccard overlap ranks first in vision,
+linear CKA and distance correlation in language, neighborhood measures in graphs, and
+RSA and SVCCA do not stand out. In their layer-monotonicity test on ResNet-18 (their
+Table 3) the Spearman correlation between similarity and layer distance is 0.87 for
+CKA and 0.97 for RSA and distance correlation, against 0.55 for the k-NN Jaccard, and
+two Procrustes measures that differ only in a unit-norm step rank differently, so the
+preprocessing is part of the measure. For this library: the sample size, k,
+preprocessing and pairing are part of a pair record and are compared only at equal
+values; the imbalance, the overlap and the cycle consistency read neighborhoods, CKA
+and SVCCA the global geometry, and a cross-model claim rests on both; the full L_A x
+L_B map is reported rather than its maximum.
 
 Considered and not adopted from this literature: the centered kernel
 nearest-neighbor alignment of Huh et al. (2024, App. A), a k-NN-masked CKA; the
 variable-k overlap of Koepke et al. (2026), defined for a query set inside a growing
-gallery; the permutation null calibration of Gröger et al. (2026), whose baselines
-for the overlap and the imbalance are analytic and in the records and whose CKA
-correction `debiased=True` provides; the displacement cosine of Shang et al. (2026),
+gallery; the k-NN Jaccard overlap of ReSi, |intersection| / |union| per item where
+`neighborhood_overlap` is |intersection| / k, the same neighbor sets under a per-item
+monotone transform; the permutation null calibration of Gröger et al. (2026): their
+App. E.4 shows the calibrated CKA agreeing with the debiased estimator that
+`debiased=True` provides, their Theorem C.10 gives the overlap's null k/(N - 1) in
+closed form, the imbalance's is 1 by construction and the cycle consistency's is
+bounded by k^2/(N - 1), their App. E.7 finds no width drift for RSA, and the remaining
+use, a p-value for a maximum over layer pairs, needs 200 or more permutations of the
+whole map (App. E.6); the Procrustes and angular shape distances of Williams et al.
+(2021, NeurIPS), proper metrics that admit clustering and nearest-neighbor analyses
+over collections of networks, which need equal widths or a PCA step, lose their
+convergence trend after calibration in Gröger et al. (App. E.8) and rank in the upper
+half of ReSi without leading any domain; the displacement cosine of Shang et al. (2026),
 which fits an orthogonal map on held-out items; the barycentric consistency of Saha,
 He and Khosla (2026) and the Procrustes dispersion of Hosseini et al. (2026), which
 score items across a pool of models; and the ridge predictivity of He, Trott and

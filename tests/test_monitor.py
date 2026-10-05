@@ -123,7 +123,7 @@ class MonitorTests(unittest.TestCase):
                 defined[:3],
                 [("monitor/step", None), ("layer_metrics/*", "monitor/step"), ("profiles/*", "monitor/step")],
             )
-            self.assertEqual(len(defined), 5)
+            self.assertEqual(len(defined), 7)  # the step metric and six key families
             self.assertIn("layer_metrics/effective_rank_layer_0", calls[0][1])
             self.assertIn("profiles/effective_rank", calls[0][1])
 
@@ -292,6 +292,67 @@ class MonitorTests(unittest.TestCase):
             model, loader(), step=0
         )
         self.assertEqual(rq.layer_scalars(rec), {"layer_metrics/effective_rank_layer_0": 0.0})
+
+    def test_drift_against_the_first_or_the_previous_sweep(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks,
+            pool="mean",
+            metrics=["effective_rank"],
+            drift_metrics=["cka", "cycle_knn"],
+            params={"cycle_knn": {"k": 5}},
+            n_items=120,
+        )
+        first = mon.sweep(self.model, loader(), step=0)
+        self.assertEqual([r.metric for r in first], ["effective_rank"] * 3)  # the reference sweep has no drift rows
+        same = mon.sweep(self.model, loader(), step=1)
+        drift = [r for r in same if r.extras.get("source") == "drift"]
+        self.assertEqual(sorted({r.metric for r in drift}), ["cka", "cycle_knn"])
+        self.assertEqual(len(drift), 6)
+        for r in drift:
+            self.assertIsNone(r.layer_b)
+            self.assertEqual(r.extras["reference_step"], 0)
+            self.assertEqual(r.n_items, 120)
+        self.assertTrue(all(abs(r.value - 1.0) < 1e-6 for r in drift if r.metric == "cka"))
+        self.assertEqual([r.params for r in drift if r.metric == "cycle_knn"][0], {"k": 5})
+        keys = rq.layer_scalars(same)
+        self.assertIn("drift_metrics/cka_layer_2", keys)
+        self.assertIn("layer_metrics/effective_rank_layer_2", keys)
+        with torch.no_grad():
+            self.model.blocks[1][0].weight.add_(0.5 * torch.randn(16, 16))
+        moved = {r.layer: r.value for r in mon.sweep(self.model, loader(), step=2) if r.metric == "cka"}
+        self.assertAlmostEqual(moved[0], 1.0, places=6)  # block 0 is upstream of the change
+        self.assertLess(moved[1], 0.999)
+        self.assertEqual([r.extras["reference_step"] for r in mon.history[-1][1] if r.metric == "cka"], [0, 0, 0])
+        prev = rq.LayerMonitor(
+            self.model.blocks, pool="mean", metrics=["effective_rank"], drift_metrics=["cka"],
+            drift_reference="previous", n_items=120,
+        )  # fmt: skip
+        prev.sweep(self.model, loader(), step=0)
+        with torch.no_grad():
+            self.model.blocks[2][0].weight.add_(0.5 * torch.randn(16, 16))
+        a = {r.layer: r.value for r in prev.sweep(self.model, loader(), step=1) if r.metric == "cka"}
+        b = {r.layer: r.value for r in prev.sweep(self.model, loader(), step=2) if r.metric == "cka"}
+        self.assertLess(a[2], 0.999)
+        self.assertAlmostEqual(b[2], 1.0, places=6)  # nothing moved between sweeps 1 and 2
+        self.assertEqual([r.extras["reference_step"] for r in prev.history[-1][1] if r.metric == "cka"], [1, 1, 1])
+
+    def test_drift_needs_pair_metrics_at_the_sequence_level(self):
+        with self.assertRaisesRegex(ValueError, "pair metric"):
+            rq.LayerMonitor(
+                self.model.blocks, pool="mean", metrics=["effective_rank"], drift_metrics=["effective_rank"]
+            )
+        with self.assertRaisesRegex(ValueError, "sequence"):
+            rq.LayerMonitor(
+                self.model.blocks, pool="tokens", metrics=["effective_rank"], level="sample", drift_metrics=["cka"]
+            )
+        with self.assertRaisesRegex(ValueError, "drift_reference"):
+            rq.LayerMonitor(
+                self.model.blocks,
+                pool="mean",
+                metrics=["effective_rank"],
+                drift_metrics=["cka"],
+                drift_reference="last",
+            )
 
     def test_view_metrics_reject_a_one_shot_loader(self):
         mon = rq.LayerMonitor(

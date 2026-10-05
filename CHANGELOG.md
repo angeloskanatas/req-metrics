@@ -9,7 +9,7 @@ First release in preparation.
 
 ### Added
 
-- 37 metrics in twelve groups, each registered with its input contract, canonical preprocessing and
+- 38 metrics in twelve groups, each registered with its input contract, canonical preprocessing and
   citation: spectral (effective rank, matrix-based entropy, alpha-ReQ, anisotropy, participation
   ratio with the corrections of Chun et al., eigenvalue early enrichment), intrinsic dimension
   (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST), local geometry (kNN curvature, local
@@ -17,7 +17,8 @@ First release in preparation.
   deviation), clustering (k-means inertia, Davies-Bouldin index), distribution (Gaussianity,
   sparsity, embedding norm), trajectory curvature, views (LiDAR, InfoNCE over any number of views,
   DiME, alignment), pitch-transposition equivariance, representation pairs (information imbalance,
-  neighborhood overlap, CKA, SVCCA, RSA), token fields and the Jacobian effective rank.
+  neighborhood overlap, cycle k-NN consistency, CKA, SVCCA, RSA), token fields and the Jacobian
+  effective rank.
 - `compute()` at three levels (one vector per sample; each sample's tokens, aggregated over samples;
   the tokens of all samples as one cloud), with shared spectra and neighbor tables, seeded
   subsetting, per-metric item caps, a `device` argument and `Records` with JSON, CSV and pandas
@@ -27,7 +28,8 @@ First release in preparation.
   checkpoints, models or modalities), with one rank or neighbor table per layer and cosine neighbors
   on request.
 - `LayerMonitor` on a fixed seeded subset in eval mode, with view passes from a live loader or in
-  train mode for masked objectives, the Jacobian effective rank of every layer's readout,
-  `OnlineBuffer` over training batches, CSV, JSON, TensorBoard and Weights & Biases sinks, and a
-  PyTorch Lightning callback with epoch and step schedules.
+  train mode for masked objectives, the Jacobian effective rank of every layer's readout, the drift
+  of every layer against its first or previous sweep, `OnlineBuffer` over training batches, CSV,
+  JSON, TensorBoard and Weights & Biases sinks, and a PyTorch Lightning callback with epoch and step
+  schedules.
 - Seeded draws come from CPU generators, so a seed gives the same value on CPU and GPU tensors.

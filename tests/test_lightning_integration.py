@@ -68,6 +68,7 @@ class LightningPlugAndPlayTests(unittest.TestCase):
                 batch_size=16,
                 online=True,
                 online_n_items=80,
+                drift_metrics=["cka"],
                 sinks=[rq.json_sink(Path(d) / "sweeps")],
             )
             trainer = pl.Trainer(
@@ -84,7 +85,8 @@ class LightningPlugAndPlayTests(unittest.TestCase):
             trainer.fit(Lit(), dl, torch.utils.data.DataLoader(ds, batch_size=32))
             self.assertEqual([s for s, _ in cb.monitor.history], [0, 1, 2])
             rec = cb.monitor.history[-1][1]
-            self.assertEqual(len(rec), 6)
+            self.assertEqual(len(rec), 9)  # two point metrics and the CKA drift, three layers each
+            self.assertEqual([r.extras["reference_step"] for r in rec if r.metric == "cka"], [0, 0, 0])
             self.assertEqual(rec[0].n_items, 64)
             self.assertEqual(rec[0].pooling, "mean")
             self.assertEqual([s for s, _ in cb.online.history], [1, 2])  # online records at both epoch ends
@@ -95,6 +97,7 @@ class LightningPlugAndPlayTests(unittest.TestCase):
             self.assertEqual(cb.online.handles, [])  # detached at train end
             metrics_csv = next(Path(d).rglob("metrics.csv")).read_text()
             self.assertIn("layer_metrics/effective_rank_layer_2", metrics_csv)
+            self.assertIn("drift_metrics/cka_layer_2", metrics_csv)
             names = sorted(f.name for f in (Path(d) / "sweeps").glob("*.json"))
             self.assertEqual(len(names), 5)  # 3 sweeps and 2 online computations, none overwritten
             self.assertEqual(sum(n.startswith("online_") for n in names), 2)

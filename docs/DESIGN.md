@@ -98,6 +98,14 @@ spectral and neighbor metrics cannot see representations collapsing onto one sha
 vector; `normalized_std` and `cosine_anisotropy` can, so a monitoring run logs one
 of them beside the others.
 
+With `drift_metrics`, every sweep also runs pair metrics between each layer's current
+representation and the same layer at the first sweep (or at the previous sweep), on
+the same monitoring items in the same order. This is the reading of Raghu et al.
+(2017, Sec. 4.1), who compare every layer during training with a fixed state and find
+that layers settle from the bottom up. The reference is held once on the CPU in
+float32; a sweep costs one pair metric per layer rather than a layer map, and the
+records are logged under `drift_metrics/` with the reference step in their extras.
+
 Monitoring callbacks that read a queue of training batches, as in stable-pretraining
 (arXiv:2511.19484), measure that training-time representation; the fixed subset is
 what makes a sweep comparable with the previous sweep and with a post-hoc run on a
@@ -178,8 +186,9 @@ alignment (Wang and Isola, 2020), the normalized standard deviation (Chen and He
 overlap (Doimo et al., 2020), the intrinsic-dimension caveats of Schulte and Rügamer
 (2026) as card text, the taxonomy and the alpha-ReQ fit-range caveat of Arputharaj
 et al. (2026), the k-means inertia and Davies-Bouldin index of Whetten et al.
-(2025), linear CKA (Kornblith et al., 2019), SVCCA (Raghu et al., 2017) and
-representational similarity analysis (Kriegeskorte et al., 2008) as pair metrics,
+(2025), linear CKA (Kornblith et al., 2019), SVCCA (Raghu et al., 2017),
+representational similarity analysis (Kriegeskorte et al., 2008) and the cycle k-NN
+consistency (Huh et al., 2024) as pair metrics,
 and the Jacobian effective rank of Chung and Kim (2026), which needs the model and
 is therefore computed by the monitor. Not adopted: the condition number of Tsitsulin
 et al. (its correlation with accuracy reverses sign across their datasets, and

@@ -130,6 +130,61 @@ def neighborhood_overlap(
     )
 
 
+def _cycle_fraction(nn_a: Tensor, nn_b: Tensor) -> Tensor:
+    """Per-point indicator that i is among the A-neighbors of one of its B-neighbors, from (N, k) index sets."""
+    back = nn_a[nn_b]  # (N, k, k): the A-neighbors of each B-neighbor of i
+    hit = back == torch.arange(nn_a.shape[0], device=nn_a.device)[:, None, None]
+    return hit.flatten(1).any(dim=1).double()
+
+
+def cycle_knn(
+    x_a: Tensor,
+    x_b: Tensor,
+    *,
+    k: int = 10,
+    l2: bool = False,
+    neighbors_a: Neighbors | None = None,
+    neighbors_b: Neighbors | None = None,
+) -> MetricResult:
+    """Cycle k-nearest-neighbor consistency from representation A to representation B.
+
+    Huh et al. (2024, ICML, App. A, Table 11, and their code): the fraction of items whose k nearest
+    neighbors in B have the item among their own k nearest neighbors in A, a first hop in B and a
+    return hop in A. Written cycle-kNN(A -> B) by Zhang et al. (2026, Eq. 1) and cycle-kNN_k(A, B)
+    by Groger, Wen and Brbic (2026, Eq. 35). The ordering matters for k >= 2 (Zhang et al., App. A),
+    and they report both orderings and their gap. Identical representations score 1 only when every
+    item is a nearest neighbor of one of its own nearest neighbors; items with no reciprocal
+    neighbor lower the value. For independent representations each return hop succeeds with
+    probability k/(N - 1) (Groger et al., Prop. C.9), so the chance level is at most k^2/(N - 1).
+    Euclidean neighbors, the point itself excluded; k = 10 and cosine neighbors (l2=True) in Huh
+    et al., Zhang et al. and Groger et al.
+
+    Args:
+        x_a, x_b: (N, D_a) and (N, D_b), rows of the same items.
+        k: Neighborhood size.
+        l2: Scale rows to unit norm first, so Euclidean neighbors are cosine neighbors.
+        neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
+
+    Returns:
+        value: the fraction in [0, 1], A -> B.
+        extras: reverse (B -> A), chance_bound k^2/(N - 1).
+    """
+    if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
+        raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
+    n = x_a.shape[0]
+    if k < 1 or k > n - 1:
+        raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
+    xa, xb = (l2_normalize(x_a.double()), l2_normalize(x_b.double())) if l2 else (x_a.double(), x_b.double())
+    nb_a = neighbors_a if neighbors_a is not None else Neighbors.from_points(xa, k)
+    nb_b = neighbors_b if neighbors_b is not None else Neighbors.from_points(xb, k)
+    if nb_a.k < k or nb_b.k < k:
+        raise ValueError("Neighbors tables need at least k neighbors")
+    nn_a, nn_b = nb_a.indices[:, 1 : k + 1], nb_b.indices[:, 1 : k + 1]
+    forward = float(_cycle_fraction(nn_a, nn_b).mean())
+    reverse = float(_cycle_fraction(nn_b, nn_a).mean())
+    return MetricResult(forward, {"reverse": reverse, "chance_bound": min(1.0, k * k / (n - 1))})
+
+
 def _check_pair(x_a: Tensor, x_b: Tensor) -> None:
     if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
         raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
@@ -324,6 +379,18 @@ register_metric(
     arxiv="2007.03506",
     tags=("relational",),
 )(neighborhood_overlap)
+register_metric(
+    "cycle_knn",
+    inputs=InputKind.PAIR,
+    preprocess=Preprocess(),
+    citation=("huh2024platonic", "zhang2026wittgensteinian", "groger2026aristotelian"),
+    arxiv="2405.07987",
+    tags=("relational",),
+    description=(
+        "Fraction of items that are a nearest neighbor in A of one of their nearest neighbors in B "
+        "(Huh et al., 2024); the ordering matters."
+    ),
+)(cycle_knn)
 register_metric(
     "information_imbalance",
     inputs=InputKind.PAIR,

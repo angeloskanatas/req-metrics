@@ -3,7 +3,8 @@
 Two modes. LayerMonitor registers forward hooks on the given layer modules,
 runs a fixed monitoring set through a forward callable in eval mode, pools each
 layer's output, and hands the per-layer tensors to compute(). The same records come out as in a post-hoc
-run, so curves logged during training compare directly with curves computed on stored embeddings. OnlineBuffer hooks the
+run, so curves logged during training compare directly with curves computed on stored embeddings. With
+drift_metrics, every layer is also compared with its own state at an earlier sweep on the same items. OnlineBuffer hooks the
 same modules during the ordinary training forward passes and keeps the most
 recent rows, without extra forward passes, as a collapse indicator on the
 training-time representation. Which modules are layers, how a block output becomes one
@@ -23,8 +24,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from req_metrics.pipeline import compute
+from req_metrics import __version__
+from req_metrics._types import InputKind
+from req_metrics.pipeline import _normalized_depths, choose_indices, compute
 from req_metrics.records import Record, Records
+from req_metrics.registry import get_metric
 from req_metrics.view_construction import ViewSpec
 
 Pooler = Callable[[Any], Tensor]
@@ -153,9 +157,13 @@ def monitor_loader(dataset, n_items: int, batch_size: int = 32, seed: int = 0):
 
 
 def metric_key_prefix(record: Record) -> tuple[str, str]:
-    """(scalar prefix, profile prefix) for logging keys: online_* for training-batch records, layer_metrics/profiles otherwise."""
-    if record.extras.get("source") == "training-batches":
+    """(scalar prefix, profile prefix) for logging keys: online_* for training-batch records, drift_* for
+    drift records, layer_metrics/profiles otherwise."""
+    source = record.extras.get("source")
+    if source == "training-batches":
         return "online_metrics", "online_profiles"
+    if source == "drift":
+        return "drift_metrics", "drift_profiles"
     return "layer_metrics", "profiles"
 
 
@@ -460,6 +468,15 @@ class LayerMonitor:
         jacobian_input: Maps a batch input to the tensor the Jacobian is taken with respect to,
             without differentiation (e.g. waveform to spectrogram); default the input itself.
         jacobian_forward: Runs the model on that tensor; default the sweep's forward.
+        drift_metrics: Registry names of pair metrics computed, at every sweep, between each layer's
+            reference representation and its current one on the same monitoring items, as Raghu et
+            al. (2017, Sec. 4.1) compare every layer during training with a fixed state. The
+            reference is the first sweep, or the previous sweep with drift_reference="previous"; it
+            is held on the CPU in float32 and enters the metric as A, the current sweep as B. The
+            sweep that sets the reference emits no drift record. Sequence level only; the records
+            carry extras["source"] = "drift" and extras["reference_step"] and are logged under
+            drift_metrics/.
+        drift_reference: "first" or "previous".
         seed: Subsampling, augmentation and probe seed.
     """
 
@@ -487,6 +504,8 @@ class LayerMonitor:
         jacobian_power_iters: int = 5,
         jacobian_input: Callable[[Tensor], Tensor] | None = None,
         jacobian_forward: Callable[[Tensor], Any] | None = None,
+        drift_metrics: Sequence[str] = (),
+        drift_reference: str = "first",
         seed: int = 0,
     ):
         self.layer_modules = list(layer_modules)
@@ -505,6 +524,17 @@ class LayerMonitor:
         self.jacobian_items, self.jacobian_probes = jacobian_items, jacobian_probes
         self.jacobian_power_iters = jacobian_power_iters
         self.jacobian_input, self.jacobian_forward = jacobian_input, jacobian_forward
+        self.drift_metrics = list(drift_metrics)
+        if drift_reference not in ("first", "previous"):
+            raise ValueError(f"drift_reference must be 'first' or 'previous', got {drift_reference!r}")
+        if self.drift_metrics and level != "sequence":
+            raise ValueError("drift metrics need level='sequence'")
+        for name in self.drift_metrics:
+            if get_metric(name).inputs is not InputKind.PAIR:
+                raise ValueError(f"{name!r} is not a pair metric")
+        self.drift_reference = drift_reference
+        self._reference: dict[int, Tensor] | None = None
+        self._reference_step: int | None = None
         self.seed = seed
         self.history: list[tuple[int, Records]] = []
 
@@ -616,6 +646,7 @@ class LayerMonitor:
             device=device,
             **self.labels,
         )
+        rec.extend(self._drift(layers, step))
         if self.view_metrics and self.augment is not None:
             if self.level != "sequence":
                 raise ValueError("view metrics need level='sequence'")
@@ -656,6 +687,49 @@ class LayerMonitor:
         for sink in sinks:
             sink(rec, step)
         return rec
+
+    def _drift(self, layers: Mapping[int, Any], step: int) -> Records:
+        """Pair metrics between each layer's reference and current representation; sets or advances the reference."""
+        out = Records()
+        if not self.drift_metrics:
+            return out
+        if self._reference is not None:
+            ids = [l for l in sorted(layers) if l in self._reference]
+            depths = _normalized_depths(ids)
+            for name in self.drift_metrics:
+                spec = get_metric(name)
+                params = self.params.get(name, {})
+                for l in ids:
+                    cur: Tensor = layers[l]
+                    ref = self._reference[l].to(cur.device)
+                    if spec.max_items is not None and cur.shape[0] > spec.max_items:
+                        idx = torch.as_tensor(
+                            choose_indices(cur.shape[0], spec.max_items, self.seed), device=cur.device
+                        )
+                        ref, cur = ref[idx], cur[idx]
+                    res = spec.fn(ref, cur, **params)
+                    out.rows.append(
+                        Record(
+                            metric=spec.name,
+                            value=res.value,
+                            layer=l,
+                            depth=depths[l],
+                            level="sequence",
+                            n_items=int(cur.shape[0]),
+                            dim=int(cur.shape[-1]),
+                            preprocess="l2" if params.get("l2") else "none",
+                            params=dict(params),
+                            seed=self.seed,
+                            tags=spec.tags,
+                            extras={**res.extras, "source": "drift", "reference_step": self._reference_step},
+                            version=__version__,
+                            **self.labels,
+                        )
+                    )
+        if self._reference is None or self.drift_reference == "previous":
+            self._reference = {l: t.detach().to("cpu", torch.float32, copy=True) for l, t in layers.items()}
+            self._reference_step = step
+        return out
 
     def _device(self) -> torch.device | None:
         """The device of the hooked layers' parameters, or None for parameter-free layers."""
@@ -805,7 +879,8 @@ def wandb_sink(
     extras: Sequence[str] = (),
 ) -> Callable[[Records, int], None]:
     """Log to Weights & Biases: layer_metrics/<metric>_layer_<l> scalars and profiles/<metric> line series
-    (online_metrics/ and online_profiles/ for training-batch records).
+    (online_metrics/ and online_profiles/ for training-batch records, drift_metrics/ and drift_profiles/
+    for drift records).
 
     The sweep step is logged as its own metric and declared the x-axis of every
     layer_metrics/* and profiles/* key with wandb.define_metric, so sweeps interleave
@@ -825,15 +900,22 @@ def wandb_sink(
         target = run if run is not None else wandb
         if not state["defined"]:
             target.define_metric(step_metric)
-            for key in ("layer_metrics/*", "profiles/*", "online_metrics/*", "online_profiles/*"):
-                target.define_metric(key, step_metric=step_metric)
+            for family in (
+                "layer_metrics",
+                "profiles",
+                "online_metrics",
+                "online_profiles",
+                "drift_metrics",
+                "drift_profiles",
+            ):
+                target.define_metric(f"{family}/*", step_metric=step_metric)
             state["defined"] = True
         log: dict[str, Any] = {step_metric: _x_step(rec, step), **layer_scalars(rec, extras)}
         if line_series and len(rec):
-            profile_prefix = metric_key_prefix(rec[0])[1]
             for metric in sorted({r.metric for r in rec if r.layer_b is None}):
+                first = rec.where(metric=metric)[0]
                 xs, ys, keys = _profile_series(rec, history, metric)
-                log[f"{profile_prefix}/{metric_key(rec.where(metric=metric)[0])}"] = wandb.plot.line_series(
+                log[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
                     xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                 )
         target.log(log)
