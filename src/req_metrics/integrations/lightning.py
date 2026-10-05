@@ -1,10 +1,10 @@
 """PyTorch Lightning callback around LayerMonitor. Lightning is imported only here.
 
 Given the metrics, and optionally the block list and the pooling, the callback
-finds the blocks, builds a fixed monitoring subset of the
-training set, runs a sweep at the start of training and every n epochs, and
-logs per-layer scalars to the trainer's logger (plus layer-profile line plots
-when the logger is Weights & Biases). With online=True it also keeps ring
+finds the blocks and builds a fixed monitoring subset of the training set. It
+runs a sweep at the start of training and every n epochs and logs per-layer
+scalars to the trainer's logger, with layer-profile line plots when the logger
+is Weights & Biases. With online=True it also keeps ring
 buffers of the training forward passes and logs the same point metrics on
 them under online_metrics/, without extra forward passes. Under distributed
 training everything runs on global rank zero only.

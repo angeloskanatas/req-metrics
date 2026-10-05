@@ -2,9 +2,8 @@
 
 Two modes. LayerMonitor registers forward hooks on the given layer modules,
 runs a fixed monitoring set through a forward callable in eval mode, pools each
-layer's output, and hands the per-layer tensors to compute(); the same records
-come out as in a post-hoc run, so curves logged during training are directly
-comparable with curves computed on stored embeddings. OnlineBuffer hooks the
+layer's output, and hands the per-layer tensors to compute(). The same records come out as in a post-hoc
+run, so curves logged during training compare directly with curves computed on stored embeddings. OnlineBuffer hooks the
 same modules during the ordinary training forward passes and keeps the most
 recent rows, without extra forward passes, as a collapse indicator on the
 training-time representation. Which modules are layers, how a block output becomes one
@@ -342,10 +341,10 @@ def jacobian_products(
     """Randomized range-finder sketches of the Jacobian of every module's readout.
 
     Chung and Kim (2026, Sec. 4.1 and App. F) estimate the leading singular values of the
-    Jacobian J of a readout with respect to the input by randomized range finding (Halko et
-    al., 2011): Y = J Omega for k orthonormal input directions Omega per input (QR of a seeded
-    Gaussian draw), power_iters rounds of subspace iteration, Q an orthonormal basis of Y, and
-    B = Q^T J, whose singular values estimate the k largest of J. The paper uses k = 32 and 5
+    Jacobian J of a readout with respect to the input by randomized range finding (Halko et al., 2011). Y =
+    J Omega for k orthonormal input directions Omega per input (QR of a seeded Gaussian draw),
+    power_iters rounds of subspace iteration, Q an orthonormal basis of Y, and B = Q^T J, whose singular
+    values estimate the k largest of J. The paper uses k = 32 and 5
     rounds. The first products Y come from one forward-mode pass per direction for all modules;
     each round and the final B take k forward-mode (J v) or reverse-mode (J^T u) passes per
     module. Inputs in a batch must not interact (eval-mode normalization).
@@ -811,8 +810,8 @@ def wandb_sink(
     The sweep step is logged as its own metric and declared the x-axis of every
     layer_metrics/* and profiles/* key with wandb.define_metric, so sweeps interleave
     with the run's other logging without passing an explicit `step=` (which W&B
-    requires to be monotone across all log calls); its value is the global step when
-    the records carry one, so epoch and step schedules share one axis. Metric names have "/" replaced by
+    requires to be monotone across all log calls). Its value is the global step when the records carry one,
+    so epoch and step schedules share one axis. Metric names have "/" replaced by
     "_" in keys. Uses the active run unless one is given. With history (a
     LayerMonitor's or OnlineBuffer's .history), every profile plot shows all sweeps so
     far, one line per step, so the depth profile's evolution is read off one chart.

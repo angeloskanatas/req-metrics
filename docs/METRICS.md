@@ -60,7 +60,7 @@ applies across metrics.
 | Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
-DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
+DSE and TwoNN ID, all on the final backbone output of 260 vision models. This
 registry covers all of them except condition number and DSE (rejected, with reasons,
 in Section 6) and adds the trajectory, view, shift, pair and token families that
 single-vector studies cannot express.

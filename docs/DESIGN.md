@@ -89,14 +89,14 @@ registered metric on the machine at hand.
 current weights at every sweep, so a change between two sweeps is due to the model
 and the curves are comparable with post-hoc runs on checkpoints. This costs
 `n_items` forward passes per sweep, times `1 + q` with view metrics. `OnlineBuffer`
-is the alternative without extra forward passes, a ring buffer of the most recent
-training-batch outputs of every hooked layer: no extra passes, but it measures the
-training-time representation (augmented inputs, train-mode layers, weights that
-moved while the buffer filled), so its records are tagged
-`extras["source"] = "training-batches"` and logged under `online_metrics/`, never
-mixed with fixed-subset records. Centered spectral and neighbor metrics cannot see
-representations collapsing onto one shared vector; `normalized_std` and
-`cosine_anisotropy` can, so a monitoring run logs one of them beside the others.
+is the alternative without extra forward passes: a ring buffer of the most recent
+training-batch outputs of every hooked layer. It measures the training-time
+representation (augmented inputs, train-mode layers, weights that moved while the
+buffer filled), so its records are tagged `extras["source"] = "training-batches"`
+and logged under `online_metrics/`, never mixed with fixed-subset records. Centered
+spectral and neighbor metrics cannot see representations collapsing onto one shared
+vector; `normalized_std` and `cosine_anisotropy` can, so a monitoring run logs one
+of them beside the others.
 
 Monitoring callbacks that read a queue of training batches, as in stable-pretraining
 (arXiv:2511.19484), measure that training-time representation; the fixed subset is
@@ -163,10 +163,10 @@ pretraining the effective rank first expands and then contracts, and the contrac
 coincides with downstream gains (Li et al., 2025). Post hoc, Skean et al. (2025) and
 Kanatas et al. (2026) relate layer profiles to downstream performance, and
 Arputharaj et al. (2026) relate final-layer metrics of 260 vision models to probe
-accuracy. `selection.rank_runs` and `selection.top_layers` encode the selection
-rules with the direction as an argument: Kanatas et al. report sign reversals across
-task families, and Arputharaj et al. find that the reliability of a metric, and for
-some metrics its sign, depends on the architecture class and the training objective.
+accuracy. `selection.rank_runs` and `selection.top_layers` encode the selection rules with the
+direction as an argument. Kanatas et al. report sign reversals across task families,
+and Arputharaj et al. find that the reliability of a metric, and for some metrics
+its sign, depends on the architecture class and the training objective.
 
 ## 5. What was considered and not adopted
 

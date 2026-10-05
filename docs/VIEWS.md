@@ -25,17 +25,17 @@ stack built by the caller. No published LiDAR protocol states how to mix views o
 different kinds, such as global and local crops, within one sample's class.
 `ViewSpec(source="objective", ...)` records it.
 
-**Post-hoc comparison across models, a shared chain.** When models trained
-with different objectives are compared on equal terms, one augmentation chain is
-applied to every model's inputs, the per-view pooled embeddings are stored, and the
-stack is formed with `stack_views(view_0, view_1, ...)`. The protocol of Kanatas et
-al. (2026, Section 3.2) used pitch shifting by up to four semitones, time stretching
-by a factor between 0.85 and 1.15, additive Gaussian noise, gain changes, time
-shifts and low-pass filtering, with 10 views per clip for LiDAR and 2 for InfoNCE on
-10,000 clips, and it removed the augmentation that alters the task-defining
-attribute per task family: pitch shifts for tonal tasks, time stretching for rhythm
-tasks. `ViewSpec(source="shared", excluded=("PitchShift",), ...)` records this. It
-departs from LiDAR's original use with each method's own augmentations: cross-model
+**Post-hoc comparison across models, a shared chain.** When models trained with
+different objectives are compared on equal terms, one augmentation chain is applied
+to every model's inputs, the per-view pooled embeddings are stored, and the stack is
+formed with `stack_views(view_0, view_1, ...)`. The protocol of Kanatas et al.
+(2026, Section 3.2) used pitch shifting by up to four semitones, time stretching by
+a factor between 0.85 and 1.15, additive Gaussian noise, gain changes, time shifts
+and low-pass filtering, with 10 views per clip for LiDAR and 2 for InfoNCE on 10,000
+clips. It removed the augmentation that alters the task-defining attribute of each
+task family: pitch shifts for tonal tasks, time stretching for rhythm tasks.
+`ViewSpec(source="shared", excluded=("PitchShift",), ...)` records this. It departs
+from LiDAR's original use with each method's own augmentations: cross-model
 comparison then measures invariance to a chosen chain rather than to what each model
 was trained on.
 

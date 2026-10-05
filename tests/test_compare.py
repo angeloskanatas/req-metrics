@@ -75,6 +75,10 @@ class NeighborhoodOverlapTests(unittest.TestCase):
         rec = rq.compute_pairs({0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"l2": True})
         self.assertAlmostEqual(rec[0].value, 1.0, places=12)
         self.assertEqual((rec[0].preprocess, rec[0].params), ("l2", {"k": 10, "l2": True}))
+        keyed = rq.compute_pairs(
+            {0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"neighborhood_overlap": {"l2": True}}
+        )
+        self.assertEqual(keyed[0].params, rec[0].params)
 
     def test_compute_pairs_overlap(self):
         layers = {0: self.x, 1: self.x + 0.5 * torch.randn(800, 8), 2: torch.randn(800, 8)}

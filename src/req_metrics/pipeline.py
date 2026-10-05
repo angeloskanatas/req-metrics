@@ -488,35 +488,34 @@ def compute_pairs(
 ) -> Records:
     """A pair metric between every layer of A and every layer of B (B defaults to A).
 
-    A and B are two representations of the same items with aligned rows: the layers
-    of one model, two checkpoints, two models, or two modalities with paired items
-    (image i and caption i); widths may differ. One Record per (layer_a, layer_b).
-    metric is "information_imbalance" (default k = 1; value Delta(A -> B),
-    extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cka",
-    "svcca" or "rsa" (symmetric). params passes the estimator's options: debiased for
-    CKA, threshold for SVCCA, distance and method for RSA, and l2 for the two neighbor
-    metrics, which then rank cosine neighbors (unit-norm rows) as Huh et al. (2024) do;
-    the preprocessing is recorded.
-    For the imbalance the cost is one chunked rank
-    table per layer rather than one per pair: for each target layer the ranks
-    of all items are computed once and gathered at the k nearest neighbors of
-    every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D).
-    For the overlap only the k-nearest-neighbor tables are needed, once per
-    layer; for CKA the centered features and their norms, and for SVCCA the
-    kept singular directions, and for RSA the ranked distance vector, are also computed
-    once per layer; RSA is capped at its registry max_items, since the vectors are held
-    for all layers. device is as in compute().
+    A and B are two representations of the same items with aligned rows: the layers of one model, two
+    checkpoints, two models, or two modalities with paired items (image i and caption i); widths may
+    differ. One Record per (layer_a, layer_b). metric is "information_imbalance" (default k = 1; value
+    Delta(A -> B), extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cka",
+    "svcca" or "rsa" (symmetric). params passes the estimator's options, flat or keyed by the metric
+    name as in compute(): debiased for CKA, threshold for SVCCA, distance and method for RSA, and l2 for
+    the two neighbor metrics, which then rank cosine neighbors (unit-norm rows) as Huh et al. (2024) do.
+    The preprocessing is recorded. The imbalance costs one chunked rank table per layer rather than one
+    per pair: for each target layer the ranks of all items are computed once and gathered at the k
+    nearest neighbors of every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D). The
+    overlap needs only the k-nearest-neighbor tables, once per layer. CKA keeps the centered features
+    and their norms, SVCCA the kept singular directions and RSA the ranked distance vector, each once
+    per layer; RSA is capped at its registry max_items because the vectors are held for all layers.
+    device is as in compute().
     """
     dev = _device(device)
+    params = dict(params or {})
+    if isinstance(params.get(metric), Mapping):  # the keyed form of compute()
+        params = dict(params[metric])
     if metric in ("cka", "svcca", "rsa"):
         return _closed_form_pairs(
-            metric, layers_a, layers_b, dict(params or {}), n, seed, group_ids, model, model_b, pooling, corpus, dev
+            metric, layers_a, layers_b, params, n, seed, group_ids, model, model_b, pooling, corpus, dev
         )
     if metric not in ("information_imbalance", "neighborhood_overlap"):
         raise ValueError(f"unknown layer-pair metric {metric!r}")
     if k is None:
         k = 1 if metric == "information_imbalance" else 30
-    l2 = bool(dict(params or {}).get("l2", False))
+    l2 = bool(params.get("l2", False))
     spec = get_metric(metric)
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
