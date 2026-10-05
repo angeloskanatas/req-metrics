@@ -137,44 +137,28 @@ keep every field and extra, and any callable of `(records, step)` is accepted.
 ## 4b. Which layers, and when
 
 All hooked layers come from one forward pass and spectral metrics cost milliseconds
-per layer, so the monitor reads every block by default. The training-dynamics
-studies support that: Razzhigaev et al. (2024, EACL) track anisotropy and intrinsic
-dimension at every internal layer across pretraining checkpoints and find an
-expansion followed by a compression; Lee et al. (2025, ACL) find an
-intrinsic-dimension phase transition near 10^3 steps for virtually all layers of
-Pythia models; Li et al. (2025) describe warmup, entropy-seeking and
-compression-seeking phases on the last-token state of the last layer; Whetten et al.
-(2025, Interspeech) find that the layers whose measures correlate best with
-downstream speech performance are not the most useful ones: the first and last
-layers for recognition, the middle layers for speaker verification. Because the
-early changes are fast, the callback accepts a step-based schedule (`sweep_steps`,
-typically log-spaced, or `every_n_steps`) next to the epoch period, and stamps every
-record with the epoch and the global step. Per-metric item caps (`max_items` in the
-registry, `limits=` in `compute`) keep the quadratic estimators bounded at large N.
+per layer, so the monitor reads every block by default. Layer-wise training studies
+find the fast changes early and in every layer: an expansion followed by a
+compression of anisotropy and intrinsic dimension across pretraining checkpoints
+(Razzhigaev et al., 2024, EACL), an intrinsic-dimension transition near 10^3 steps in
+nearly all layers (Lee et al., 2025, ACL), effective-rank phases on the final layer
+(Li et al., 2025), and layers that predict downstream performance best without being
+the ones read downstream (Whetten et al., 2025, Interspeech). The callback therefore
+accepts a step-based schedule (`sweep_steps`, typically log-spaced, or
+`every_n_steps`) next to the epoch period and stamps every record with the epoch and
+the global step; per-metric item caps (`max_items` in the registry, `limits=` in
+`compute`) bound the quadratic estimators at large N.
 
-The speech studies that use these metrics for monitoring and selection fix the layer
-and the cadence. Aldeneh et al. (2024) compute RankMe-t per layer on 10,000
-utterances of the pretraining data at checkpoints every 20,000 steps, and find that
-it tracks downstream performance across checkpoints within a layer but cannot rank
-layers against each other. Whetten et al. read layer 12 for ASR and layer 8 for
-speaker verification at 50,000 steps, with k-means inertia, the Davies-Bouldin
-index, RankMe-t and the effective rank of all frames pooled, to predict the outcome
-at 200,000 steps. RankMe (Garrido et al., 2023) selects the hyperparameter
-configuration with the highest rank on 25,600 samples of the representation that is
-used downstream; LiDAR (Thilak et al., 2024) applies the same rule within one
-method, across hyperparameters that include I-JEPA's target mask scale, which
-changes the positives (their Table 1). Both start from joint-embedding losses that
-do not track downstream quality (their Sec. 1); LeJEPA reports a training loss that
-does, for its own objective across hyperparameters (Balestriero and LeCun, 2025,
-Sec. 6.2). Within one run the relation need not be monotone: during language-model
-pretraining the effective rank first expands and then contracts, and the contraction
-coincides with downstream gains (Li et al., 2025). Post hoc, Skean et al. (2025) and
-Kanatas et al. (2026) relate layer profiles to downstream performance, and
-Arputharaj et al. (2026) relate final-layer metrics of 260 vision models to probe
-accuracy. `selection.rank_runs` and `selection.top_layers` encode the selection rules with the
-direction as an argument. Kanatas et al. report sign reversals across task families,
-and Arputharaj et al. find that the reliability of a metric, and for some metrics
-its sign, depends on the architecture class and the training objective.
+Selection follows the published rules. RankMe (Garrido et al., 2023) and LiDAR
+(Thilak et al., 2024) pick, within one method, the configuration with the highest
+value on the representation that is used downstream; Aldeneh et al. (2024) track
+RankMe-t across checkpoints within a layer and find that it does not rank layers
+against each other; Whetten et al. (2025) read one layer early in pretraining to
+predict the outcome. `selection.rank_runs` and `selection.top_layers` encode these
+rules with the direction as an argument, because the sign of a metric depends on the
+task family (Kanatas et al., 2026) and on the architecture class and training
+objective (Arputharaj et al., 2026), and within one run the relation need not be
+monotone (Li et al., 2025).
 
 ## 5. What was considered and not adopted
 

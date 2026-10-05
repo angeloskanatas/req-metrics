@@ -178,12 +178,6 @@ companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
   arXiv:2502.02013): layer-wise entropy, curvature and InfoNCE for language models.
 - [synesis](https://github.com/chrispla/synesis) (Plachouras et al., IJCNN 2025, arXiv:2505.06224):
   probe-based informativeness, equivariance, invariance and disentanglement.
-- Arputharaj, Jönsson and Eilertsen (TMLR 2026, arXiv:2608.23182): a comparative
-  study of seven label-free metrics on 260 vision models.
-
-req-metrics differs in holding these families in one registry with recorded protocol,
-sharing spectra and neighbor tables across estimators, and producing the same records
-during training and post hoc.
 
 ## Development
 
