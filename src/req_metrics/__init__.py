@@ -19,7 +19,7 @@ from req_metrics.layouts import (
     strip_prefix_tokens,
 )
 from req_metrics.metrics.clustering import cluster_quality
-from req_metrics.metrics.compare import cka, information_imbalance, neighborhood_overlap, svcca
+from req_metrics.metrics.compare import cka, information_imbalance, neighborhood_overlap, rsa, svcca
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.distribution import embedding_norm, gaussianity, sparsity
 from req_metrics.metrics.equivariance import pte
@@ -140,6 +140,7 @@ __all__ = [
     "Convergence",
     "neighborhood_overlap",
     "cka",
+    "rsa",
     "svcca",
     "cluster_quality",
     "jacobian_effective_rank",

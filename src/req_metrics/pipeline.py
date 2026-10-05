@@ -492,21 +492,23 @@ def compute_pairs(
     of one model, two checkpoints, two models, or two modalities with paired items
     (image i and caption i); widths may differ. One Record per (layer_a, layer_b).
     metric is "information_imbalance" (default k = 1; value Delta(A -> B),
-    extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cka" or
-    "svcca" (symmetric). params passes the estimator's options: debiased for CKA,
-    threshold for SVCCA, and l2 for the two neighbor metrics, which then rank cosine
-    neighbors (unit-norm rows) as Huh et al. (2024) do; the preprocessing is recorded.
+    extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cka",
+    "svcca" or "rsa" (symmetric). params passes the estimator's options: debiased for
+    CKA, threshold for SVCCA, distance and method for RSA, and l2 for the two neighbor
+    metrics, which then rank cosine neighbors (unit-norm rows) as Huh et al. (2024) do;
+    the preprocessing is recorded.
     For the imbalance the cost is one chunked rank
     table per layer rather than one per pair: for each target layer the ranks
     of all items are computed once and gathered at the k nearest neighbors of
     every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D).
     For the overlap only the k-nearest-neighbor tables are needed, once per
     layer; for CKA the centered features and their norms, and for SVCCA the
-    kept singular directions, are also computed once per layer. device is as in
-    compute().
+    kept singular directions, and for RSA the ranked distance vector, are also computed
+    once per layer; RSA is capped at its registry max_items, since the vectors are held
+    for all layers. device is as in compute().
     """
     dev = _device(device)
-    if metric in ("cka", "svcca"):
+    if metric in ("cka", "svcca", "rsa"):
         return _closed_form_pairs(
             metric, layers_a, layers_b, dict(params or {}), n, seed, group_ids, model, model_b, pooling, corpus, dev
         )
@@ -618,13 +620,15 @@ def _closed_form_pairs(
     corpus: str | None,
     dev: torch.device | None = None,
 ) -> Records:
-    """CKA or SVCCA for every layer pair, with per-layer summaries computed once."""
-    from req_metrics.metrics.compare import _check_pair, _cka_from_stats, _cka_stats, _svd_directions
+    """CKA, SVCCA or RSA for every layer pair, with per-layer summaries computed once."""
+    from req_metrics.metrics.compare import _check_pair, _cka_from_stats, _cka_stats, _rsa_vector, _svd_directions
 
     spec = get_metric(metric)
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
     ids_a, ids_b = sorted(layers_a), sorted(b_map)
+    if spec.max_items is not None and (n is None or n > spec.max_items):
+        n = spec.max_items
     idx = choose_indices(_tensor(layers_a[ids_a[0]]).shape[0], n, seed, group_ids)
     for l in ids_b:
         _check_pair(_tensor(layers_a[ids_a[0]])[idx], _tensor(b_map[l])[idx])
@@ -639,6 +643,15 @@ def _closed_form_pairs(
         def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
             biased, unbiased = _cka_from_stats(a, b)
             return (unbiased if debiased else biased), {"biased": biased, "debiased": unbiased}
+
+    elif metric == "rsa":
+        distance, method = str(params.get("distance", "cosine")), str(params.get("method", "spearman"))
+
+        def summary(x: Tensor) -> Any:
+            return _rsa_vector(x, distance, method, int(params.get("chunk", 1024))).float()
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            return float(torch.dot(a.double(), b.double())), {"n_pairs": float(a.numel())}
 
     else:
         threshold = float(params.get("threshold", 0.99))

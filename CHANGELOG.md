@@ -9,7 +9,7 @@ First release in preparation.
 
 ### Added
 
-- 36 metrics in twelve groups, each registered with its input contract, canonical preprocessing and
+- 37 metrics in twelve groups, each registered with its input contract, canonical preprocessing and
   citation: spectral (effective rank, matrix-based entropy, alpha-ReQ, anisotropy, participation
   ratio with the corrections of Chun et al., eigenvalue early enrichment), intrinsic dimension
   (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST), local geometry (kNN curvature, local
@@ -17,7 +17,7 @@ First release in preparation.
   deviation), clustering (k-means inertia, Davies-Bouldin index), distribution (Gaussianity,
   sparsity, embedding norm), trajectory curvature, views (LiDAR, InfoNCE over any number of views,
   DiME, alignment), pitch-transposition equivariance, representation pairs (information imbalance,
-  neighborhood overlap, CKA, SVCCA), token fields and the Jacobian effective rank.
+  neighborhood overlap, CKA, SVCCA, RSA), token fields and the Jacobian effective rank.
 - `compute()` at three levels (one vector per sample; each sample's tokens, aggregated over samples;
   the tokens of all samples as one cloud), with shared spectra and neighbor tables, seeded
   subsetting, per-metric item caps, a `device` argument and `Records` with JSON, CSV and pandas

@@ -57,7 +57,7 @@ applies across metrics.
 | Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
 | Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
 | Manifold | dimension: intrinsic_dimension/twonn, /gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
-| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
+| Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The study's own set is alpha-ReQ, RankMe, NE Sum, condition number, Self-Cluster,
 DSE and TwoNN ID, all on the final backbone output of 260 vision models; this
@@ -358,7 +358,7 @@ answers a different question from the information imbalance (directional
 predictability of neighbor ranks); the two are the pair family. The retention score
 of Jiang et al. (2026) is the Jaccard variant of this quantity.
 
-## 8. cka and svcca
+## 8. cka, svcca and rsa
 
 Pair similarity indices for the same items in two representations. `cka` is linear
 centered kernel alignment (Kornblith et al., 2019, ICML, arXiv:1905.00414, Table 1),
@@ -379,6 +379,20 @@ The maximum over the L_A x L_B pairs of a map is inflated by the number of pairs
 (their Sec. 4.2): report the map, and calibrate a reported maximum against pairings
 permuted over items.
 
+`rsa` is representational similarity analysis (Kriegeskorte, Mur and Bandettini,
+2008): each representation gives the vector of distances between all pairs of items,
+and the two vectors are compared by Spearman rank correlation, 1 for the same
+geometry and 0 in expectation for unrelated representations. The distance is cosine
+by default, the choice of Koepke et al. (2026), with Euclidean and the paper's
+correlation distance as options, and `method="pearson"` correlates the raw
+distances. It grades the full ordering of pairs where CKA weights the leading
+directions, which is why Koepke et al. find cross-modal RSA at 51 to 58 percent of
+the vision-vision ceiling against 83 to 92 percent for CKA on the same pairs (their
+Sec. 4); Gröger et al. (2026) calibrate it against permuted pairings like the other
+measures. Cost is N(N - 1)/2 distances per representation, built in row chunks;
+`compute_pairs` holds one ranked vector per layer, so the registry caps it at 4,000
+items.
+
 ## 9. Pairs across models and modalities
 
 The pair metrics take any two representations of the same items with aligned rows:
@@ -398,16 +412,15 @@ shuffled pairing gives 1 at every layer. Huh et al. (2024) measure cross-modal
 alignment as the neighborhood overlap of paired images and captions (Section 7) and
 report that it rises with language-model performance. Koepke et al. (2026) find that
 the rise saturates for recent models, that fixed-k overlap decays with gallery size
-and with many-to-many pairing while representational similarity analysis
-(Kriegeskorte, Mur and Bandettini, 2008) and CKA stay stable, and that the agreement
-which survives is coarse: cross-modal RSA peaks on the top three eigenmodes and
-erodes as finer modes are added. Gröger et al. (2026) find that after permutation
-calibration the convergence reported by CKA, SVCCA and Procrustes distance
-disappears while the neighborhood overlap keeps it. For this library: the sample
-size, k, preprocessing and pairing are part of a pair record and are compared only
-at equal values; the imbalance and the overlap read neighborhoods, CKA and SVCCA the
-global geometry, and a cross-model claim rests on both; the full L_A x L_B map is
-reported rather than its maximum.
+and with many-to-many pairing while RSA (Section 8) and CKA stay stable, and that
+the agreement which survives is coarse: cross-modal RSA peaks on the top three
+eigenmodes and erodes as finer modes are added. Gröger et al. (2026) find that after
+permutation calibration the convergence reported by CKA, SVCCA and Procrustes
+distance disappears while the neighborhood overlap keeps it. For this library: the
+sample size, k, preprocessing and pairing are part of a pair record and are compared
+only at equal values; the imbalance and the overlap read neighborhoods, CKA and
+SVCCA the global geometry, and a cross-model claim rests on both; the full L_A x L_B
+map is reported rather than its maximum.
 
 Considered and not adopted from this literature: the centered kernel
 nearest-neighbor alignment of Huh et al. (2024, App. A), a k-NN-masked CKA; the

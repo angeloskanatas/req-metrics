@@ -54,7 +54,13 @@ class PostHocExampleTests(unittest.TestCase):
                 shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))),
                 params={"pte": {"epochs": 3}},
             )
-            for kw in ({"k": 1}, {"metric": "neighborhood_overlap"}, {"metric": "cka"}, {"metric": "svcca"}):
+            for kw in (
+                {"k": 1},
+                {"metric": "neighborhood_overlap"},
+                {"metric": "cka"},
+                {"metric": "svcca"},
+                {"metric": "rsa"},
+            ):
                 self.assertEqual(len(rq.compute_pairs(layers, **kw).rows), 9)
             rq.convergence(z1, "effective_rank").to_markdown()
             self.assertEqual(len(rq.top_layers(rec, "intrinsic_dimension/gride", k=3)), 3)

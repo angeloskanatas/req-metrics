@@ -178,24 +178,25 @@ alignment (Wang and Isola, 2020), the normalized standard deviation (Chen and He
 overlap (Doimo et al., 2020), the intrinsic-dimension caveats of Schulte and Rügamer
 (2026) as card text, the taxonomy and the alpha-ReQ fit-range caveat of Arputharaj
 et al. (2026), the k-means inertia and Davies-Bouldin index of Whetten et al.
-(2025), linear CKA (Kornblith et al., 2019) and SVCCA (Raghu et al., 2017) as
-layer-pair metrics, and the Jacobian effective rank of Chung and Kim (2026), which
-needs the model and is therefore computed by the monitor. Not adopted: the condition
-number of Tsitsulin et al. (its correlation with accuracy reverses sign across their
-datasets, and Arputharaj et al. trace it to OLS conditioning), their coherence (the
-least stable of their metrics under subsampling), diffusion spectral entropy (Liao
-et al., 2024; a bandwidth in absolute embedding units, non-commercial reference
-code, and near-perfect collinearity with self-clustering), the layer-pair measures
-of Jiang et al. (2026), which have no code and no peer review yet, the
-dense-representation structure estimator of Dai et al. (2025), whose paper and
-released code define different quantities, the parameter- and
-representation-prediction probes of Plachouras et al. (2025), which train a probe
-for every layer, transformation and evaluation, Task Priors (Patel and Balestriero,
-2025), whose prior kernel and temperature have no selection rule, and Q-Score
-(Kalibhat et al., 2024), a per-sample misclassification predictor whose authors do
-not extend it to ViT encoders. The pair measures of the cross-model literature that
-were not adopted are listed in `docs/METRICS.md`, section 9; the reasons for the rest
-are in its section 6.
+(2025), linear CKA (Kornblith et al., 2019), SVCCA (Raghu et al., 2017) and
+representational similarity analysis (Kriegeskorte et al., 2008) as pair metrics,
+and the Jacobian effective rank of Chung and Kim (2026), which needs the model and
+is therefore computed by the monitor. Not adopted: the condition number of Tsitsulin
+et al. (its correlation with accuracy reverses sign across their datasets, and
+Arputharaj et al. trace it to OLS conditioning), their coherence (the least stable
+of their metrics under subsampling), diffusion spectral entropy (Liao et al., 2024;
+a bandwidth in absolute embedding units, non-commercial reference code, and
+near-perfect collinearity with self-clustering), the layer-pair measures of Jiang et
+al. (2026), which have no code and no peer review yet, the dense-representation
+structure estimator of Dai et al. (2025), whose paper and released code define
+different quantities, the parameter- and representation-prediction probes of
+Plachouras et al. (2025), which train a probe for every layer, transformation and
+evaluation, Task Priors (Patel and Balestriero, 2025), whose prior kernel and
+temperature have no selection rule, and Q-Score (Kalibhat et al., 2024), a
+per-sample misclassification predictor whose authors do not extend it to ViT
+encoders. The pair measures of the cross-model literature that were not adopted are
+listed in `docs/METRICS.md`, section 9; the reasons for the rest are in its section
+6.
 
 ## 6. Sample size
 

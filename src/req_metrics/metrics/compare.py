@@ -221,6 +221,85 @@ def svcca(x_a: Tensor, x_b: Tensor, *, threshold: float = 0.99) -> MetricResult:
     return MetricResult(float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(k_a), "k_b": float(k_b)})
 
 
+def _condensed_distances(x: Tensor, distance: str, chunk: int) -> Tensor:
+    """Pairwise distances of the rows for i < j, row-major, built in row chunks."""
+    n = x.shape[0]
+    if distance == "correlation":
+        x = x - x.mean(dim=1, keepdim=True)
+    if distance in ("cosine", "correlation"):
+        x = l2_normalize(x)
+    elif distance != "euclidean":
+        raise ValueError(f"distance must be cosine, euclidean or correlation, got {distance!r}")
+    cols = torch.arange(n, device=x.device)
+    parts = []
+    for start in range(0, n - 1, chunk):
+        rows = torch.arange(start, min(start + chunk, n - 1), device=x.device)
+        d = (
+            torch.cdist(x[rows], x, compute_mode=_cdist_mode(x.dtype))
+            if distance == "euclidean"
+            else 1.0 - x[rows] @ x.T
+        )
+        parts.append(d[cols[None, :] > rows[:, None]])
+    return torch.cat(parts)
+
+
+def _average_ranks(v: Tensor) -> Tensor:
+    """1-based ranks of a vector; tied values share their mean rank."""
+    order = torch.argsort(v)
+    _, inverse, counts = torch.unique_consecutive(v[order], return_inverse=True, return_counts=True)
+    ends = torch.cumsum(counts, 0).double()
+    ranks = torch.empty_like(v, dtype=torch.float64)
+    ranks[order] = (ends - (counts.double() - 1) / 2)[inverse]
+    return ranks
+
+
+def _rsa_vector(x: Tensor, distance: str, method: str, chunk: int) -> Tensor:
+    """Standardized (zero-mean, unit-norm) distance vector, ranked for Spearman; RSA is the dot product of two."""
+    v = _condensed_distances(x.double(), distance, chunk)
+    if method == "spearman":
+        v = _average_ranks(v)
+    elif method != "pearson":
+        raise ValueError(f"method must be spearman or pearson, got {method!r}")
+    v = v - v.mean()
+    return v / v.norm().clamp_min(1e-300)
+
+
+def rsa(
+    x_a: Tensor, x_b: Tensor, *, distance: str = "cosine", method: str = "spearman", chunk: int = 1024
+) -> MetricResult:
+    """Representational similarity analysis: correlation of the pairwise-distance vectors of two representations.
+
+    Kriegeskorte, Mur and Bandettini (2008, Frontiers in Systems Neuroscience): each representation
+    gives the distances between all pairs of items, and the two vectors (i < j) are compared by
+    Spearman rank correlation; 1 for the same geometry, 0 in expectation for unrelated ones. The
+    distance is cosine by default, as in Koepke et al. (2026), "euclidean", or "correlation" (one
+    minus the Pearson correlation across features, the paper's choice). Reads the full ordering of
+    pairs, where CKA weights the leading directions. N(N - 1)/2 distances per representation, built
+    in row chunks.
+
+    Args:
+        x_a, x_b: (N, D_a) and (N, D_b), rows of the same items.
+        distance: "cosine", "euclidean" or "correlation".
+        method: "spearman" (ranks) or "pearson" (raw distances).
+        chunk: Rows per distance block.
+
+    Returns:
+        value: the correlation.
+        extras: n_pairs.
+    """
+    _check_pair(x_a, x_b)
+    a, b = _rsa_vector(x_a, distance, method, chunk), _rsa_vector(x_b, distance, method, chunk)
+    return MetricResult(float(torch.dot(a, b)), {"n_pairs": float(a.numel())})
+
+
+register_metric(
+    "rsa",
+    inputs=InputKind.PAIR,
+    preprocess=Preprocess(),
+    citation=("kriegeskorte2008rsa", "koepke2026cave"),
+    max_items=4000,
+    description="Spearman correlation of the pairwise-distance vectors of two representations (Kriegeskorte et al., 2008).",
+)(rsa)
 register_metric(
     "cka",
     inputs=InputKind.PAIR,

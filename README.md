@@ -6,7 +6,7 @@
 
 req-metrics computes label-free metrics of learned representations: effective rank,
 intrinsic dimension, anisotropy, LiDAR, InfoNCE, pitch-transposition equivariance
-and thirty others, as functions on embedding tensors. It serves two uses: layer-wise
+and thirty-one others, as functions on embedding tensors. It serves two uses: layer-wise
 analysis of trained models, and monitoring during training, where the same metrics
 flag collapse and compare runs and checkpoints without labels.
 
@@ -59,7 +59,7 @@ rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augme
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
 rq.compute_pairs(layers, k=1)                        # information imbalance between all layer pairs
-rq.compute_pairs(layers, metric="cka")              # or "svcca", "neighborhood_overlap"
+rq.compute_pairs(layers, metric="cka")              # or "svcca", "rsa", "neighborhood_overlap"
 rq.compute_pairs(audio_layers, text_layers, metric="neighborhood_overlap", k=10, params={"l2": True},
                  model="audio-encoder", model_b="text-encoder")  # two models or modalities, paired items
 
@@ -132,7 +132,7 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 | Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
 | Equivariance | `pte` | embeddings of pitch-shifted copies |
-| Representation pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
+| Representation pairs | `cka`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
@@ -190,10 +190,7 @@ ruff check src tests examples scripts && ruff format --check .
 pytest
 ```
 
-See `CONTRIBUTING.md` for how a metric is added. Agentic coding tools were used
-as a programming aid. Every metric follows its source paper and reference
-implementation and is checked in `tests/`; responsibility for the code rests
-with the author.
+See `CONTRIBUTING.md` for how a metric is added.
 
 ## Citation
 
