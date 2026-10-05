@@ -75,11 +75,42 @@ class NeighborhoodOverlapTests(unittest.TestCase):
         self.assertAlmostEqual(rq.information_imbalance(self.x, y, l2=True).value, 2.0 / 800, places=9)
         rec = rq.compute_pairs({0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"l2": True})
         self.assertAlmostEqual(rec[0].value, 1.0, places=12)
-        self.assertEqual((rec[0].preprocess, rec[0].params), ("l2", {"k": 10, "l2": True}))
+        self.assertEqual((rec[0].preprocess, rec[0].params), ("l2", {"k": 10, "l2": True, "jaccard": False}))
         keyed = rq.compute_pairs(
             {0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"neighborhood_overlap": {"l2": True}}
         )
         self.assertEqual(keyed[0].params, rec[0].params)
+
+    def test_jaccard_normalization_and_its_chance_level(self):
+        from scipy.stats import hypergeom
+
+        y = self.x[:, :4] + 0.3 * torch.randn(800, 4)
+        r = rq.neighborhood_overlap(self.x, y, k=10, jaccard=True)
+        ia = rq.Neighbors.from_points(self.x.double(), 10).indices[:, 1:11]
+        ib = rq.Neighbors.from_points(y.double(), 10).indices[:, 1:11]
+        sets = [(set(ia[i].tolist()), set(ib[i].tolist())) for i in range(800)]
+        direct = sum(len(a & b) / len(a | b) for a, b in sets) / 800
+        self.assertAlmostEqual(r.value, direct, places=12)
+        self.assertLess(r.value, rq.neighborhood_overlap(self.x, y, k=10).value)  # union >= k per point
+        self.assertAlmostEqual(rq.neighborhood_overlap(self.x, self.x, k=10, jaccard=True).value, 1.0, places=12)
+        m = torch.arange(11).double()
+        pmf = torch.tensor(hypergeom(799, 10, 10).pmf(m.numpy()))
+        self.assertAlmostEqual(r.extras["chance"], float((pmf * m / (20 - m)).sum()), places=12)
+        self.assertAlmostEqual(rq.neighborhood_overlap(self.x, y, k=10).extras["chance"], 10 / 799, places=15)
+        # ReSi's jaccard_similarity (repsim/measures/nearest_neighbor.py): k + 1 cosine neighbors, self dropped,
+        # per-item |intersection| / |union|, mean over items.
+        from scipy.spatial.distance import cdist
+
+        def resi_sets(f):
+            order = cdist(f.numpy(), f.numpy(), metric="cosine").argsort(axis=1)[:, 1:11]
+            return [set(row.tolist()) for row in order]
+
+        resi = sum(len(a & b) / len(a | b) for a, b in zip(resi_sets(self.x), resi_sets(y), strict=True)) / 800
+        self.assertAlmostEqual(rq.neighborhood_overlap(self.x, y, k=10, l2=True, jaccard=True).value, resi, places=12)
+        rec = rq.compute_pairs({0: self.x}, {0: y}, metric="neighborhood_overlap", k=10, params={"jaccard": True})
+        self.assertAlmostEqual(rec[0].value, direct, places=12)
+        self.assertEqual(rec[0].params, {"k": 10, "l2": False, "jaccard": True})
+        self.assertAlmostEqual(rec[0].extras["chance"], r.extras["chance"], places=15)
 
     def test_compute_pairs_overlap(self):
         layers = {0: self.x, 1: self.x + 0.5 * torch.randn(800, 8), 2: torch.randn(800, 8)}

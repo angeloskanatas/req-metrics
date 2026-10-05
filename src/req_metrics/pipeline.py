@@ -494,8 +494,8 @@ def compute_pairs(
     Delta(A -> B), extras["reverse"]), "neighborhood_overlap" (default k = 30; symmetric), "cycle_knn"
     (default k = 10; value A -> B, extras["reverse"]), "cka", "svcca" or "rsa" (symmetric). params passes
     the estimator's options, flat or keyed by the metric name as in compute(): debiased for CKA,
-    threshold for SVCCA, distance and method for RSA, and l2 for the three neighbor metrics, which then
-    rank cosine neighbors (unit-norm rows) as Huh et al. (2024) do.
+    threshold for SVCCA, distance and method for RSA, l2 for the three neighbor metrics, which then rank
+    cosine neighbors (unit-norm rows) as Huh et al. (2024) do, and jaccard for the overlap.
     The preprocessing is recorded. The imbalance costs one chunked rank table per layer rather than one
     per pair: for each target layer the ranks of all items are computed once and gathered at the k
     nearest neighbors of every source layer, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D). The
@@ -518,6 +518,7 @@ def compute_pairs(
     if k is None:
         k = {"information_imbalance": 1, "neighborhood_overlap": 30, "cycle_knn": 10}[metric]
     l2 = bool(params.get("l2", False))
+    jaccard = bool(params.get("jaccard", False))
     spec = get_metric(metric)
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
@@ -531,15 +532,15 @@ def compute_pairs(
     nn_a = {l: Neighbors.from_points(xa[l], k).indices[:, 1 : k + 1] for l in ids_a}
     nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k).indices[:, 1 : k + 1] for l in ids_b}
     if metric in ("neighborhood_overlap", "cycle_knn"):
-        from req_metrics.metrics.compare import _cycle_fraction, _shared_neighbor_fraction
+        from req_metrics.metrics.compare import _cycle_fraction, _overlap_chance, _shared_neighbor_fraction
 
         depths = _normalized_depths(ids_a)
         out = Records()
         for la in ids_a:
             for lb in ids_b:
                 if metric == "neighborhood_overlap":
-                    frac = _shared_neighbor_fraction(nn_a[la], nn_b[lb])
-                    extras = {"std": float(frac.std()), "chance": k / (n_items - 1)}
+                    frac = _shared_neighbor_fraction(nn_a[la], nn_b[lb], jaccard)
+                    extras = {"std": float(frac.std()), "chance": _overlap_chance(n_items, k, jaccard)}
                 else:
                     frac = _cycle_fraction(nn_a[la], nn_b[lb])
                     reverse = float(_cycle_fraction(nn_b[lb], nn_a[la]).mean())
@@ -558,7 +559,9 @@ def compute_pairs(
                         n_items=n_items,
                         dim=int(xa[la].shape[-1]),
                         preprocess="l2" if l2 else "none",
-                        params={"k": k, "l2": l2},
+                        params={"k": k, "l2": l2, "jaccard": jaccard}
+                        if metric == "neighborhood_overlap"
+                        else {"k": k, "l2": l2},
                         seed=seed,
                         tags=spec.tags,
                         extras=extras,

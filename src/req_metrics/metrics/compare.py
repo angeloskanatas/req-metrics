@@ -5,6 +5,8 @@ Rows of the two inputs describe the same items in the same order; widths may dif
 
 from __future__ import annotations
 
+import math
+
 import torch
 from torch import Tensor
 
@@ -77,11 +79,28 @@ def information_imbalance(
     return MetricResult(forward, {"reverse": reverse})
 
 
-def _shared_neighbor_fraction(nn_a: Tensor, nn_b: Tensor) -> Tensor:
-    """Per-point fraction of shared entries between two (N, k) index sets with distinct entries per row."""
+def _shared_neighbor_fraction(nn_a: Tensor, nn_b: Tensor, jaccard: bool = False) -> Tensor:
+    """Per-point overlap of two (N, k) index sets with distinct entries per row: shared / k, or shared / union."""
     both = torch.sort(torch.cat([nn_a, nn_b], dim=1), dim=1).values
     shared = (both[:, 1:] == both[:, :-1]).sum(dim=1)
-    return shared.double() / nn_a.shape[1]
+    k = nn_a.shape[1]
+    return shared.double() / ((2 * k - shared).double() if jaccard else k)
+
+
+def _overlap_chance(n: int, k: int, jaccard: bool = False) -> float:
+    """Expected overlap of two independent uniform k-subsets of N - 1 items: k/(N - 1), or for the Jaccard
+    normalization the expectation of m/(2k - m) over the hypergeometric shared count m."""
+    if not jaccard:
+        return k / (n - 1)
+
+    def log_binom(a: int, b: int) -> float:
+        return math.lgamma(a + 1) - math.lgamma(b + 1) - math.lgamma(a - b + 1)
+
+    total = 0.0
+    for m in range(max(0, 2 * k - (n - 1)), k + 1):
+        log_p = log_binom(k, m) + log_binom(n - 1 - k, k - m) - log_binom(n - 1, k)
+        total += math.exp(log_p) * m / (2 * k - m)
+    return total
 
 
 def neighborhood_overlap(
@@ -90,6 +109,7 @@ def neighborhood_overlap(
     *,
     k: int = 30,
     l2: bool = False,
+    jaccard: bool = False,
     neighbors_a: Neighbors | None = None,
     neighbors_b: Neighbors | None = None,
 ) -> MetricResult:
@@ -102,17 +122,23 @@ def neighborhood_overlap(
     App. A) is the same quantity on cosine neighbors with k = 10 on 1,024 image-caption pairs;
     l2=True ranks cosine neighbors. At fixed k the value falls as N grows and when an item has
     several valid partners (Koepke et al., 2026), so compare at equal N and k on one-to-one pairs.
+    jaccard=True divides each point's shared count by the size of the union of its two neighbor
+    sets instead of by k: the k-NN Jaccard similarity of the ReSi benchmark (Klabunde et al.,
+    2025, ICLR, Eq. 24 and code), attributed there to Wang et al. (2022) and ranked first in
+    vision with k = 10 on cosine neighbors. Its chance level is the expectation of m/(2k - m)
+    over the hypergeometric shared count m.
 
     Args:
         x_a, x_b: (N, D_a) and (N, D_b), rows of the same items: two layers, checkpoints, models
             or modalities.
         k: Neighborhood size.
         l2: Scale rows to unit norm first, so Euclidean neighbors are cosine neighbors.
+        jaccard: Normalize each point's shared count by the union size instead of k.
         neighbors_a, neighbors_b: Precomputed Neighbors tables with at least k neighbors.
 
     Returns:
         value: mean overlap in [0, 1].
-        extras: std of the per-point overlaps, chance level k / (N - 1).
+        extras: std of the per-point overlaps, chance level under independent neighbor sets.
     """
     if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
         raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
@@ -124,9 +150,10 @@ def neighborhood_overlap(
     nb_b = neighbors_b if neighbors_b is not None else Neighbors.from_points(xb, k)
     if nb_a.k < k or nb_b.k < k:
         raise ValueError("Neighbors tables need at least k neighbors")
-    per_point = _shared_neighbor_fraction(nb_a.indices[:, 1 : k + 1], nb_b.indices[:, 1 : k + 1])
+    per_point = _shared_neighbor_fraction(nb_a.indices[:, 1 : k + 1], nb_b.indices[:, 1 : k + 1], jaccard)
     return MetricResult(
-        float(per_point.mean()), {"std": float(per_point.std()) if n > 1 else 0.0, "chance": k / (n - 1)}
+        float(per_point.mean()),
+        {"std": float(per_point.std()) if n > 1 else 0.0, "chance": _overlap_chance(n, k, jaccard)},
     )
 
 
@@ -375,7 +402,14 @@ register_metric(
     "neighborhood_overlap",
     inputs=InputKind.PAIR,
     preprocess=Preprocess(),
-    citation=("doimo2020nucleation", "valeriani2023geometry", "huh2024platonic", "glielmo2022dadapy"),
+    citation=(
+        "doimo2020nucleation",
+        "valeriani2023geometry",
+        "huh2024platonic",
+        "glielmo2022dadapy",
+        "wang2022instability",
+        "klabunde2025resi",
+    ),
     arxiv="2007.03506",
     tags=("relational",),
 )(neighborhood_overlap)

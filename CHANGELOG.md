@@ -25,8 +25,8 @@ First release in preparation.
   export; `convergence()` sample-size curves; `rank_runs` and `top_layers`; parameter-free readouts
   for token grids and token sequences; `protocols.get("kanatas2026")`.
 - `compute_pairs()` between every layer of two representations of the same items (layers,
-  checkpoints, models or modalities), with one rank or neighbor table per layer and cosine neighbors
-  on request.
+  checkpoints, models or modalities), with one rank or neighbor table per layer, cosine neighbors
+  and the Jaccard normalization of the overlap on request.
 - `LayerMonitor` on a fixed seeded subset in eval mode, with view passes from a live loader or in
   train mode for masked objectives, the Jacobian effective rank of every layer's readout, the drift
   of every layer against its first or previous sweep, `OnlineBuffer` over training batches, CSV,

@@ -355,8 +355,16 @@ do not register: compare values at equal n and k on one-to-one pairs, and read t
 as a local statistic. `compute_pairs(layers, metric="neighborhood_overlap")` builds
 one k-NN table per layer and intersects them for every pair. Symmetric, so it
 answers a different question from the information imbalance (directional
-predictability of neighbor ranks) and from `cycle_knn` below. The retention score
-of Jiang et al. (2026) is the Jaccard variant of this quantity.
+predictability of neighbor ranks) and from `cycle_knn` below. `jaccard=True` divides
+each item's shared count by the size of the union of its two neighbor sets instead of
+by k: the k-NN Jaccard similarity of the ReSi benchmark (Klabunde et al., 2025, ICLR,
+App. A.1, Eq. 24; Section 9), which attributes it to Wang et al. (2022) and ranks it
+first in vision, computed there with k = 10 on cosine neighbors (`k=10, l2=True`; the
+test suite checks the value against ReSi's procedure). The two normalizations read the same neighbor
+sets and differ by a per-item monotone transform; the record carries the choice in
+`params`, and the chance level becomes the expectation of m/(2k - m) over the
+hypergeometric shared count m (Gröger et al., Theorem C.10). The retention score of
+Jiang et al. (2026) is this Jaccard variant.
 
 `cycle_knn` is the cycle k-nearest-neighbor consistency that Huh et al. (2024, App. A,
 Table 11) list beside the mutual k-NN and compute in their code as `knn_A[knn_B]`: the
@@ -459,9 +467,7 @@ L_B map is reported rather than its maximum.
 Considered and not adopted from this literature: the centered kernel
 nearest-neighbor alignment of Huh et al. (2024, App. A), a k-NN-masked CKA; the
 variable-k overlap of Koepke et al. (2026), defined for a query set inside a growing
-gallery; the k-NN Jaccard overlap of ReSi, |intersection| / |union| per item where
-`neighborhood_overlap` is |intersection| / k, the same neighbor sets under a per-item
-monotone transform; the permutation null calibration of Gröger et al. (2026): their
+gallery; the permutation null calibration of Gröger et al. (2026): their
 App. E.4 shows the calibrated CKA agreeing with the debiased estimator that
 `debiased=True` provides, their Theorem C.10 gives the overlap's null k/(N - 1) in
 closed form, the imbalance's is 1 by construction and the cycle consistency's is
