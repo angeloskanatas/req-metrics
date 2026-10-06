@@ -495,7 +495,8 @@ class LayerMonitor:
             running statistics are restored after these passes.
         jacobian_items: Inputs from the start of the monitoring set on which the Jacobian
             effective rank of every layer's readout is computed; 0 disables it. Chung and Kim
-            (2026) use 100 inputs.
+            (2026) use 100 inputs. The estimate takes many small differentiated passes, so on a
+            CPU it runs faster with few torch threads.
         jacobian_probes: Random orthonormal input directions per input (32 in Chung and Kim, 2026).
         jacobian_power_iters: Rounds of subspace iteration (5 in Chung and Kim, 2026); each
             costs 2 * jacobian_probes passes per layer (see jacobian_products).

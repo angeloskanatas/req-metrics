@@ -250,6 +250,8 @@ def mst_dimension(x: Tensor, *, n_min: int | None = None, step: int | None = Non
         if length > 0 and np.isfinite(length):
             log_n.append(math.log(size))
             log_len.append(math.log(length))
+    if len(log_n) < 2:
+        raise ValueError("no MST growth to fit: the subsamples have zero length (identical points)")
     slope = float(np.polyfit(log_n, log_len, 1)[0])
     value = 1.0 / (1.0 - slope) if 0.0 < slope < 1.0 else float("nan")
     return MetricResult(value, {"slope": slope, "n_sizes": float(len(log_n))})

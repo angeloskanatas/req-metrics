@@ -304,7 +304,8 @@ class Records:
         return path
 
     def to_pandas(self):
-        """DataFrame with extras expanded into columns (requires pandas)."""
+        """DataFrame with the numeric and text extras expanded into extra_<name> columns (requires pandas);
+        list and dict extras such as per_sample are left out."""
         import pandas as pd
 
         rows = []

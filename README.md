@@ -3,6 +3,7 @@
 [![tests](https://github.com/angeloskanatas/req-metrics/actions/workflows/ci.yml/badge.svg)](https://github.com/angeloskanatas/req-metrics/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/LICENSE)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/pyproject.toml)
+[![arXiv](https://img.shields.io/badge/arXiv-2608.14819-b31b1b.svg)](https://arxiv.org/abs/2608.14819)
 
 req-metrics computes label-free metrics of learned representations: effective rank,
 intrinsic dimension, anisotropy, LiDAR, InfoNCE, pitch-transposition equivariance

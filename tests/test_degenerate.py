@@ -61,5 +61,26 @@ class DegenerateInputTests(unittest.TestCase):
         self.assertLessEqual(res.extras["n_positive_eigenvalues"], 19)  # rank of the between-sample scatter
 
 
+class ExactNullTests(unittest.TestCase):
+    """Closed-form values the audit verified, pinned so they stay."""
+
+    def test_eigenvalue_early_enrichment_of_a_single_direction(self):
+        x = torch.randn(500, 1, dtype=torch.float64) @ torch.randn(1, 8, dtype=torch.float64)
+        self.assertAlmostEqual(rq.eigenvalue_early_enrichment(x).value, 7 / 8, places=9)
+
+    def test_lidar_of_identical_views_is_the_variance_effective_rank_of_the_class_means(self):
+        torch.manual_seed(0)
+        z = torch.randn(300, 12, dtype=torch.float64)
+        views = z.unsqueeze(0).repeat(4, 1, 1)
+        self.assertAlmostEqual(
+            rq.lidar(views, delta=1e-6).value, rq.effective_rank(z, spectrum="variance").value, places=4
+        )
+
+    def test_local_rectifiability_of_an_exact_plane_is_zero(self):
+        torch.manual_seed(0)
+        plane = torch.randn(600, 2, dtype=torch.float64) @ torch.randn(2, 10, dtype=torch.float64)
+        self.assertLess(rq.local_rectifiability(plane, n=2, n_anchors=64, n_scales=4).value, 1e-6)
+
+
 if __name__ == "__main__":
     unittest.main()

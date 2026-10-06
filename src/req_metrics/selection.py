@@ -83,6 +83,8 @@ def top_layers(
         Layer indices, best first.
     """
     prof = records.profile(metric, model)
+    if not prof:
+        raise ValueError(f"no records of {metric!r}" + (f" for model {model!r}" if model is not None else ""))
     if len({layer for layer, _ in prof}) != len(prof):
         raise ValueError("several records per layer: pass one sweep, and set model when the records hold several")
     ranked = sorted(prof, key=lambda lv: _score(lv[1], direction, target), reverse=True)

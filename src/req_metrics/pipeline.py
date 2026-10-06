@@ -653,6 +653,8 @@ def compute_pairs(
             message = f"{type(e).__name__}: {e}"
             values = {(la, lb): (float("nan"), {"error": message}) for la in ids_a for lb in ids_b}
         for (la, lb), (value, extras) in values.items():
+            if not math.isfinite(value) and "error" not in extras:
+                extras = {**extras, "error": "non-finite value"}
             out.rows.append(
                 Record(
                     metric=spec.name,

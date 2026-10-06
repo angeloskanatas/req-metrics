@@ -44,6 +44,8 @@ def self_clustering(x: Tensor, *, center: bool = False) -> MetricResult:
     w = _unit_rows(x, center)
     n, d = w.shape
     q = float((w.T @ w).square().sum())  # ||W W^T||_F^2
+    if d < 2:
+        raise ValueError("self_clustering needs D >= 2")
     expected = n + n * (n - 1) / d
     value = (q - expected) / (n * n - expected)
     return MetricResult(value, {"mean_squared_cosine": (q - n) / (n * (n - 1)), "uniform_mean_squared_cosine": 1.0 / d})

@@ -109,7 +109,8 @@ records are logged under `drift_metrics/` with the reference step in their extra
 Monitoring callbacks that read a queue of training batches, as in stable-pretraining
 (arXiv:2511.19484), measure that training-time representation; the fixed subset is
 what makes a sweep comparable with the previous sweep and with a post-hoc run on a
-checkpoint. Under distributed training the callback runs on global rank zero only.
+checkpoint. Under distributed training the sweep runs on global rank zero and its scalars are
+broadcast to every rank.
 The monitoring subset is a re-iterable loader; a one-shot iterator, or any loader
 with `cache_batches=True`, is materialized once on the CPU so every sweep sees the
 same batches without decoding again. The q view passes read the live loader instead,
