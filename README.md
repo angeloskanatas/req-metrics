@@ -80,8 +80,11 @@ During training the same records come from forward hooks, to watch collapse and
 geometry within a run and to compare runs or checkpoints without labels. With
 PyTorch Lightning it is one callback. It finds the blocks, draws a fixed
 monitoring subset of the training set, sweeps every layer at the start of
-training and on the schedule you give, and logs to the trainer's logger
-(`layer_metrics/<metric>_layer_<l>`, plus layer-profile plots on Weights & Biases).
+training and on the schedule you give, and logs to the trainer's logger. Each layer's
+metrics are scalars over training steps (`layer_metrics/<metric>_layer_<l>`, indices
+zero-padded so panels sort by depth); on Weights & Biases every metric also gets a
+depth-profile chart with one line per sweep, and with `spectra=256` every layer a chart of
+its log singular spectrum, the picture of dimensional collapse.
 
 ```python
 from req_metrics.integrations.lightning import LayerMonitorCallback
@@ -119,9 +122,10 @@ ModelCheckpoint(monitor="layer_metrics/effective_rank_layer_12", mode="max", sav
 EarlyStopping(monitor="layer_metrics/normalized_std_layer_12", mode="max", stopping_threshold=0.5)
 ```
 
-Between sweeps the last value stands, so align the checkpoint cadence with the sweep
-schedule. A resumed run restores the sweep history and the drift reference from the
-checkpoint.
+Key names use the layer index zero-padded to the depth's width (`layer_07` in a
+12-block model). Between sweeps the last value stands, so align the checkpoint cadence
+with the sweep schedule. A resumed run restores the sweep history and the drift
+reference from the checkpoint.
 
 Selection follows the published rules: `rq.rank_runs({name: records},
 "effective_rank", layer=12)` orders runs or checkpoints by a metric at the layer

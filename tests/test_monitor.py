@@ -123,7 +123,7 @@ class MonitorTests(unittest.TestCase):
                 defined[:3],
                 [("monitor/step", None), ("layer_metrics/*", "monitor/step"), ("profiles/*", "monitor/step")],
             )
-            self.assertEqual(len(defined), 7)  # the step metric and six key families
+            self.assertEqual(len(defined), 8)  # the step metric and seven key families
             self.assertIn("layer_metrics/effective_rank_layer_0", calls[0][1])
             self.assertIn("profiles/effective_rank", calls[0][1])
 

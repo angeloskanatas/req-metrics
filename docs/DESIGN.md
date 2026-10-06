@@ -149,6 +149,19 @@ sample and population records and selected extras as `<metric>_<extra>`;
 `tensorboard_sink` writes them through `torch.utils.tensorboard`. CSV and JSON sinks
 keep every field and extra, and any callable of `(records, step)` is accepted.
 
+Three views, each for a different reading. The per-layer scalars are native panels, one
+per layer and metric, which dashboards compare across runs; layer indices are
+zero-padded to the depth's width so the panels sort by depth rather than
+lexicographically. The depth profiles (`profiles/<metric>`) draw metric against layer
+with one line per sweep, at most eight lines spread from the first sweep to the latest,
+so a long run stays readable and its first and current profiles are always on the
+chart. The spectra (`spectra/layer_<l>`, with `spectra > 0`) draw the log10 of each
+layer's singular values over the largest against their index, one line per sweep: the
+plateau-and-cliff of dimensional collapse, the shrinking spectrum of complete collapse
+and the slope that alpha-ReQ fits are read off directly, where the scalars only say
+that something moved. Spectra live in the monitor's side store, not in the records,
+since the records are the tabular data plane.
+
 ## 4b. Which layers, and when
 
 All hooked layers come from one forward pass and spectral metrics cost milliseconds

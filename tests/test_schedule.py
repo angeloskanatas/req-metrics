@@ -88,6 +88,57 @@ class ProfileHistoryTests(unittest.TestCase):
         self.assertEqual(logged[1]["profiles/effective_rank"]["keys"], ["step 1", "step 2"])
 
 
+class DashboardTests(unittest.TestCase):
+    def test_layer_keys_are_zero_padded_to_the_depth(self):
+        rows = [rq.Record(metric="effective_rank", value=float(l), layer=l) for l in range(12)]
+        keys = sorted(rq.layer_scalars(rq.Records(rows)))
+        self.assertEqual(
+            keys[:3],
+            [
+                "layer_metrics/effective_rank_layer_00",
+                "layer_metrics/effective_rank_layer_01",
+                "layer_metrics/effective_rank_layer_02",
+            ],
+        )
+        self.assertEqual(keys[-1], "layer_metrics/effective_rank_layer_11")
+        few = rq.layer_scalars(rq.Records(rows[:3]))
+        self.assertIn("layer_metrics/effective_rank_layer_2", few)
+
+    def test_profile_history_is_capped_and_keeps_first_and_last(self):
+        model = Toy()
+        mon = rq.LayerMonitor(model.blocks, pool=lambda out: out, metrics=["effective_rank"], n_items=64)
+        for step in range(20):
+            with torch.no_grad():
+                model.blocks[0].weight.mul_(1.05)
+            rec = mon.sweep(model, loader(), step=step)
+        xs, ys, keys = _profile_series(rec, mon.history, "effective_rank")
+        self.assertEqual(len(ys), 8)
+        self.assertEqual((keys[0], keys[-1]), ("step 0", "step 19"))
+
+    def test_spectra_store_and_wandb_chart(self):
+        model = Toy()
+        mon = rq.LayerMonitor(model.blocks, pool=lambda out: out, metrics=["effective_rank"], n_items=64, spectra=8)
+        logged = []
+        fake = type("W", (), {"log": lambda self, d: logged.append(d), "define_metric": lambda self, *a, **k: None})()
+        stub = types.ModuleType("wandb")
+        stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+        sys.modules["wandb"] = stub
+        try:
+            sink = rq.wandb_sink(fake, history=mon.history, spectra=mon.spectra)
+            mon.sweep(model, loader(), step=1, sinks=[sink])
+            mon.sweep(model, loader(), step=2, sinks=[sink])
+        finally:
+            del sys.modules["wandb"]
+        step, spectra = mon.spectra[-1]
+        self.assertEqual(step, 2)
+        self.assertLessEqual(spectra[0].numel(), 8)
+        self.assertEqual(float(spectra[0][0]), 0.0)  # log10 of the largest value over itself
+        self.assertTrue(bool((spectra[0] <= 0).all()))
+        chart = logged[-1]["spectra/layer_1"]
+        self.assertEqual(chart["xs"], list(range(1, spectra[1].numel() + 1)))
+        self.assertEqual(chart["keys"], ["step 1", "step 2"])
+
+
 class StepScheduleTests(unittest.TestCase):
     def _callback(self, **kw):
         try:

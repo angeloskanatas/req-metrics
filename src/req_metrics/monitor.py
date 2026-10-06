@@ -31,6 +31,7 @@ from req_metrics._types import InputKind
 from req_metrics.pipeline import _normalized_depths, choose_indices, compute
 from req_metrics.records import Record, Records
 from req_metrics.registry import get_metric
+from req_metrics.spectrum import Spectrum
 from req_metrics.view_construction import ViewSpec
 
 Pooler = Callable[[Any], Tensor]
@@ -208,18 +209,21 @@ def metric_key(record: Record) -> str:
 
 def layer_scalars(rec: Records, extras: Sequence[str] = ()) -> dict[str, float]:
     """Logging scalars of the single-layer records: <prefix>/<metric>_layer_<l>, and
-    <prefix>/<metric>_<extra>_layer_<l> for each named numeric extra. Non-finite values are skipped."""
+    <prefix>/<metric>_<extra>_layer_<l> for each named numeric extra. Layer indices are zero-padded to
+    the width of the deepest layer in the records (layer_02, layer_12), so dashboard panels sort in depth
+    order. Non-finite values are skipped."""
     out: dict[str, float] = {}
-    for r in rec:
-        if r.layer_b is not None:
-            continue
+    rows = [r for r in rec if r.layer_b is None and r.layer is not None]
+    width = max((len(str(r.layer)) for r in rows), default=1)
+    for r in rows:
         stem = f"{metric_key_prefix(r)[0]}/{metric_key(r)}"
+        tag = f"layer_{r.layer:0{width}d}"
         if r.value == r.value:
-            out[f"{stem}_layer_{r.layer}"] = r.value
+            out[f"{stem}_{tag}"] = r.value
         for e in extras:
             v = r.extras.get(e)
             if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
-                out[f"{stem}_{e}_layer_{r.layer}"] = float(v)
+                out[f"{stem}_{e}_{tag}"] = float(v)
     return out
 
 
@@ -503,6 +507,9 @@ class LayerMonitor:
         jacobian_input: Maps a batch input to the tensor the Jacobian is taken with respect to,
             without differentiation (e.g. waveform to spectrogram); default the input itself.
         jacobian_forward: Runs the model on that tensor; default the sweep's forward.
+        spectra: Leading singular values of every layer's centered pooled matrix to keep per sweep,
+            as log10 of their ratio to the largest, in `self.spectra` (step, layer -> values); the
+            spectrum charts of wandb_sink read them. 0 disables. Sequence level only.
         drift_metrics: Registry names of pair metrics computed, at every sweep, between each layer's
             reference representation and its current one on the same monitoring items, as Raghu et
             al. (2017, Sec. 4.1) compare every layer during training with a fixed state. The
@@ -541,6 +548,7 @@ class LayerMonitor:
         jacobian_forward: Callable[[Tensor], Any] | None = None,
         drift_metrics: Sequence[str] = (),
         drift_reference: str = "first",
+        spectra: int = 0,
         seed: int = 0,
     ):
         self.layer_modules = list(layer_modules)
@@ -574,6 +582,8 @@ class LayerMonitor:
         self.drift_reference = drift_reference
         self._reference: dict[int, Tensor] | None = None
         self._reference_step: int | None = None
+        self.n_spectrum = int(spectra)
+        self.spectra: list[tuple[int, dict[int, Tensor]]] = []
         self.seed = seed
         self.history: list[tuple[int, Records]] = []
 
@@ -687,6 +697,8 @@ class LayerMonitor:
             **self.labels,
         )
         rec.extend(self._drift(layers, step))
+        if self.n_spectrum > 0 and self.level == "sequence":
+            self.spectra.append((step, {l: _log_spectrum(x, self.n_spectrum) for l, x in layers.items()}))
         if self.view_metrics and self.augment is not None:
             if self.level != "sequence":
                 raise ValueError("view metrics need level='sequence'")
@@ -798,6 +810,53 @@ class LayerMonitor:
         return {step: rec.profile(metric) for step, rec in self.history}
 
 
+def _log_spectrum(x: Tensor, k: int) -> Tensor:
+    """log10 of the leading k singular values of the centered rows of x over the largest; empty if x collapsed."""
+    s = Spectrum.from_points(x.double()).singular_values[:k]
+    s = s[s > 0]
+    return (s / s[0]).log10().float().cpu() if s.numel() else s.float().cpu()
+
+
+def _select_sweeps(labels: Sequence[Any], max_lines: int) -> list[int]:
+    """Indices of at most max_lines sweeps spread evenly from the first to the last."""
+    n = len(labels)
+    if n <= max_lines:
+        return list(range(n))
+    picks = {round(i * (n - 1) / (max_lines - 1)) for i in range(max_lines)}
+    return sorted(picks)
+
+
+def _spectrum_plots(
+    spectra: Sequence[tuple[int, dict[int, Tensor]]], rec: Records, wandb_module: Any, max_lines: int = 8
+) -> dict[str, Any]:
+    """spectra/layer_<l> line series: log10 normalized singular values against their index, one line per sweep."""
+    if not spectra or not len(rec):
+        return {}
+    label = rec[0].extras.get("step")
+    upto = next((i for i, (s, _) in enumerate(spectra) if s == label), len(spectra) - 1) + 1
+    chosen = _select_sweeps(list(range(upto)), max_lines)
+    layers = sorted(spectra[upto - 1][1])
+    width = max((len(str(l)) for l in layers), default=1)
+    out: dict[str, Any] = {}
+    for layer in layers:
+        series: list[tuple[int, Tensor]] = []
+        for i in chosen:
+            v = spectra[i][1].get(layer)
+            if v is not None and v.numel():
+                series.append((spectra[i][0], v))
+        if not series:
+            continue
+        n = min(v.numel() for _, v in series)
+        out[f"spectra/layer_{layer:0{width}d}"] = wandb_module.plot.line_series(
+            xs=list(range(1, n + 1)),
+            ys=[v[:n].tolist() for _, v in series],
+            keys=[f"step {s}" for s, _ in series],
+            title=f"log10 spectrum, layer {layer}",
+            xname="singular value index",
+        )
+    return out
+
+
 def _x_step(rec: Records, step: int) -> int:
     """The x value of a sweep: its global step when the records carry one (the Lightning callback), else step."""
     return int(rec[0].extras.get("global_step", step)) if len(rec) else step
@@ -899,24 +958,29 @@ def tensorboard_sink(log_dir: str | Path, extras: Sequence[str] = ()) -> Callabl
 
 
 def _profile_series(
-    rec: Records, history: Sequence[tuple[int, Records]] | None, metric: str
+    rec: Records, history: Sequence[tuple[int, Records]] | None, metric: str, max_lines: int = 8
 ) -> tuple[list, list, list]:
-    """xs (layers), ys (one profile per sweep) and keys for a line-series plot; history, when given, adds earlier sweeps."""
+    """xs (layers), ys (one profile per sweep) and keys for a line-series plot.
+
+    history, when given, adds earlier sweeps: at most max_lines - 1 of them, spread evenly from the first
+    to the most recent, so a long run keeps a readable chart with its first and latest profiles.
+    """
     prof = rec.profile(metric)
     xs = [l for l, _ in prof]
-    ys, keys = [], []
+    past_ys, past_keys = [], []
     for step, past in history or []:
         p = dict(past.profile(metric))
         if p and all(l in p for l in xs) and p != dict(prof):
-            ys.append([p[l] for l in xs])
-            keys.append(f"step {past[0].extras.get('global_step', step)}")
-    ys.append([v for _, v in prof])
-    keys.append(f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}")
+            past_ys.append([p[l] for l in xs])
+            past_keys.append(f"step {past[0].extras.get('global_step', step)}")
+    chosen = _select_sweeps(past_keys, max_lines - 1)
+    ys = [past_ys[i] for i in chosen] + [[v for _, v in prof]]
+    keys = [past_keys[i] for i in chosen] + [f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}"]
     return xs, ys, keys
 
 
 class _WandbSink:
-    def __init__(self, run, line_series: bool, step_metric: str, history, extras: Sequence[str]):
+    def __init__(self, run, line_series: bool, step_metric: str, history, extras: Sequence[str], spectra=None):
         self.run, self.line_series, self.step_metric, self.history, self.extras = (
             run,
             line_series,
@@ -924,6 +988,7 @@ class _WandbSink:
             history,
             tuple(extras),
         )
+        self.spectra = spectra
         self.defined = False
 
     def __call__(self, rec: Records, step: int) -> None:
@@ -939,6 +1004,7 @@ class _WandbSink:
                 "online_profiles",
                 "drift_metrics",
                 "drift_profiles",
+                "spectra",
             ):
                 target.define_metric(f"{family}/*", step_metric=self.step_metric)
             self.defined = True
@@ -950,6 +1016,8 @@ class _WandbSink:
                 log[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
                     xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                 )
+            if self.spectra is not None and rec[0].extras.get("source") is None:
+                log.update(_spectrum_plots(self.spectra, rec, wandb))
         target.log(log)
 
 
@@ -959,10 +1027,11 @@ def wandb_sink(
     step_metric: str = "monitor/step",
     history: Sequence[tuple[int, Records]] | None = None,
     extras: Sequence[str] = (),
+    spectra: Sequence[tuple[int, dict[int, Tensor]]] | None = None,
 ) -> Callable[[Records, int], None]:
     """Log to Weights & Biases: layer_metrics/<metric>_layer_<l> scalars and profiles/<metric> line series
     (online_metrics/ and online_profiles/ for training-batch records, drift_metrics/ and drift_profiles/
-    for drift records).
+    for drift records), and spectra/layer_<l> line series when a LayerMonitor's `.spectra` is given.
 
     The sweep step is logged as its own metric and declared the x-axis of every
     layer_metrics/* and profiles/* key with wandb.define_metric, so sweeps interleave
@@ -972,6 +1041,8 @@ def wandb_sink(
     "_" in keys. Uses the active run unless one is given. With history (a
     LayerMonitor's or OnlineBuffer's .history), every profile plot shows all sweeps so
     far, one line per step, so the depth profile's evolution is read off one chart.
-    extras names numeric extras logged next to the values, e.g. ("frechet_var",).
+    extras names numeric extras logged next to the values, e.g. ("frechet_var",). With spectra (a
+    LayerMonitor built with spectra > 0), every layer gets a chart of its log10 normalized singular
+    values, one line per sweep, the picture of dimensional collapse.
     """
-    return _WandbSink(run, line_series, step_metric, history, extras)
+    return _WandbSink(run, line_series, step_metric, history, extras, spectra)

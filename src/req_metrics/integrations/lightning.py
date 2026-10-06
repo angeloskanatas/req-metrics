@@ -105,10 +105,13 @@ class LayerMonitorCallback(_Base):
             A loader that is a one-shot iterator is always materialized, and its views share it.
         sinks: Extra callables receiving (records, global step): csv_sink, json_sink,
             tensorboard_sink, wandb_sink or your own.
+        spectra: Leading singular values per layer kept at every sweep for the spectra/ charts of a
+            W&B logger; see LayerMonitor. 0 disables.
         callback_metrics: Also write the per-layer scalars (the keys of layer_scalars) to
             trainer.callback_metrics on every rank, so ModelCheckpoint(monitor=
             "layer_metrics/<metric>_layer_<l>") and EarlyStopping select by them as by a validation
-            loss. Between sweeps the last value stands, so align their cadence with the sweep schedule.
+            loss; layer indices are zero-padded to the depth's width (layer_07 in a 12-block model).
+            Between sweeps the last value stands, so align their cadence with the sweep schedule.
         log: Log per-layer scalars through trainer.logger (TensorBoard, CSV, MLflow, W&B, ...);
             adds layer-profile plots when the logger is W&B.
         log_extras: Numeric extras logged next to the values, e.g. ("frechet_var",).
@@ -159,8 +162,10 @@ class LayerMonitorCallback(_Base):
         cache_batches: bool = False,
         pool_kwargs: Mapping[str, Any] | None = None,
         callback_metrics: bool = True,
+        spectra: int = 0,
     ):
         super().__init__()
+        self.spectra = spectra
         if view_metrics and augment is None:
             raise ValueError(
                 "view metrics need augment; pass an identity callable when the view loader draws the views"
@@ -230,6 +235,7 @@ class LayerMonitorCallback(_Base):
                 jacobian_forward=self.jacobian_forward,
                 drift_metrics=self.drift_metrics,
                 drift_reference=self.drift_reference,
+                spectra=self.spectra,
                 seed=self.seed,
                 **self.labels,
             )
@@ -279,7 +285,7 @@ class LayerMonitorCallback(_Base):
                 if type(logger).__name__ == "WandbLogger" and exp is not None:
                     import wandb
 
-                    from req_metrics.monitor import _profile_series
+                    from req_metrics.monitor import _profile_series, _spectrum_plots
 
                     source = (
                         self.online
@@ -294,6 +300,8 @@ class LayerMonitorCallback(_Base):
                         plots[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
                             xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
                         )
+                    if self.monitor is not None and source is self.monitor and rec[0].extras.get("source") is None:
+                        plots.update(_spectrum_plots(self.monitor.spectra, rec, wandb))
                     exp.log(plots)
 
         return sink
