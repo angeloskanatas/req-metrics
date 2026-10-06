@@ -6,7 +6,7 @@ Mean canonical correlation of the leading SVD directions of two representations 
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/1706.05806
+- arXiv: https://arxiv.org/abs/1706.05806
 - Cite: `raghu2017svcca` (SVCCA: Singular Vector Canonical Correlation Analysis for Deep Learning Dynamics and Interpretability (2017))
 
 ## Definition, protocol and pitfalls

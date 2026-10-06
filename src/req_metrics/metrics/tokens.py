@@ -139,7 +139,7 @@ register_metric(
 register_metric(
     "token_cosine",
     inputs=_T,
-    preprocess=Preprocess(),
+    preprocess=Preprocess(l2=True),
     citation=("marouani2026clspatch",),
     arxiv="2602.08626",
     per_sample=True,
@@ -147,15 +147,15 @@ register_metric(
 register_metric(
     "cls_patch_cosine",
     inputs=_T,
-    preprocess=Preprocess(),
+    preprocess=Preprocess(l2=True),
     citation=("marouani2026clspatch",),
     arxiv="2602.08626",
     per_sample=True,
 )(cls_patch_cosine)
 register_metric(
     "token_gram_drift",
-    inputs=InputKind.PAIR,
-    preprocess=Preprocess(),
+    inputs=InputKind.TOKEN_PAIR,
+    preprocess=Preprocess(l2=True),
     citation=("simeoni2025dinov3",),
     arxiv="2508.10104",
     description="Squared Frobenius drift of a sample's token cosine Gram matrix against a reference field.",

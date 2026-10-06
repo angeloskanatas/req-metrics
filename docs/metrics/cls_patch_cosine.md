@@ -3,10 +3,10 @@
 Mean cosine between the class token(s) and the patch tokens of one sample.
 
 - Input: `tokens`
-- Canonical preprocessing: `none`
+- Canonical preprocessing: `l2`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2602.08626
+- arXiv: https://arxiv.org/abs/2602.08626
 - Cite: `marouani2026clspatch` (Revisiting [CLS] and Patch Token Interaction in Vision Transformers (2026))
 
 ## Definition, protocol and pitfalls

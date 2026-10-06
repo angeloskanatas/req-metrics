@@ -6,7 +6,7 @@ Effective rank of a layer readout's input-output Jacobian (Chung and Kim, 2026).
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2602.03282
+- arXiv: https://arxiv.org/abs/2602.03282
 - Cite: `chung2026globalgeometry` (Global Geometry Is Not Enough for Vision Representations (2026))
 
 ## Definition, protocol and pitfalls

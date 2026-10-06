@@ -36,6 +36,14 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             rq.rank_runs(self.runs, "alpha_req", layer=1, direction="target")
 
+    def test_several_sweeps_are_rejected(self):
+        x = torch.randn(200, 8)
+        two = rq.compute({0: x, 1: x}, ["effective_rank"]).extend(rq.compute({0: x, 1: x}, ["effective_rank"]))
+        with self.assertRaisesRegex(ValueError, "one sweep"):
+            rq.value_at(two, "effective_rank", 0)
+        with self.assertRaisesRegex(ValueError, "several records per layer"):
+            rq.top_layers(two, "effective_rank")
+
     def test_top_layers(self):
         layers = {i: torch.randn(200, 16) @ torch.diag(torch.linspace(1, 0.05 + 0.2 * i, 16)) for i in range(4)}
         rec = rq.compute(layers, ["effective_rank"])

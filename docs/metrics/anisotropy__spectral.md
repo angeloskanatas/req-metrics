@@ -1,4 +1,4 @@
-# `anisotropy`
+# `anisotropy/spectral`
 
 Spectral anisotropy of the centered, row-normalized matrix.
 
@@ -6,6 +6,7 @@ Spectral anisotropy of the centered, row-normalized matrix.
 - Canonical preprocessing: `center+l2`
 - Tags: paper-canonical
 - Shared cache: spectrum
+- arXiv: https://arxiv.org/abs/2311.05928
 - Cite: `DBLP:conf/eacl/RazzhigaevMGODK24` (The Shape of Learning: Anisotropy and Intrinsic Dimensions in Transformer-Based
                   Models (2024)); `chung2026globalgeometry` (Global Geometry Is Not Enough for Vision Representations (2026)); `he2022whitened` (Exploring the Gap between Collapsed \& Whitened Features in Self-Supervised Learning (2022)); `tsitsulin2023unsupervised` (Unsupervised Embedding Quality Evaluation (2023))
 
@@ -13,11 +14,11 @@ Spectral anisotropy of the centered, row-normalized matrix.
 
 Spectral anisotropy: the share of variance on the leading direction.
 
-Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum s_k^2 of the centered matrix, 1/D for an
-isotropic cloud and 1 for a single axis. Rows are L2-normalized after centering by default,
-so the score ignores norms. With l2=False, 1 - value is the isotropy score of Chung and Kim
-(2026) and 1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered
-matrix.
+Razzhigaev et al. (2024, EACL Findings, arXiv:2311.05928): s_1^2 / sum s_k^2 of the centered
+matrix, 1/D for an isotropic cloud and 1 for a single axis. Rows are L2-normalized after
+centering by default, so the score ignores norms; the paper does not normalize rows, which
+l2=False reproduces. With l2=False, 1 - value is the isotropy score of Chung and Kim (2026) and
+1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered matrix.
 
 Args:
     x: Points (N, D), or a Spectrum of preprocessed points.

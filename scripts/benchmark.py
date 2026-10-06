@@ -57,11 +57,8 @@ def main() -> None:
     timed("gaussianity (256 directions, all three statistics)", lambda: rq.gaussianity(x))
     timed("sparsity", lambda: rq.sparsity(x))
     timed("embedding_norm", lambda: rq.embedding_norm(x))
-    timed("intrinsic_dimension/mst (first 1024 points)", lambda: rq.mst_dimension(x[:1024]))
-    timed(
-        "local_rectifiability (2048 points, 128 anchors)",
-        lambda: rq.local_rectifiability(x[:2048], n=16, n_anchors=128, n_scales=4),
-    )
+    timed("intrinsic_dimension/mst (2000 points, the registry cap)", lambda: rq.mst_dimension(x[:2000]))
+    timed("local_rectifiability (2048 points, registry defaults)", lambda: rq.local_rectifiability(x[:2048]))
     timed("trajectory_curvature (one 2000-frame clip)", lambda: rq.trajectory_curvature(x[:2000]))
     views = x.unsqueeze(0) + 0.1 * torch.randn(a.views, a.n, a.d, device=a.device)
     timed(f"lidar ({a.views} views)", lambda: rq.lidar(views))

@@ -37,10 +37,10 @@ class ItemCapTests(unittest.TestCase):
 
     def test_limits_subsample_and_record_count(self):
         x = torch.randn(300, 8)
-        rec = rq.compute({0: x}, ["effective_rank", "anisotropy"], limits={"effective_rank": 100})
+        rec = rq.compute({0: x}, ["effective_rank", "anisotropy/spectral"], limits={"effective_rank": 100})
         by = {r.metric: r for r in rec}
         self.assertEqual(by["effective_rank"].extras["n_items_used"], 100)
-        self.assertNotIn("n_items_used", by["anisotropy"].extras)
+        self.assertNotIn("n_items_used", by["anisotropy/spectral"].extras)
         self.assertEqual(by["effective_rank"].n_items, 300)  # the population size is still recorded
         again = rq.compute({0: x}, ["effective_rank"], limits={"effective_rank": 100})
         self.assertEqual(again[0].value, by["effective_rank"].value)  # the subsample is seeded
@@ -149,6 +149,16 @@ class StepScheduleTests(unittest.TestCase):
         )
         self.assertEqual(xs, [0, 2, 6, 12])
 
+    def test_a_step_trigger_on_an_epoch_end_sweeps_once(self):
+        model = Toy()
+        cb = self._callback(every_n_epochs=1, sweep_steps=(4,))
+        trainer = self._trainer()
+        cb.on_train_start(trainer, model)
+        trainer.global_step = 4
+        cb.on_train_batch_end(trainer, model, None, None, 3)
+        cb.on_train_epoch_end(trainer, model)  # the epoch ends at global step 4 as well
+        self.assertEqual([s for s, _ in cb.monitor.history], [0, 4])
+
     def test_cache_batches_materializes_once(self):
         model = Toy()
         calls = []
@@ -167,7 +177,7 @@ class StepScheduleTests(unittest.TestCase):
         trainer = self._trainer()
         cb.on_train_start(trainer, model)
         for e in range(2):
-            trainer.current_epoch = e
+            trainer.current_epoch, trainer.global_step = e, 4 * (e + 1)
             cb.on_train_epoch_end(trainer, model)
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(cb.monitor.history), 3)

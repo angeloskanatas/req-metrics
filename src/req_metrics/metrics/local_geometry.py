@@ -16,8 +16,9 @@ def neighborhood_curvature(
 ) -> MetricResult:
     """Neighborhood curvature: mean cosine between the unit edges to the k nearest neighbors.
 
-    CurvSSL (Ghojogh et al., 2025, arXiv:2511.17426): per point, the mean pairwise cosine of the
-    unit vectors to its k neighbors, averaged over points; near 0 for isotropic neighborhoods,
+    CurvSSL (Ghojogh et al., 2025, arXiv:2511.17426, Eq. 6): per point, the pairwise cosines of
+    the unit vectors to its k neighbors, summed in the paper and averaged over the k(k - 1)/2 pairs
+    here (the same ranking at fixed k), then averaged over points; near 0 for isotropic neighborhoods,
     toward 1 at boundaries. A Gaussian cloud scores about 0.2 at k = 32 in eight dimensions, so
     compare layers or runs rather than reading the value against zero. Points are processed in
     chunks, so memory is bounded by chunk * k * D float64 values.
@@ -25,7 +26,8 @@ def neighborhood_curvature(
     Args:
         x: Points (N, D); without neighbors, duplicates are removed first.
         k: Neighborhood size.
-        neighbors: Precomputed Neighbors table of x with at least k neighbors.
+        neighbors: Precomputed Neighbors table of x with at least k neighbors, built on the distinct
+            rows of x (duplicate rows give zero-length edges and bias the value).
         chunk: Points per batch; default keeps a batch near 2^25 values.
 
     Returns:
@@ -76,7 +78,7 @@ def local_rectifiability(
         seed: Anchor sampling seed.
 
     Returns:
-        value: beta_2 at scale index (n_scales - 1) // 2, r_max / 4 with the defaults.
+        value: beta_2 squared (Eq. 24) at scale index (n_scales - 1) // 2, r_max / 4 with the defaults.
         extras: n, and beta2_scale{i}, trace_scale{i}, local_id_scale{i} (eigenvalues of the
             local scatter above their mean), r_scale{i}, with scale 0 the coarsest.
     """

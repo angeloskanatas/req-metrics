@@ -44,7 +44,7 @@ def card(spec: rq.MetricSpec) -> str:
         f"- Shared cache: {spec.cache or 'none'}",
     ]
     if spec.arxiv:
-        lines.append(f"- Origin: https://arxiv.org/abs/{spec.arxiv}")
+        lines.append(f"- arXiv: https://arxiv.org/abs/{spec.arxiv}")
     if spec.citation:
         lines.append("- Cite: " + "; ".join(f"`{k}` ({bib_title(k)})" for k in spec.citation))
     lines += ["", "## Definition, protocol and pitfalls", "", doc, ""]

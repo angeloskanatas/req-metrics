@@ -46,6 +46,8 @@ class Neighbors:
         and under TF32 they are wrong. Rows are processed in
         chunks so memory stays at chunk x N.
         """
+        if x.ndim == 2 and not torch.isfinite(x).all():
+            raise ValueError("input contains non-finite values")
         if x.ndim != 2:
             raise ValueError(f"expected (N, D), got shape {tuple(x.shape)}")
         xd = x.to(dtype)

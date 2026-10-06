@@ -6,7 +6,7 @@ Uniformity: log mean pairwise Gaussian potential on the unit sphere.
 - Canonical preprocessing: `l2`
 - Tags: relational
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2005.10242
+- arXiv: https://arxiv.org/abs/2005.10242
 - Cite: `wang2020uniformity` (Understanding Contrastive Representation Learning through Alignment and Uniformity on the Hypersphere (2020))
 
 ## Definition, protocol and pitfalls

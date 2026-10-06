@@ -19,10 +19,10 @@ _DIRECTIONS = ("max", "min", "target")
 
 def value_at(records: Records, metric: str, layer: int) -> float:
     """The value of one metric at one layer of a run, nan when it was not computed."""
-    for r in records:
-        if r.metric == metric and r.layer == layer and r.layer_b is None:
-            return float(r.value)
-    return math.nan
+    rows = [r for r in records if r.metric == metric and r.layer == layer and r.layer_b is None]
+    if len(rows) > 1:
+        raise ValueError(f"{len(rows)} records of {metric!r} at layer {layer}: pass one sweep of one model")
+    return float(rows[0].value) if rows else math.nan
 
 
 def _score(value: float, direction: str, target: float | None) -> float:
@@ -61,7 +61,13 @@ def rank_runs(
 
 
 def top_layers(
-    records: Records, metric: str, k: int = 3, *, direction: str = "max", target: float | None = None
+    records: Records,
+    metric: str,
+    k: int = 3,
+    *,
+    direction: str = "max",
+    target: float | None = None,
+    model: str | None = None,
 ) -> list[int]:
     """The k layers of one run ranked by a metric, best first.
 
@@ -71,10 +77,13 @@ def top_layers(
         k: Number of layers to return.
         direction: "max", "min", or "target" with `target`.
         target: Preferred value for direction="target".
+        model: Restrict to the records of one model label when the records hold several.
 
     Returns:
         Layer indices, best first.
     """
-    prof = records.profile(metric)
+    prof = records.profile(metric, model)
+    if len({layer for layer, _ in prof}) != len(prof):
+        raise ValueError("several records per layer: pass one sweep, and set model when the records hold several")
     ranked = sorted(prof, key=lambda lv: _score(lv[1], direction, target), reverse=True)
     return [layer for layer, _ in ranked[:k]]

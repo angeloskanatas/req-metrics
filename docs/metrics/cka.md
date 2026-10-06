@@ -6,7 +6,7 @@ Linear centered kernel alignment between two representations of the same items (
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/1905.00414
+- arXiv: https://arxiv.org/abs/1905.00414
 - Cite: `kornblith2019similarity` (Similarity of Neural Network Representations Revisited (2019))
 
 ## Definition, protocol and pitfalls

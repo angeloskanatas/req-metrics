@@ -6,7 +6,7 @@ Distance from an isotropic Gaussian along random directions (Epps-Pulley, KS or 
 - Canonical preprocessing: `center`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2511.08544
+- arXiv: https://arxiv.org/abs/2511.08544
 - Cite: `balestriero2025lejepa` (LeJEPA: Provable and Scalable Self-Supervised Learning Without the Heuristics (2025)); `epps1983normality` (A test for normality based on the empirical characteristic function (1983)); `wu2026visreg` (VISReg: Variance-Invariance-Sketching Regularization for JEPA training (2026))
 
 ## Definition, protocol and pitfalls

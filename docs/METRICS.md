@@ -40,7 +40,8 @@ applies across metrics.
 - Preprocessing is never implicit. Each estimator's `center`, `standardize` and
   `l2` arguments define what it applies; the registry holds their defaults, the
   pipeline applies them before building the shared spectrum, and every record
-  stores the preprocessing actually applied.
+  stores the preprocessing actually applied. Estimators whose definition normalizes
+  rows (the cosine measures) register `l2` as their preprocessing.
 - The level (`sequence`, `sample`, `population`) is a pipeline argument, not a
   property of the estimator; see Section 2.
 - Citations name author, year and venue; arXiv ids are given once per metric.
@@ -54,8 +55,8 @@ applies across metrics.
 
 | Family | Modules and metrics | Input |
 |---|---|---|
-| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
-| Relational | relational: self_clustering, uniformity, normalized_std, cosine_anisotropy | points |
+| Spectral | spectral: effective_rank (RankMe, with normalized_rank = RankMe*, the variance convention and NerVE's spectral entropy in the extras), matrix_entropy, alpha_req, anisotropy/spectral (NESum in extras), participation_ratio (bias corrections in extras), eigenvalue_early_enrichment | points |
+| Relational | relational: self_clustering, uniformity, normalized_std, anisotropy/cosine | points |
 | Manifold | dimension: intrinsic_dimension/twonn, /gride, /mle, /mlid, /mst; local_geometry: neighborhood_curvature, local_rectifiability | points |
 | Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cycle_knn, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 

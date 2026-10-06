@@ -6,7 +6,7 @@ Self-clustering score: excess squared cosine over a uniform spherical cloud.
 - Canonical preprocessing: `l2`
 - Tags: relational
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2305.16562
+- arXiv: https://arxiv.org/abs/2305.16562
 - Cite: `tsitsulin2023unsupervised` (Unsupervised Embedding Quality Evaluation (2023)); `arputharaj2026comparative` (A Comparative Study of Label-free Representation Quality Metrics in Deep Learning (2026))
 
 ## Definition, protocol and pitfalls
@@ -22,5 +22,6 @@ Args:
     center: Mean-center before normalizing.
 
 Returns:
-    value: score, 0 (uniform) to 1 (collapsed).
+    value: score, 0 for a uniform cloud and 1 for a collapsed one; rows more spread than
+        uniform score below 0 (orthonormal rows give -1/(D - 1)).
     extras: mean_squared_cosine over distinct pairs, and its uniform value 1/D.

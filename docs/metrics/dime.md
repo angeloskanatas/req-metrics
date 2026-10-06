@@ -6,7 +6,7 @@ DiME: permuted minus paired matrix-based joint entropy of two views.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2301.08164
+- arXiv: https://arxiv.org/abs/2301.08164
 - Cite: `skean2023dime` (DiME: Maximizing Mutual Information by a Difference of Matrix-Based Entropies (2023))
 
 ## Definition, protocol and pitfalls

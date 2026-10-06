@@ -37,7 +37,8 @@ def self_clustering(x: Tensor, *, center: bool = False) -> MetricResult:
         center: Mean-center before normalizing.
 
     Returns:
-        value: score, 0 (uniform) to 1 (collapsed).
+        value: score, 0 for a uniform cloud and 1 for a collapsed one; rows more spread than
+            uniform score below 0 (orthonormal rows give -1/(D - 1)).
         extras: mean_squared_cosine over distinct pairs, and its uniform value 1/D.
     """
     w = _unit_rows(x, center)
@@ -148,11 +149,12 @@ register_metric(
     preprocess=Preprocess(l2=True),
     citation=("chen2021simsiam",),
     arxiv="2011.10566",
-    tags=("collapse-indicator",),
+    tags=("relational", "collapse-indicator"),
 )(normalized_std)
 register_metric(
-    "cosine_anisotropy",
+    "anisotropy/cosine",
     inputs=_P,
-    preprocess=Preprocess(),
+    preprocess=Preprocess(l2=True),
     citation=("ethayarajh2019contextual", "DBLP:conf/eacl/GodeyCS24", "timkey2021rogue"),
+    tags=("relational", "collapse-indicator"),
 )(anisotropy_cosine)

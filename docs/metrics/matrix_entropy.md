@@ -6,7 +6,7 @@ Matrix-based Renyi entropy of the trace-normalized Gram matrix.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: spectrum
-- Origin: https://arxiv.org/abs/2502.02013
+- arXiv: https://arxiv.org/abs/2502.02013
 - Cite: `giraldo2015matrixentropy` (Measures of Entropy From Data Using Infinitely Divisible Kernels (2015)); `DBLP:conf/icml/SkeanAZPNLS25` (Layer by Layer: Uncovering Hidden Representations in Language Models (2025))
 
 ## Definition, protocol and pitfalls

@@ -5,14 +5,24 @@ apply unchanged to (N, D) points, (T, D) trajectories and (q, N, D) views,
 where each view is processed on its own.
 """
 
+import torch
 from torch import Tensor
 
 from req_metrics._types import Preprocess
 
 
 def center(x: Tensor) -> Tensor:
-    """Subtract the per-feature mean over the sample axis."""
-    return x - x.mean(dim=-2, keepdim=True)
+    """Subtract the per-feature mean over the sample axis.
+
+    A cloud whose rows are all equal up to rounding becomes exactly zero, so a complete collapse
+    is read as rank 0 by every spectral estimator rather than as the rounding residue of the mean.
+    """
+    xc = x - x.mean(dim=-2, keepdim=True)
+    eps = torch.finfo(x.dtype).eps if x.is_floating_point() else 0.0
+    scale = float(x.norm())
+    if scale > 0.0 and float(xc.norm()) <= 1e3 * eps * scale:
+        return torch.zeros_like(xc)
+    return xc
 
 
 def standardize(x: Tensor, eps: float = 1e-8) -> Tensor:

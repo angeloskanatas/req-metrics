@@ -6,7 +6,7 @@ Intrinsic dimension from the growth of minimum-spanning-tree length.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2606.03338
+- arXiv: https://arxiv.org/abs/2606.03338
 - Cite: `mordacq2026idest` (IdEst: Assessing Self-Supervised Learning Representations via Intrinsic Dimension (2026)); `costa2006mst` (Determining Intrinsic Dimension and Entropy of High-Dimensional Shape Spaces (2006))
 
 ## Definition, protocol and pitfalls

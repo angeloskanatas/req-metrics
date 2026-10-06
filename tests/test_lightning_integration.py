@@ -58,7 +58,7 @@ class LightningPlugAndPlayTests(unittest.TestCase):
         dl = torch.utils.data.DataLoader(ds, batch_size=16, shuffle=True)
         with tempfile.TemporaryDirectory() as d:
             cb = LayerMonitorCallback(
-                ["effective_rank", "anisotropy"],
+                ["effective_rank", "anisotropy/spectral"],
                 layers="backbone.blocks",
                 pool="mean",
                 n_items=64,
@@ -83,13 +83,13 @@ class LightningPlugAndPlayTests(unittest.TestCase):
                 num_sanity_val_steps=0,
             )
             trainer.fit(Lit(), dl, torch.utils.data.DataLoader(ds, batch_size=32))
-            self.assertEqual([s for s, _ in cb.monitor.history], [0, 1, 2])
+            self.assertEqual([s for s, _ in cb.monitor.history], [0, 6, 12])  # global steps: 96 rows / 16
             rec = cb.monitor.history[-1][1]
             self.assertEqual(len(rec), 9)  # two point metrics and the CKA drift, three layers each
             self.assertEqual([r.extras["reference_step"] for r in rec if r.metric == "cka"], [0, 0, 0])
             self.assertEqual(rec[0].n_items, 64)
             self.assertEqual(rec[0].pooling, "mean")
-            self.assertEqual([s for s, _ in cb.online.history], [1, 2])  # online records at both epoch ends
+            self.assertEqual([s for s, _ in cb.online.history], [6, 12])  # online records at both epoch ends
             self.assertEqual(cb.online.seen[0], 192)  # 2 epochs x 96 training rows, validation and sweeps ignored
             on = cb.online.history[-1][1]
             self.assertEqual(on[0].n_items, 80)
@@ -129,7 +129,15 @@ class LightningPlugAndPlayTests(unittest.TestCase):
         ds = torch.utils.data.TensorDataset(torch.randn(64, 8), torch.randn(64))
         dl = torch.utils.data.DataLoader(ds, batch_size=16)
         with tempfile.TemporaryDirectory() as d:
-            common = dict(layers="blocks", pool="mean", n_items=32, every_n_epochs=1, model="toy", batch_size=16)
+            common = dict(
+                layers="blocks",
+                pool="mean",
+                n_items=32,
+                every_n_epochs=1,
+                model="toy",
+                batch_size=16,
+                drift_metrics=["cka"],
+            )
             cb1 = LayerMonitorCallback(["effective_rank"], **common)
             t1 = pl.Trainer(
                 max_epochs=1,
@@ -143,7 +151,7 @@ class LightningPlugAndPlayTests(unittest.TestCase):
             t1.fit(Lit(), dl)
             ckpt = str(Path(d) / "last.ckpt")
             t1.save_checkpoint(ckpt)
-            self.assertEqual([s for s, _ in cb1.monitor.history], [0, 1])
+            self.assertEqual([s for s, _ in cb1.monitor.history], [0, 4])
             cb2 = LayerMonitorCallback(["effective_rank"], **common)
             t2 = pl.Trainer(
                 max_epochs=3,
@@ -155,8 +163,87 @@ class LightningPlugAndPlayTests(unittest.TestCase):
                 accelerator="cpu",
             )
             t2.fit(Lit(), dl, ckpt_path=ckpt)
-            self.assertEqual([s for s, _ in cb2.monitor.history], [2, 3])  # no sweep at start of a resumed run
-            self.assertEqual([r.extras["epoch"] for _, rec in cb2.monitor.history for r in rec[:1]], [1, 2])
+            # the history is restored from the checkpoint; no sweep at the start of a resumed run
+            self.assertEqual([s for s, _ in cb2.monitor.history], [0, 4, 8, 12])
+            self.assertEqual([r.extras["epoch"] for _, rec in cb2.monitor.history[2:] for r in rec[:1]], [1, 2])
+            drift = [r for r in cb2.monitor.history[-1][1] if r.metric == "cka"]
+            self.assertEqual([r.extras["reference_step"] for r in drift], [0, 0])  # still against the first sweep
+
+    def test_checkpoint_and_early_stopping_select_by_a_layer_metric(self):
+        from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+
+        from req_metrics.integrations.lightning import LayerMonitorCallback
+
+        class Lit(pl.LightningModule):
+            def __init__(self):
+                super().__init__()
+                self.blocks = nn.ModuleList([nn.Linear(8, 8) for _ in range(2)])
+                self.head = nn.Linear(8, 1)
+
+            def forward(self, x):
+                for b in self.blocks:
+                    x = torch.tanh(b(x))
+                return x
+
+            def training_step(self, batch, idx):
+                x, y = batch
+                return nn.functional.mse_loss(self.head(self(x)).squeeze(-1), y)
+
+            def configure_optimizers(self):
+                return torch.optim.SGD(self.parameters(), lr=0.05)
+
+        torch.manual_seed(0)
+        ds = torch.utils.data.TensorDataset(torch.randn(64, 8), torch.randn(64))
+        dl = torch.utils.data.DataLoader(ds, batch_size=16)
+        key = "layer_metrics/effective_rank_layer_1"
+        with tempfile.TemporaryDirectory() as d:
+            cb = LayerMonitorCallback(["effective_rank"], layers="blocks", pool="mean", n_items=32, batch_size=16)
+            ckpt = ModelCheckpoint(dirpath=d, monitor=key, mode="max", save_top_k=1)
+            trainer = pl.Trainer(
+                max_epochs=3,
+                default_root_dir=d,
+                logger=False,
+                enable_progress_bar=False,
+                enable_model_summary=False,
+                callbacks=[cb, ckpt],
+                accelerator="cpu",
+            )
+            trainer.fit(Lit(), dl)
+            values = {s: rq.value_at(rec, "effective_rank", 1) for s, rec in cb.monitor.history if s > 0}
+            self.assertAlmostEqual(float(ckpt.best_model_score), max(values.values()), places=6)
+            self.assertIn(key, trainer.callback_metrics)
+            stop = EarlyStopping(monitor=key, mode="max", patience=0, min_delta=1e9)  # stops at the first check
+            trainer = pl.Trainer(
+                max_epochs=5,
+                default_root_dir=d,
+                logger=False,
+                enable_progress_bar=False,
+                enable_checkpointing=False,
+                enable_model_summary=False,
+                callbacks=[LayerMonitorCallback(["effective_rank"], layers="blocks", pool="mean", n_items=32), stop],
+                accelerator="cpu",
+            )
+            trainer.fit(Lit(), dl)
+            self.assertLess(trainer.current_epoch, 5)
+
+    def test_callback_monitor_and_sinks_pickle(self):
+        import pickle
+
+        from req_metrics.integrations.lightning import LayerMonitorCallback
+
+        with tempfile.TemporaryDirectory() as d:
+            cb = LayerMonitorCallback(
+                ["effective_rank"], layers="blocks", pool="tokens", level="population", n_items=16,
+                sinks=[rq.csv_sink(Path(d) / "s.csv"), rq.json_sink(d), rq.tensorboard_sink(d)],
+            )  # fmt: skip
+            pickle.dumps(cb)
+            blocks = nn.ModuleList([nn.Linear(8, 8) for _ in range(2)])
+            mon = rq.LayerMonitor(blocks, pool="gap", pool_kwargs={"grid": (2, 4)}, metrics=["effective_rank"])
+            pickle.dumps(mon)
+            pickle.dumps(rq.OnlineBuffer(blocks, "mean"))
+            self.assertEqual(
+                pickle.loads(pickle.dumps(rq.make_pooler("tokens", n_prefix=1)))(torch.ones(2, 3, 4)).shape, (2, 2, 4)
+            )
 
     def test_fit_with_view_metrics(self):
         from req_metrics.integrations.lightning import LayerMonitorCallback

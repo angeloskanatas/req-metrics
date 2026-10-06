@@ -6,7 +6,7 @@ Fraction of items that are a nearest neighbor in A of one of their nearest neigh
 - Canonical preprocessing: `none`
 - Tags: relational
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2405.07987
+- arXiv: https://arxiv.org/abs/2405.07987
 - Cite: `huh2024platonic` (Position: The Platonic Representation Hypothesis (2024)); `zhang2026wittgensteinian` (The Wittgensteinian Representation Hypothesis: Is Language the Attractor of Multimodal Convergence? (2026)); `groger2026aristotelian` (Revisiting the Platonic Representation Hypothesis: An Aristotelian View (2026))
 
 ## Definition, protocol and pitfalls

@@ -23,7 +23,7 @@ class PooledTests(unittest.TestCase):
         layers = pooled_layers()
         mets = [
             "effective_rank",
-            "anisotropy",
+            "anisotropy/spectral",
             "alpha_req",
             "participation_ratio",
             "intrinsic_dimension/mlid",
@@ -46,7 +46,7 @@ class PooledTests(unittest.TestCase):
         self.assertEqual(r.depth, 1.0)
         self.assertEqual(r.model, "toy")
         self.assertAlmostEqual(
-            rec.where(metric="anisotropy", layer=1)[0].value, rq.anisotropy_spectral(layers[1]).value, places=9
+            rec.where(metric="anisotropy/spectral", layer=1)[0].value, rq.anisotropy_spectral(layers[1]).value, places=9
         )
         self.assertAlmostEqual(
             rec.where(metric="intrinsic_dimension/mlid", layer=0)[0].value, rq.mlid(layers[0], k=32).value, places=9
@@ -67,7 +67,7 @@ class PooledTests(unittest.TestCase):
     def test_preprocessing_arguments_reach_cached_estimators(self):
         x = pooled_layers()[1] + 3.0
         cases = [
-            ("anisotropy", {"l2": False}, rq.anisotropy_spectral(x, l2=False), "center"),
+            ("anisotropy/spectral", {"l2": False}, rq.anisotropy_spectral(x, l2=False), "center"),
             ("effective_rank", {"center": False}, rq.effective_rank(x, center=False), "none"),
             ("matrix_entropy", {"center": True}, rq.matrix_entropy(x, center=True), "center"),
             ("gaussianity", {"center": False}, rq.gaussianity(x, center=False), "none"),
@@ -77,7 +77,9 @@ class PooledTests(unittest.TestCase):
             r = rq.compute({0: x}, [name], params={name: kw})[0]
             self.assertAlmostEqual(r.value, direct.value, places=9, msg=name)
             self.assertEqual((r.preprocess, r.params), (pre, kw), msg=name)
-        both = rq.compute({0: x}, ["effective_rank", "anisotropy"], params={"anisotropy": {"l2": False}})
+        both = rq.compute(
+            {0: x}, ["effective_rank", "anisotropy/spectral"], params={"anisotropy/spectral": {"l2": False}}
+        )
         self.assertAlmostEqual(both[0].value, rq.effective_rank(x).value, places=9)
         self.assertAlmostEqual(both[1].value, cases[0][2].value, places=9)
 
@@ -245,7 +247,10 @@ class ViewsShiftsPairsTests(unittest.TestCase):
 class RecordsIOTests(unittest.TestCase):
     def test_json_csv_roundtrip(self):
         rec = rq.compute(
-            pooled_layers(n=120, d=6, n_layers=2), ["effective_rank", "anisotropy"], model="toy", corpus="synthetic"
+            pooled_layers(n=120, d=6, n_layers=2),
+            ["effective_rank", "anisotropy/spectral"],
+            model="toy",
+            corpus="synthetic",
         )
         with tempfile.TemporaryDirectory() as d:
             j = rec.to_json(Path(d) / "r.json")
@@ -278,7 +283,7 @@ class AtlasExportTests(unittest.TestCase):
         layers = pooled_layers(n=150, d=8, n_layers=3)
         rec = rq.compute(
             layers,
-            ["effective_rank", "anisotropy", "intrinsic_dimension/gride", "alpha_req"],
+            ["effective_rank", "anisotropy/spectral", "intrinsic_dimension/gride", "alpha_req"],
             params={"intrinsic_dimension/gride": {"scale": 4}},
             corpus="synthetic",
         )
@@ -306,7 +311,9 @@ class ProtocolTests(unittest.TestCase):
             for name in p.names(kind):
                 rq.get_metric(name)
         self.assertEqual(p.params("sequence")["intrinsic_dimension/gride"]["scale"], 8)
-        rec = rq.compute(pooled_layers(n=150, d=8), ["effective_rank", "anisotropy"], params=p.params("sequence"))
+        rec = rq.compute(
+            pooled_layers(n=150, d=8), ["effective_rank", "anisotropy/spectral"], params=p.params("sequence")
+        )
         self.assertEqual(rec[0].params, {"spectrum": "singular", "center": True, "max_eigenvalues": 2048})
 
 

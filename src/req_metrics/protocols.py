@@ -49,7 +49,7 @@ KANATAS2026 = Protocol(
         ("intrinsic_dimension/twonn", {}),
         ("intrinsic_dimension/gride", {"scale": 8, "range_max": 8192}),  # profiles consistent with TwoNN
         ("effective_rank", {"spectrum": "singular", "center": True, "max_eigenvalues": 2048}),
-        ("anisotropy", {"center": True, "l2": True}),
+        ("anisotropy/spectral", {"center": True, "l2": True}),
     ),
     sample=(("trajectory_curvature", {"k": 1, "convention": "signed"}),),
     views=(

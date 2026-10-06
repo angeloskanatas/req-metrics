@@ -6,7 +6,7 @@ UR-JEPA beta-number flatness around an n-plane across dyadic scales (Eq. 24).
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2606.01443
+- arXiv: https://arxiv.org/abs/2606.01443
 - Cite: `le2026urjepa` (UR-JEPA: Uniform Rectifiability as a Regularizer for Joint-Embedding Predictive Architectures (2026))
 
 ## Definition, protocol and pitfalls
@@ -30,6 +30,6 @@ Args:
     seed: Anchor sampling seed.
 
 Returns:
-    value: beta_2 at scale index (n_scales - 1) // 2, r_max / 4 with the defaults.
+    value: beta_2 squared (Eq. 24) at scale index (n_scales - 1) // 2, r_max / 4 with the defaults.
     extras: n, and beta2_scale{i}, trace_scale{i}, local_id_scale{i} (eigenvalues of the
         local scatter above their mean), r_scale{i}, with scale 0 the coarsest.

@@ -17,6 +17,7 @@ View metrics take layers[l] of shape (q, N, D); PTE takes layers[l] = (z, shifte
 from __future__ import annotations
 
 import inspect
+import math
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -47,9 +48,21 @@ _NEIGHBOR_ARGS: dict[str, tuple[str | None, str | None]] = {
 
 
 def _tensor(data: Any) -> Tensor:
-    """A torch view of array-like data; MPS tensors move to the CPU, since the estimators compute in float64."""
+    """A torch view of array-like data: integer data becomes float64, MPS tensors move to the CPU (float64 math)."""
     t = torch.as_tensor(data)
+    if not (t.is_floating_point() or t.is_complex()):
+        t = t.to(torch.float64)
     return t.cpu() if t.device.type == "mps" else t
+
+
+def _layer_ids(layers: Mapping[Any, Any]) -> list[int]:
+    """Sorted layer indices; the keys must be integers."""
+    if not layers:
+        raise ValueError("layers is empty: no layer tensors were given")
+    bad = [k for k in layers if isinstance(k, bool) or not isinstance(k, (int, np.integer))]
+    if bad:
+        raise ValueError(f"layer keys must be integers, got {bad[:3]}")
+    return sorted(int(k) for k in layers)
 
 
 def _device(device: str | torch.device | None) -> torch.device | None:
@@ -65,13 +78,24 @@ def _to(t: Tensor, device: torch.device | None) -> Tensor:
 
 
 def _warn_failed(records: Records) -> Records:
-    """Warn once per call when estimators failed; their records hold nan and extras["error"]."""
+    """Warn once per call for failed estimators (nan with extras["error"]) and once for sample-level
+    aggregates that skipped failed samples (extras["n_failed"] and extras["first_error"])."""
     failed = [r for r in records.rows if "error" in r.extras]
     if failed:
         first = failed[0]
         warnings.warn(
             f"{len(failed)} of {len(records.rows)} records failed and hold nan; first: {first.metric} "
             f"at layer {first.layer}: {first.extras['error']}",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    partial = [r for r in records.rows if "first_error" in r.extras]
+    if partial:
+        first = partial[0]
+        warnings.warn(
+            f"{len(partial)} of {len(records.rows)} records aggregate over failed samples; first: {first.metric} "
+            f"at layer {first.layer}, {first.extras['n_failed']} of {first.extras['n_items']} samples: "
+            f"{first.extras['first_error']}",
             RuntimeWarning,
             stacklevel=3,
         )
@@ -140,7 +164,10 @@ def _preprocess_args(spec: MetricSpec, kwargs: Mapping[str, Any]) -> tuple[Prepr
 def _run(spec: MetricSpec, args: tuple, kwargs: Mapping[str, Any]) -> tuple[float, dict[str, Any]]:
     try:
         res: MetricResult = spec.fn(*args, **kwargs)
-        return res.value, dict(res.extras)
+        extras: dict[str, Any] = dict(res.extras)
+        if not math.isfinite(res.value) and "error" not in extras:
+            extras["error"] = "non-finite value"
+        return res.value, extras
     except Exception as e:  # the pipeline records failures instead of aborting a sweep
         return float("nan"), {"error": f"{type(e).__name__}: {e}"}
 
@@ -168,8 +195,8 @@ def _aggregate(
             if len(vals_k) == len(numeric) and key not in out:
                 out[key] = float(np.mean(vals_k))
     first_err = next((e["error"] for e in extras_list if "error" in e), None)
-    if first_err is not None:
-        out["error"] = first_err
+    if first_err is not None:  # every sample failed: a failed record; some: a finite mean with first_error
+        out["error" if not vals.size else "first_error"] = first_err
     return (float(vals.mean()) if vals.size else float("nan")), out
 
 
@@ -220,6 +247,8 @@ def _points_sweep(
     """
     out: dict[str, tuple[float, dict]] = {}
     x = layer_tensor
+    if not torch.isfinite(x).all():
+        return {s.name: (float("nan"), {"error": "ValueError: input contains non-finite values"}) for s in specs}
     limits = dict(limits or {})
     subsets: dict[int, tuple[Tensor, Tensor | None]] = {x.shape[0]: (x, groups)}
 
@@ -328,6 +357,9 @@ def compute(
     dev = _device(device)
     if n_tokens is not None and level != "population":
         raise ValueError("n_tokens applies to level='population'")
+    for arg, limit in (("n_items", n_items), ("n_tokens", n_tokens)):
+        if limit is not None and limit < 2:
+            raise ValueError(f"{arg} must be at least 2, got {limit}")
     params = {k: dict(v) for k, v in (params or {}).items()}
     specs = [get_metric(m) for m in metrics]
     kinds = {s.inputs for s in specs}
@@ -335,9 +367,7 @@ def compute(
     if len(kinds) != 1 and not kinds <= token_kinds:
         raise ValueError(f"metrics of mixed input kinds in one call: {sorted(k.value for k in kinds)}")
     kind = kinds.pop() if len(kinds) == 1 else InputKind.TRAJECTORY  # mixed token kinds: handled per metric below
-    layer_ids = sorted(layers)
-    if not layer_ids:
-        raise ValueError("layers is empty: no layer tensors were given")
+    layer_ids = _layer_ids(layers)
     depths = _normalized_depths(layer_ids)
     records = Records()
 
@@ -369,7 +399,9 @@ def compute(
         )
 
     if kind == InputKind.VIEWS:
-        first = layers[layer_ids[0]]
+        first = _tensor(layers[layer_ids[0]])
+        if views is not None and views.q != int(first.shape[0]):
+            raise ValueError(f"views.q is {views.q} but the stacks hold {int(first.shape[0])} views")
         idx = choose_indices(first.shape[1], n_items, seed, group_ids)
         caps = dict(limits or {})
         for l in layer_ids:
@@ -388,6 +420,11 @@ def compute(
         idx = choose_indices(z0.shape[0], n_items, seed, group_ids)
         for l in layer_ids:
             z, shifted = layers[l]
+            for k_shift, v in shifted.items():
+                if _tensor(v).shape[0] != _tensor(z).shape[0]:
+                    raise ValueError(
+                        f"shift {k_shift} of layer {l} has {_tensor(v).shape[0]} rows, z has {_tensor(z).shape[0]}"
+                    )
             z = _to(_tensor(z)[idx], dev)
             sh = {k: _to(_tensor(v)[idx], dev) for k, v in shifted.items()}
             for spec in specs:
@@ -397,6 +434,8 @@ def compute(
 
     if kind == InputKind.PAIR:
         raise ValueError("pair metrics compare two representations; use compute_pairs")
+    if kind == InputKind.TOKEN_PAIR:
+        raise ValueError("token_gram_drift compares a token field with a reference field; call it directly")
 
     if kind == InputKind.JACOBIAN:
         for l in layer_ids:
@@ -409,6 +448,11 @@ def compute(
     if level == "sequence":
         if any(s.inputs in (InputKind.TRAJECTORY, InputKind.TOKENS) for s in specs):
             raise ValueError("trajectory and token-field metrics need level='sample' or 'population'")
+        if any(isinstance(layers[l], (list, tuple)) for l in layer_ids):
+            raise ValueError(
+                "level='sequence' takes one (N, D) tensor per layer; a sequence of token tensors needs "
+                "level='sample' or 'population'"
+            )
         first = _tensor(layers[layer_ids[0]])
         counts = {l: int(_tensor(layers[l]).shape[0]) for l in layer_ids}
         if len(set(counts.values())) > 1:
@@ -419,6 +463,16 @@ def compute(
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
         return _warn_failed(records)
+
+    for l in layer_ids:
+        if getattr(layers[l], "ndim", None) == 2:
+            raise ValueError(
+                f"level={level!r} takes a sequence of (T_i, D) token tensors per layer; an (N, D) matrix is the "
+                f"sequence level (layer {l})"
+            )
+    counts = {l: len(layers[l]) for l in layer_ids}
+    if len(set(counts.values())) > 1:
+        raise ValueError(f"layers must have the same number of samples, got {counts}")
 
     def per_sample(samples: Sequence[Any], sample_specs: list[MetricSpec], idx: np.ndarray, l: int) -> None:
         """Run sample_specs on every selected sample's tokens and record their aggregates."""
@@ -468,10 +522,7 @@ def _rank_table_rows(x_b: Tensor, rows: Tensor) -> Tensor:
     """Ranks (1 = nearest) of every item for the given query rows in space B; ties take the lower rank."""
     d = torch.cdist(x_b[rows], x_b, compute_mode=_cdist_mode(x_b.dtype))
     d[torch.arange(len(rows)), rows] = float("inf")
-    order = d.argsort(dim=1)
-    ranks = torch.empty_like(order)
-    ranks.scatter_(1, order, torch.arange(1, x_b.shape[0] + 1, device=d.device).expand(len(rows), -1))
-    return ranks  # (c, N)
+    return torch.searchsorted(d.sort(dim=1).values, d) + 1  # (c, N): one plus the strictly closer items
 
 
 _PAIR_NEIGHBOR_METRICS = ("information_imbalance", "neighborhood_overlap", "cycle_knn")
@@ -501,50 +552,67 @@ def compute_pairs(
 
     A and B are two representations of the same items with aligned rows: the layers of one model, two
     checkpoints, two models, or two modalities with paired items (image i and caption i); widths may
-    differ. One Record per (metric, layer_a, layer_b). information_imbalance and cycle_knn record the
-    A -> B value with B -> A in extras["reverse"]; neighborhood_overlap, cka, svcca and rsa are
-    symmetric. params is metric name -> estimator keyword arguments, as in compute(): k, l2 and chunk
-    for the imbalance, k, l2 and jaccard for the overlap, k and l2 for cycle_knn, debiased for CKA,
-    threshold for SVCCA, distance, method and chunk for RSA; l2=True ranks cosine neighbors (unit-norm
-    rows) as Huh et al. (2024) do, and is recorded as preprocessing. One seeded subsample of n_items
-    rows serves every metric, capped further at a metric's registry max_items (RSA holds one ranked
-    distance vector per layer). The three neighbor metrics share one k-nearest-neighbor table per
-    layer, sized to the largest k requested; the imbalance costs one chunked rank table per target
-    layer rather than one per pair, so L layers cost O(L N^2 D) instead of O(L^2 N^2 D). CKA keeps the
-    centered features and their norms, SVCCA the kept singular directions and RSA the ranked distance
-    vector, each once per layer. device is as in compute().
+    differ. One seeded subsample of n_items rows serves every metric, capped further at a metric's
+    registry max_items (RSA holds one ranked distance vector per layer). The three neighbor metrics
+    share one k-nearest-neighbor table per layer, sized to the largest k requested; the imbalance costs
+    one chunked rank table per target layer rather than one per pair, so L layers cost O(L N^2 D)
+    instead of O(L^2 N^2 D). CKA keeps the centered features and their norms, SVCCA the kept singular
+    directions and RSA the ranked distance vector, each once per layer. A metric that fails is recorded
+    as nan with extras["error"] for every pair, as in compute().
+
+    Args:
+        layers_a: Layer index -> (N, D_a) representation A.
+        layers_b: Layer index -> (N, D_b) representation B, rows of the same items; None compares the
+            layers of A with each other.
+        metrics: Registry names of pair metrics: "information_imbalance" and "cycle_knn" (value A -> B,
+            B -> A in extras["reverse"]), "neighborhood_overlap", "cka", "svcca" and "rsa" (symmetric).
+        n_items: Keep at most n_items rows chosen at random with seed, the same for every layer.
+        seed: Subsampling seed, recorded.
+        group_ids: One id per row; one random row per group is kept before subsampling.
+        model, model_b: Labels of A and B; records carry "A->B" when B is given.
+        pooling, corpus: Labels recorded verbatim.
+        params: Metric name -> estimator keyword arguments, as in compute(): k, l2 and chunk for the
+            imbalance, k, l2 and jaccard for the overlap, k and l2 for cycle_knn, debiased for CKA,
+            threshold for SVCCA, distance, method and chunk for RSA. l2=True ranks cosine neighbors
+            (unit-norm rows), as Huh et al. (2024) do, and is recorded as preprocessing.
+        device: Device the estimators run on, as in compute().
+
+    Returns:
+        Records, one row per (metric, layer_a, layer_b).
     """
     from req_metrics.metrics.compare import _check_pair
 
     dev = _device(device)
+    if n_items is not None and n_items < 2:
+        raise ValueError(f"n_items must be at least 2, got {n_items}")
     params = {k: dict(v) for k, v in (params or {}).items()}
     specs = [get_metric(m) for m in metrics]
     for spec in specs:
         if spec.inputs is not InputKind.PAIR:
-            raise ValueError(f"{spec.name!r} is not a pair metric")
-    if not layers_a:
-        raise ValueError("layers is empty: no layer tensors were given")
+            raise ValueError(f"{spec.name!r} is not a pair metric; it takes {spec.inputs.value} input")
     same = layers_b is None
     b_map: Mapping[int, Tensor] = layers_a if layers_b is None else layers_b
-    ids_a, ids_b = sorted(layers_a), sorted(b_map)
+    ids_a, ids_b = _layer_ids(layers_a), _layer_ids(b_map)
     first = _tensor(layers_a[ids_a[0]])
     for l in ids_b:
         _check_pair(first, _tensor(b_map[l]))
+    for side, mapping in (("A", layers_a), ("B", b_map)):
+        for l in sorted(mapping):
+            if not torch.isfinite(_tensor(mapping[l])).all():
+                raise ValueError(f"layer {l} of {side} contains non-finite values")
     idx = torch.as_tensor(choose_indices(first.shape[0], n_items, seed, group_ids))
     n = len(idx)
     depths = _normalized_depths(ids_a)
-    label = model if model_b is None else f"{model}->{model_b}"
+    label = model if same else f"{'A' if model is None else model}->{'B' if model_b is None else model_b}"
 
-    # the neighbor metrics share one table per layer and preprocessing, sized to the largest k requested
+    # the neighbor metrics share one table per layer and preprocessing, sized to the largest valid k requested
     k_max: dict[bool, int] = {}
     for spec in specs:
         if spec.name in _PAIR_NEIGHBOR_METRICS:
             p = params.get(spec.name, {})
             k = int(p.get("k", _default_arg(spec.fn, "k")))
-            if k < 1 or k > n - 1:
-                raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
             l2 = bool(p.get("l2", False))
-            k_max[l2] = max(k_max.get(l2, 0), k)
+            k_max[l2] = max(k_max.get(l2, 0), min(k, n - 1))
     tables: dict[bool, tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]] = {}
 
     def neighbor_tables(l2: bool) -> tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]:
@@ -561,23 +629,29 @@ def compute_pairs(
     for spec in specs:
         p = params.get(spec.name, {})
         values: dict[tuple[int, int], tuple[float, dict[str, Any]]]
-        if spec.name in _PAIR_NEIGHBOR_METRICS:
-            l2 = bool(p.get("l2", False))
-            k = int(p.get("k", _default_arg(spec.fn, "k")))
-            xa, xb, nn_a, nn_b = neighbor_tables(l2)
-            values = _neighbor_pairs(spec.name, xa, xb, nn_a, nn_b, same, k, p)
-            recorded: dict[str, Any] = {"k": k, "l2": l2}
-            if spec.name == "neighborhood_overlap":
-                recorded["jaccard"] = bool(p.get("jaccard", False))
-            n_used = n
-        else:
-            rows = _cap_index(n, spec.max_items, seed)
-            sel = idx if rows is None else idx[rows]
-            xa = {l: _to(_tensor(layers_a[l])[sel], dev) for l in ids_a}
-            xb = xa if same else {l: _to(_tensor(b_map[l])[sel], dev) for l in ids_b}
-            values = _closed_form_pairs(spec.name, xa, xb, same, p)
-            recorded = dict(p)
-            n_used = len(sel)
+        recorded: dict[str, Any] = dict(p)
+        n_used = n
+        try:
+            if spec.name in _PAIR_NEIGHBOR_METRICS:
+                l2 = bool(p.get("l2", False))
+                k = int(p.get("k", _default_arg(spec.fn, "k")))
+                if k < 1 or k > n - 1:
+                    raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
+                xa, xb, nn_a, nn_b = neighbor_tables(l2)
+                values = _neighbor_pairs(spec.name, xa, xb, nn_a, nn_b, same, k, p)
+                recorded = {"k": k, "l2": l2}
+                if spec.name == "neighborhood_overlap":
+                    recorded["jaccard"] = bool(p.get("jaccard", False))
+            else:
+                rows = _cap_index(n, spec.max_items, seed)
+                sel = idx if rows is None else idx[rows]
+                xa = {l: _to(_tensor(layers_a[l])[sel], dev) for l in ids_a}
+                xb = xa if same else {l: _to(_tensor(b_map[l])[sel], dev) for l in ids_b}
+                values = _closed_form_pairs(spec.name, xa, xb, same, p)
+                n_used = len(sel)
+        except Exception as e:  # the pipeline records failures instead of aborting a sweep
+            message = f"{type(e).__name__}: {e}"
+            values = {(la, lb): (float("nan"), {"error": message}) for la in ids_a for lb in ids_b}
         for (la, lb), (value, extras) in values.items():
             out.rows.append(
                 Record(
@@ -600,7 +674,7 @@ def compute_pairs(
                     version=__version__,
                 )
             )
-    return out
+    return _warn_failed(out)
 
 
 def _neighbor_pairs(

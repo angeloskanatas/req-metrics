@@ -41,7 +41,7 @@ class MonitorTests(unittest.TestCase):
         mon = rq.LayerMonitor(
             self.model.blocks,
             pool=lambda out: out.mean(dim=1),
-            metrics=["effective_rank", "anisotropy"],
+            metrics=["effective_rank", "anisotropy/spectral"],
             n_items=100,
             model="toy",
             pooling="time-mean",
@@ -336,6 +336,10 @@ class MonitorTests(unittest.TestCase):
         self.assertAlmostEqual(b[2], 1.0, places=6)  # nothing moved between sweeps 1 and 2
         self.assertEqual([r.extras["reference_step"] for r in prev.history[-1][1] if r.metric == "cka"], [1, 1, 1])
 
+    def test_view_metrics_need_augment(self):
+        with self.assertRaisesRegex(ValueError, "augment"):
+            rq.LayerMonitor(self.model.blocks, pool="mean", metrics=["effective_rank"], view_metrics=["lidar"])
+
     def test_drift_needs_pair_metrics_at_the_sequence_level(self):
         with self.assertRaisesRegex(ValueError, "pair metric"):
             rq.LayerMonitor(
@@ -446,11 +450,11 @@ class MonitorTests(unittest.TestCase):
         )
         trainer = type("T", (), {"current_epoch": 0, "logger": None, "global_step": 0})()
         cb.on_train_start(trainer, self.model)
-        trainer.current_epoch = 1
-        cb.on_train_epoch_end(trainer, self.model)  # epoch 2 -> sweep
-        trainer.current_epoch = 2
+        trainer.current_epoch, trainer.global_step = 1, 6
+        cb.on_train_epoch_end(trainer, self.model)  # epoch 2 -> sweep, labelled with the global step
+        trainer.current_epoch, trainer.global_step = 2, 9
         cb.on_train_epoch_end(trainer, self.model)  # epoch 3 -> skip
-        self.assertEqual([s for s, _ in cb.monitor.history], [0, 2])
+        self.assertEqual([s for s, _ in cb.monitor.history], [0, 6])
 
 
 class GridPoolerTests(unittest.TestCase):

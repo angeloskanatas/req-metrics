@@ -32,9 +32,13 @@ class Spectrum:
         leading part of the spectrum matters."""
         if x.ndim != 2:
             raise ValueError(f"expected (N, D), got shape {tuple(x.shape)}")
+        if not torch.isfinite(x).all():
+            raise ValueError("input contains non-finite values")
         xd = x.to(dtype)
         if center:
-            xd = xd - xd.mean(dim=0, keepdim=True)
+            from req_metrics.preprocess import center as _center
+
+            xd = _center(xd)
         s = torch.linalg.svdvals(xd)
         return cls(singular_values=s, n=int(x.shape[0]), d=int(x.shape[1]))
 

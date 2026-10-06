@@ -6,7 +6,7 @@ Participation ratio (sum lambda)^2 / sum lambda^2 of the covariance eigenvalues.
 - Canonical preprocessing: `center`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2602.03282
+- arXiv: https://arxiv.org/abs/2602.03282
 - Cite: `chung2026globalgeometry` (Global Geometry Is Not Enough for Vision Representations (2026)); `jha2026nerve` (NerVE: Nonlinear Eigenspectrum Dynamics in LLM Feed-Forward Networks (2026)); `chun2026dimensionality` (Estimating Dimensionality of Neural Representations from Finite Samples (2026))
 
 ## Definition, protocol and pitfalls

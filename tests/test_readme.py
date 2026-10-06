@@ -32,7 +32,7 @@ class PostHocExampleTests(unittest.TestCase):
             layers = {0: z0, 1: z1, 2: z2}
             rec = rq.compute(
                 layers,
-                ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
+                ["effective_rank", "intrinsic_dimension/gride", "anisotropy/spectral", "self_clustering"],
                 n_items=10000,
                 seed=42,
                 model="my-encoder",
@@ -108,7 +108,7 @@ class MonitoringExampleTests(unittest.TestCase):
         torch.manual_seed(0)
         dl = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(torch.randn(128, 6, 16)), batch_size=32)
         cb = LayerMonitorCallback(
-            ["effective_rank", "intrinsic_dimension/mlid", "anisotropy"],
+            ["effective_rank", "intrinsic_dimension/mlid", "anisotropy/spectral"],
             layers="backbone.blocks",
             pool="cls",
             n_items=96,
@@ -134,7 +134,7 @@ class MonitoringExampleTests(unittest.TestCase):
         trainer.fit(Lit(), dl)
         last = cb.monitor.history[-1][1]
         self.assertEqual(
-            {r.metric for r in last}, {"effective_rank", "intrinsic_dimension/mlid", "anisotropy", "lidar"}
+            {r.metric for r in last}, {"effective_rank", "intrinsic_dimension/mlid", "anisotropy/spectral", "lidar"}
         )
         self.assertEqual(_failed(last), [])
 

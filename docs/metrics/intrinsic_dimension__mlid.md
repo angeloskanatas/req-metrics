@@ -6,7 +6,7 @@ Geometric mean of per-point local intrinsic dimension (mLID).
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: neighbors
-- Origin: https://arxiv.org/abs/2401.10474
+- arXiv: https://arxiv.org/abs/2401.10474
 - Cite: `huang2024ldreg` (LDReg: Local Dimensionality Regularized Self-Supervised Learning (2024)); `amsaleg2018lid` (Extreme-value-theoretic estimation of local intrinsic dimensionality (2018))
 
 ## Definition, protocol and pitfalls

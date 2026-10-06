@@ -6,7 +6,7 @@ Sparsity: Hoyer-type l1/l2 density and the fraction of active entries.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2602.01456
+- arXiv: https://arxiv.org/abs/2602.01456
 - Cite: `kuang2026lpjepa` (Rectified LpJEPA: Joint-Embedding Predictive Architectures with Sparse and Maximum-Entropy Representations (2026))
 
 ## Definition, protocol and pitfalls

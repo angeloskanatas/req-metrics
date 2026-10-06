@@ -95,7 +95,7 @@ representation (augmented inputs, train-mode layers, weights that moved while th
 buffer filled), so its records are tagged `extras["source"] = "training-batches"`
 and logged under `online_metrics/`, never mixed with fixed-subset records. Centered
 spectral and neighbor metrics cannot see representations collapsing onto one shared
-vector; `normalized_std` and `cosine_anisotropy` can, so a monitoring run logs one
+vector; `normalized_std` and `anisotropy/cosine` can, so a monitoring run logs one
 of them beside the others.
 
 With `drift_metrics`, every sweep also runs pair metrics between each layer's current
@@ -118,6 +118,20 @@ objective's positives do; with `views_in_train_mode`, buffers such as BatchNorm
 running statistics are restored after those passes. View passes are held on the CPU,
 and each layer's (q, N, D) stack moves to the device of the hooked layers for its
 metrics.
+
+Selection during training goes through Lightning's own machinery: every sweep's
+scalars are written to `trainer.callback_metrics` on every rank (rank zero computes,
+the strategy broadcasts), which is where `ModelCheckpoint` and `EarlyStopping` read the
+quantity they monitor; Lightning's `LearningRateMonitor` publishes the same way. The
+published evidence supports two uses of this: comparing runs or checkpoints at one layer
+and equal step, the rule of RankMe and LiDAR, and stopping on collapse, since
+`normalized_std` and `anisotropy/cosine` fall when representations converge onto one
+vector. It does not support a universal early-stopping criterion within one run: the
+effective rank of a language model expands and then contracts while downstream quality
+keeps improving (Li et al., 2025), so a maximum-rank checkpoint can be the wrong one. The
+callback state (sweep history, schedule bookkeeping, drift reference) is saved in the
+checkpoint and restored on resume, and the callback, the monitor and the sinks are
+picklable for spawn-based launchers.
 
 An EMA target or any other branch is monitored by pointing `model_attr` at it, one
 callback per branch. Every record carries the epoch and the global step, and the W&B

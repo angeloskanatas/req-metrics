@@ -4,9 +4,9 @@ GRIDE intrinsic dimension at the 8th-neighbor scale.
 
 - Input: `points`
 - Canonical preprocessing: `none`
-- Tags: none
+- Tags: paper-canonical
 - Shared cache: neighbors
-- Origin: https://arxiv.org/abs/2104.13832
+- arXiv: https://arxiv.org/abs/2104.13832
 - Cite: `denti2022gride` (The generalized ratios intrinsic dimension estimator (2022)); `glielmo2022dadapy` (DADApy: Distance-based Analysis of DAta-manifolds in Python (2022)); `DBLP:journals/corr/abs-1803-06992` (Estimating the intrinsic dimension of datasets by a minimal neighborhood
                   information (2017))
 

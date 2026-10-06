@@ -214,6 +214,8 @@ def cycle_knn(
 def _check_pair(x_a: Tensor, x_b: Tensor) -> None:
     if x_a.ndim != 2 or x_b.ndim != 2 or x_a.shape[0] != x_b.shape[0]:
         raise ValueError(f"expected two (N, D) tensors with equal N, got {tuple(x_a.shape)} and {tuple(x_b.shape)}")
+    if not (torch.isfinite(x_a).all() and torch.isfinite(x_b).all()):
+        raise ValueError("input contains non-finite values")
 
 
 def _debiased_hsic(xty: Tensor, rows_a: Tensor, rows_b: Tensor, sq_a: Tensor, sq_b: Tensor, n: int) -> Tensor:
@@ -271,6 +273,8 @@ def _svd_directions(x: Tensor, threshold: float) -> tuple[Tensor, int]:
     """Left singular vectors of the centered x whose singular values sum to a fraction threshold of the total."""
     u, s, _ = torch.linalg.svd(x - x.mean(0, keepdim=True), full_matrices=False)
     cum = torch.cumsum(s, 0)
+    if float(cum[-1]) == 0.0:
+        raise ValueError("zero matrix after centering: no singular directions")
     k = min(int(torch.searchsorted(cum, threshold * cum[-1]).item()) + 1, s.numel())
     return u[:, :k], k
 

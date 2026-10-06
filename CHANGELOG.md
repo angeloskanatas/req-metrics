@@ -34,3 +34,16 @@ First release in preparation.
   JSON, TensorBoard and Weights & Biases sinks, and a PyTorch Lightning callback with epoch and step
   schedules.
 - Seeded draws come from CPU generators, so a seed gives the same value on CPU and GPU tensors.
+- Input validation and failure records: non-finite inputs, integer layer keys, `n_items >= 2`, the
+  `ViewSpec` view count and aligned pitch-shifted copies are checked up front; every estimator
+  failure is a nan record with `extras["error"]`, in `compute_pairs` as well, and sample-level
+  aggregates report skipped samples in `extras["first_error"]`. `describe(name)` prints a metric's
+  card; `Records` has a repr, slicing and `to_markdown`; JSON files write `null` for nan.
+- Lightning callback: per-layer scalars in `trainer.callback_metrics` on every rank, so
+  `ModelCheckpoint` and `EarlyStopping` select by them; callback state (history, schedule, drift
+  reference) saved in checkpoints and restored on resume; one sweep when a step trigger falls on an
+  epoch end; sinks receive the global step; the callback, the monitor and the sinks are picklable.
+- Degenerate inputs: a collapsed cloud centers to exactly zero (effective rank 0, errors for the
+  undefined spectral estimators), neighbor tables and spectra refuse non-finite values, GRIDE, MLE
+  and mLID report insufficient distinct points, the pair pipeline ranks ties as the imbalance
+  estimator does, and LiDAR ignores rounding-noise eigenvalues.

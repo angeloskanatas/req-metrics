@@ -129,8 +129,8 @@ def gride(
     """
     if scale & (scale - 1) or scale < 2:
         raise ValueError("scale must be a power of two >= 2")
-    n_points = x.n if isinstance(x, Neighbors) else x.shape[0]
-    max_rank = min(n_points - 1, range_max)
+    n_distinct = x.n if isinstance(x, Neighbors) else _unique_rows(x).shape[0]
+    max_rank = min(n_distinct - 1, range_max)
     if max_rank < scale:
         raise ValueError(f"scale {scale} exceeds the available neighbor rank {max_rank}")
     nb = _neighbors(x, max_rank)
@@ -168,6 +168,8 @@ def mle(x: Tensor | Neighbors, *, k_range: tuple[int, int] = (10, 20), unbiased:
     if k1 < 2 or k2 < k1:
         raise ValueError("k_range must satisfy 2 <= k1 <= k2")
     nb = _neighbors(x, k2)
+    if nb.k < k2:
+        raise ValueError(f"k_range[1] = {k2} needs at least {k2 + 1} distinct points, got {nb.n}")
     log_d = torch.log(nb.distances[:, 1 : k2 + 1])  # (N, k2), column j-1 is T_j
     extras: dict[str, float] = {}
     for k in range(k1, k2 + 1):
@@ -194,9 +196,10 @@ def mlid(x: Tensor | Neighbors, *, k: int = 64) -> MetricResult:
         extras: frechet_var (variance of log LID), n_valid.
     """
     nb = _neighbors(x, k)
-    k = min(k, nb.k)
     if k < 2:
         raise ValueError("need k >= 2")
+    if nb.k < k:
+        raise ValueError(f"k = {k} needs at least {k + 1} distinct points, got {nb.n}")
     mu_k = nb.distances[:, 1:k].mean(dim=1)
     w_k = nb.distances[:, k]
     lids = mu_k / (w_k - mu_k + 1e-10)
@@ -265,6 +268,7 @@ register_metric(
 )(twonn)
 register_metric(
     "intrinsic_dimension/gride",
+    tags=("paper-canonical",),
     cache="neighbors",
     inputs=_P,
     preprocess=Preprocess(),

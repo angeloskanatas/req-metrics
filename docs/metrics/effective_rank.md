@@ -6,7 +6,7 @@ Effective rank: exponential of the Shannon entropy of the normalized spectrum.
 - Canonical preprocessing: `center`
 - Tags: paper-canonical
 - Shared cache: spectrum
-- Origin: https://arxiv.org/abs/2210.02885
+- arXiv: https://arxiv.org/abs/2210.02885
 - Cite: `DBLP:conf/eusipco/RoyV07` (The effective rank: A measure of effective dimensionality (2007)); `DBLP:conf/icml/GarridoBNL23` (RankMe: Assessing the Downstream Performance of Pretrained Self-Supervised
                   Representations by Their Rank (2023)); `jha2026nerve` (NerVE: Nonlinear Eigenspectrum Dynamics in LLM Feed-Forward Networks (2026))
 

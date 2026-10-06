@@ -56,7 +56,7 @@ from req_metrics.neighbors import Neighbors
 from req_metrics.pipeline import choose_indices, compute, compute_pairs
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
 from req_metrics.records import Record, Records
-from req_metrics.registry import MetricSpec, get_metric, list_metrics, register_metric
+from req_metrics.registry import MetricSpec, describe, get_metric, list_metrics, register_metric
 from req_metrics.selection import rank_runs, top_layers, value_at
 from req_metrics.spectrum import Spectrum
 from req_metrics.stability import Convergence, convergence
@@ -70,6 +70,7 @@ __all__ = [
     "Neighbors",
     "MetricSpec",
     "register_metric",
+    "describe",
     "get_metric",
     "list_metrics",
     "apply_preprocess",

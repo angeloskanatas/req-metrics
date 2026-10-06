@@ -6,7 +6,7 @@ LiDAR: effective rank of the LDA matrix, with samples as classes and their views
 - Canonical preprocessing: `none`
 - Tags: paper-canonical
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2312.04000
+- arXiv: https://arxiv.org/abs/2312.04000
 - Cite: `DBLP:conf/iclr/Thilak0SDGNSL24` (LiDAR: Sensing Linear Probing Performance in Joint Embedding SSL (2024))
 
 ## Definition, protocol and pitfalls

@@ -6,7 +6,7 @@ Mean Euclidean norm of the representations.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2502.09252
+- arXiv: https://arxiv.org/abs/2502.09252
 - Cite: `draganov2025norms` (On the Importance of Embedding Norms in Self-Supervised Learning (2025))
 
 ## Definition, protocol and pitfalls

@@ -4,9 +4,9 @@ Mean per-channel standard deviation of the L2-normalized output.
 
 - Input: `points`
 - Canonical preprocessing: `l2`
-- Tags: collapse-indicator
+- Tags: relational, collapse-indicator
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2011.10566
+- arXiv: https://arxiv.org/abs/2011.10566
 - Cite: `chen2021simsiam` (Exploring Simple Siamese Representation Learning (2021))
 
 ## Definition, protocol and pitfalls

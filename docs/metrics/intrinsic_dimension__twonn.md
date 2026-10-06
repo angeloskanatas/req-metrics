@@ -6,7 +6,7 @@ TwoNN intrinsic dimension (Facco et al.).
 - Canonical preprocessing: `none`
 - Tags: paper-canonical
 - Shared cache: neighbors
-- Origin: https://arxiv.org/abs/1803.06992
+- arXiv: https://arxiv.org/abs/1803.06992
 - Cite: `DBLP:journals/corr/abs-1803-06992` (Estimating the intrinsic dimension of datasets by a minimal neighborhood
                   information (2017)); `glielmo2022dadapy` (DADApy: Distance-based Analysis of DAta-manifolds in Python (2022))
 

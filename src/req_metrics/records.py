@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import csv
 import json
-from collections.abc import Iterable, Iterator
+import math
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 
 @dataclass
@@ -91,8 +92,8 @@ _CSV_FIELDS = [
 
 _ATLAS_NAMES = {
     "effective_rank": ("effective_rank", "default"),
-    "anisotropy": ("anisotropy", "spectral"),
-    "cosine_anisotropy": ("anisotropy", "cosine"),
+    "anisotropy/spectral": ("anisotropy", "spectral"),
+    "anisotropy/cosine": ("anisotropy", "cosine"),
     "intrinsic_dimension/twonn": ("id", "twonn"),
     "intrinsic_dimension/mle": ("id", "mle"),
     "intrinsic_dimension/mlid": ("id", "mlid"),
@@ -136,15 +137,34 @@ def atlas_name(r: Record) -> tuple[str, str]:
 _OLD_LEVELS = {"pooled": "sequence", "frames": "sample", "tokens": "population"}
 
 
+_RENAMED = {
+    "intrinsic_dimension": "intrinsic_dimension/twonn",
+    "anisotropy": "anisotropy/spectral",
+    "cosine_anisotropy": "anisotropy/cosine",
+}
+
+
 def _upgrade(row: dict[str, Any]) -> dict[str, Any]:
-    """Record fields of a stored row; names of development versions (population field, bare TwoNN) are mapped."""
+    """Record fields of a stored row; a null value is nan, and names of development versions are mapped."""
     row = {**row, "tags": tuple(row.get("tags", ()))}
+    if row.get("value") is None:
+        row["value"] = math.nan
     if "population" in row:
         old = row.pop("population")
         row["level"] = _OLD_LEVELS.get(old, old)
-    if row.get("metric") == "intrinsic_dimension":
-        row["metric"] = "intrinsic_dimension/twonn"
+    row["metric"] = _RENAMED.get(row.get("metric", ""), row.get("metric"))
     return row
+
+
+def _json_ready(obj: Any) -> Any:
+    """The object with non-finite floats as None, so the JSON written is standard (no NaN or Infinity tokens)."""
+    if isinstance(obj, dict):
+        return {k: _json_ready(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_ready(v) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
 
 
 class Records:
@@ -159,8 +179,21 @@ class Records:
     def __len__(self) -> int:
         return len(self.rows)
 
-    def __getitem__(self, i: int) -> Record:
-        return self.rows[i]
+    def __repr__(self) -> str:
+        metrics = {r.metric for r in self.rows}
+        layers = sorted(r.layer for r in self.rows if isinstance(r.layer, int))
+        span = f"{layers[0]}-{layers[-1]}" if layers else "none"
+        models = sorted({str(r.model) for r in self.rows})
+        return f"Records({len(self.rows)} rows, {len(metrics)} metrics, layers {span}, models {models})"
+
+    @overload
+    def __getitem__(self, i: int) -> Record: ...
+
+    @overload
+    def __getitem__(self, i: slice) -> Records: ...
+
+    def __getitem__(self, i: int | slice) -> Record | Records:
+        return Records(self.rows[i]) if isinstance(i, slice) else self.rows[i]
 
     def extend(self, other: Iterable[Record]) -> Records:
         """Append records in place and return self."""
@@ -169,7 +202,23 @@ class Records:
 
     def where(self, **conditions: Any) -> Records:
         """Rows whose fields equal the given values, e.g. where(metric="effective_rank")."""
+        unknown = [k for k in conditions if k not in Record.__dataclass_fields__]
+        if unknown:
+            raise ValueError(f"unknown record fields {unknown}; fields are {list(Record.__dataclass_fields__)}")
         return Records(r for r in self.rows if all(getattr(r, k) == v for k, v in conditions.items()))
+
+    def to_markdown(self, metrics: Sequence[str] | None = None, model: str | None = None, digits: int = 4) -> str:
+        """Layers x metrics table of the single-layer values, in Markdown."""
+        rows = [
+            r for r in self.rows if r.layer_b is None and r.layer is not None and (model is None or r.model == model)
+        ]
+        names = list(metrics) if metrics is not None else sorted({r.metric for r in rows})
+        table = {(r.layer, r.metric): r.value for r in rows}
+        lines = ["| layer | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
+        for layer in sorted({r.layer for r in rows if isinstance(r.layer, int)}):
+            cells = [f"{table[(layer, m)]:.{digits}g}" if (layer, m) in table else "" for m in names]
+            lines.append(f"| {layer} | " + " | ".join(cells) + " |")
+        return "\n".join(lines)
 
     def profile(self, metric: str, model: str | None = None) -> list[tuple[int, float]]:
         """(layer, value) pairs for one metric, sorted by layer."""
@@ -181,7 +230,7 @@ class Records:
     def to_json(self, path: str | Path) -> Path:
         """Write all records as a JSON list; returns the path."""
         path = Path(path)
-        path.write_text(json.dumps([r.to_dict() for r in self.rows], indent=1, default=float))
+        path.write_text(json.dumps([_json_ready(r.to_dict()) for r in self.rows], indent=1, default=float))
         return path
 
     @classmethod
@@ -200,7 +249,7 @@ class Records:
                 d = r.to_dict()
                 d["tags"] = ";".join(r.tags)
                 for k in ("params", "extras"):
-                    d[k] = json.dumps(d[k], default=float)
+                    d[k] = json.dumps(_json_ready(d[k]), default=float)
                 w.writerow({k: d[k] for k in _CSV_FIELDS})
         return path
 
@@ -251,7 +300,7 @@ class Records:
             "records": records,
         }
         path = Path(path)
-        path.write_text(json.dumps(payload, indent=1, default=float))
+        path.write_text(json.dumps(_json_ready(payload), indent=1, default=float))
         return path
 
     def to_pandas(self):

@@ -2,11 +2,11 @@
 
 Squared Frobenius drift of a sample's token cosine Gram matrix against a reference field.
 
-- Input: `pair`
-- Canonical preprocessing: `none`
+- Input: `token_pair`
+- Canonical preprocessing: `l2`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2508.10104
+- arXiv: https://arxiv.org/abs/2508.10104
 - Cite: `simeoni2025dinov3` (DINOv3 (2025))
 
 ## Definition, protocol and pitfalls

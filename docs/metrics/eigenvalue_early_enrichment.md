@@ -6,7 +6,7 @@ Top-heaviness of the covariance spectrum over the ambient dimension (EEE).
 - Canonical preprocessing: `center`
 - Tags: none
 - Shared cache: spectrum
-- Origin: https://arxiv.org/abs/2603.06922
+- arXiv: https://arxiv.org/abs/2603.06922
 - Cite: `jha2026nerve` (NerVE: Nonlinear Eigenspectrum Dynamics in LLM Feed-Forward Networks (2026))
 
 ## Definition, protocol and pitfalls

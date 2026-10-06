@@ -6,7 +6,7 @@ Neighborhood overlap: mean fraction of the k nearest neighbors shared by two rep
 - Canonical preprocessing: `none`
 - Tags: relational
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2007.03506
+- arXiv: https://arxiv.org/abs/2007.03506
 - Cite: `doimo2020nucleation` (Hierarchical nucleation in deep neural networks (2020)); `valeriani2023geometry` (The geometry of hidden representations of large transformer models (2023)); `huh2024platonic` (Position: The Platonic Representation Hypothesis (2024)); `glielmo2022dadapy` (DADApy: Distance-based Analysis of DAta-manifolds in Python (2022)); `wang2022instability` (Towards Understanding the Instability of Network Embedding (2022)); `klabunde2025resi` (ReSi: A Comprehensive Benchmark for Representational Similarity Measures (2025))
 
 ## Definition, protocol and pitfalls

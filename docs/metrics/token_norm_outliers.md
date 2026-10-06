@@ -6,7 +6,7 @@ Fraction of high-norm tokens, and the channel concentration of the largest one.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2309.16588
+- arXiv: https://arxiv.org/abs/2309.16588
 - Cite: `darcet2024registers` (Vision Transformers Need Registers (2024)); `jiang2025noregisters` (Vision Transformers Don't Need Trained Registers (2025)); `sun2024massive` (Massive Activations in Large Language Models (2024))
 
 ## Definition, protocol and pitfalls

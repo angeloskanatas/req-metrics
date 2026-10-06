@@ -13,6 +13,7 @@ from torch import Tensor
 
 from req_metrics._types import InputKind, MetricResult, Preprocess
 from req_metrics.preprocess import apply_preprocess
+from req_metrics.preprocess import center as center_rows
 from req_metrics.registry import register_metric
 from req_metrics.spectrum import Spectrum
 
@@ -151,11 +152,11 @@ def alpha_req(x: Tensor | Spectrum, *, fit_range: tuple[int, int] = (10, 100), c
 def anisotropy_spectral(x: Tensor | Spectrum, *, center: bool = True, l2: bool = True) -> MetricResult:
     """Spectral anisotropy: the share of variance on the leading direction.
 
-    Razzhigaev et al. (2024, EACL Findings): s_1^2 / sum s_k^2 of the centered matrix, 1/D for an
-    isotropic cloud and 1 for a single axis. Rows are L2-normalized after centering by default,
-    so the score ignores norms. With l2=False, 1 - value is the isotropy score of Chung and Kim
-    (2026) and 1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered
-    matrix.
+    Razzhigaev et al. (2024, EACL Findings, arXiv:2311.05928): s_1^2 / sum s_k^2 of the centered
+    matrix, 1/D for an isotropic cloud and 1 for a single axis. Rows are L2-normalized after
+    centering by default, so the score ignores norms; the paper does not normalize rows, which
+    l2=False reproduces. With l2=False, 1 - value is the isotropy score of Chung and Kim (2026) and
+    1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered matrix.
 
     Args:
         x: Points (N, D), or a Spectrum of preprocessed points.
@@ -202,11 +203,16 @@ def participation_ratio(
             raise ValueError("the corrections need the centered (N, D) matrix with N >= 4")
         s = _spectrum(x, Preprocess(center=center))
         lam = s.eigenvalues
+        if float((lam**2).sum()) == 0.0:
+            raise ValueError("zero covariance: the participation ratio is undefined")
         pr = float(lam.sum() ** 2 / (lam**2).sum())
         return MetricResult(pr / s.d if normalized else pr, {"participation_ratio": pr})
     if x.ndim != 2 or x.shape[1] < 2:
         raise ValueError(f"expected (N, D) with D >= 2, got shape {tuple(x.shape)}")
-    est = _chun_participation_ratios(x.double())
+    xd = x.double()
+    if not float(center_rows(xd).norm()) > 0.0:
+        raise ValueError("zero covariance: the participation ratio is undefined")
+    est = _chun_participation_ratios(xd)
     pr = est["naive" if correction == "none" else correction]
     return MetricResult(pr / x.shape[1] if normalized else pr, {"participation_ratio": pr, **est})
 
@@ -310,10 +316,11 @@ register_metric(
     citation=("DBLP:conf/nips/AgrawalMGR22", "stringer2019highdim"),
 )(alpha_req)
 register_metric(
-    "anisotropy",
+    "anisotropy/spectral",
     cache="spectrum",
     inputs=_P,
     preprocess=Preprocess(center=True, l2=True),
+    arxiv="2311.05928",
     citation=(
         "DBLP:conf/eacl/RazzhigaevMGODK24",
         "chung2026globalgeometry",

@@ -14,7 +14,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from req_metrics.pipeline import _points_sweep
+from req_metrics.pipeline import _points_sweep, _tensor
 from req_metrics.registry import get_metric
 
 
@@ -74,6 +74,7 @@ def convergence(
         Convergence with one row per fraction; rel_change of the first row is nan.
     """
     spec = get_metric(metric)
+    x = _tensor(x)
     n = x.shape[0]
     gen = torch.Generator().manual_seed(seed)
     rows: list[ConvergenceRow] = []

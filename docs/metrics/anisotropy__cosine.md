@@ -1,10 +1,10 @@
-# `cosine_anisotropy`
+# `anisotropy/cosine`
 
 Cosine anisotropy: mean cosine similarity between distinct samples.
 
 - Input: `points`
-- Canonical preprocessing: `none`
-- Tags: none
+- Canonical preprocessing: `l2`
+- Tags: relational, collapse-indicator
 - Shared cache: none
 - Cite: `ethayarajh2019contextual` (How Contextual are Contextualized Word Representations? Comparing the Geometry of BERT, ELMo, and GPT-2 Embeddings (2019)); `DBLP:conf/eacl/GodeyCS24` (Anisotropy Is Inherent to Self-Attention in Transformers (2024)); `timkey2021rogue` (All Bark and No Bite: Rogue Dimensions in Transformer Language Models Obscure Representational Quality (2021))
 

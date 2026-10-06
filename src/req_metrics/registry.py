@@ -6,7 +6,9 @@ metric objects.
 
 from __future__ import annotations
 
+import difflib
 import fnmatch
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -30,7 +32,7 @@ class MetricSpec:
             building the shared Spectrum; other estimators preprocess internally.
             Records store the preprocessing a call applied.
         citation: BibTeX keys in docs/references.bib, origin first.
-        arxiv: arXiv identifier of the origin paper, if any.
+        arxiv: arXiv identifier of the paper the implementation follows, if any.
         description: One sentence.
         tags: Free-form markers, e.g. "paper-canonical", "relational".
         cache: Shared intermediate the estimator can consume instead of the raw
@@ -108,5 +110,31 @@ def get_metric(name: str) -> MetricSpec:
         return _REGISTRY[name]
     except KeyError:
         variants = list_metrics(f"{name}/*")
-        hint = f"; its estimators are {', '.join(variants)}" if variants else "; see list_metrics()"
+        if variants:
+            hint = f"; its estimators are {', '.join(variants)}"
+        else:
+            close = [n for n in _REGISTRY if n.endswith(f"/{name}")] or difflib.get_close_matches(
+                name, list(_REGISTRY), n=3, cutoff=0.6
+            )
+            hint = f"; did you mean {', '.join(sorted(close))}" if close else "; see list_metrics()"
         raise KeyError(f"unknown metric {name!r}{hint}") from None
+
+
+def describe(name: str) -> str:
+    """The card of a metric as text: the registry entry followed by the estimator's docstring."""
+    spec = get_metric(name)
+    fn = spec.fn
+    doc = inspect.getdoc(getattr(fn, "func", fn)) or ""
+    lines = [
+        spec.name,
+        spec.description,
+        f"input: {spec.inputs.value}",
+        f"preprocessing: {spec.preprocess.describe()}",
+        f"cache: {spec.cache or 'none'}",
+        f"tags: {', '.join(spec.tags) if spec.tags else 'none'}",
+    ]
+    if spec.arxiv:
+        lines.append(f"arxiv: https://arxiv.org/abs/{spec.arxiv}")
+    if spec.citation:
+        lines.append("cite: " + ", ".join(spec.citation))
+    return "\n".join([*lines, "", doc])

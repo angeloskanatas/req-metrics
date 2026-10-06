@@ -11,8 +11,9 @@ class InputKind(str, Enum):
     TRAJECTORY = "trajectory"  # (T, D), time-ordered tokens of one sample
     VIEWS = "views"  # (q, N, D), q augmented views of the same N samples
     SHIFTED = "shifted"  # (N, D) plus {semitones: (N, D)} transposed copies
-    TOKENS = "tokens"  # (N, T, D)
+    TOKENS = "tokens"  # (T, D), the token field of one sample
     PAIR = "pair"  # two point clouds (N, D_a), (N, D_b) describing the same N items
+    TOKEN_PAIR = "token_pair"  # (T, D) token field and a (T, D_ref) reference field of the same sample
     JACOBIAN = "jacobian"  # (B, k, M) Jacobian sketches: B inputs, k rows per input
 
 

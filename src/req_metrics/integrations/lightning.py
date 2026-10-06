@@ -6,8 +6,10 @@ runs a sweep at the start of training and every n epochs and logs per-layer
 scalars to the trainer's logger, with layer-profile line plots when the logger
 is Weights & Biases. With online=True it also keeps ring
 buffers of the training forward passes and logs the same point metrics on
-them under online_metrics/, without extra forward passes. Under distributed
-training everything runs on global rank zero only.
+them under online_metrics/, without extra forward passes. The per-layer scalars are
+also written to trainer.callback_metrics, so ModelCheckpoint and EarlyStopping can
+select by them. Under distributed training the sweeps run on global rank zero and
+their scalars are broadcast to every rank.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from req_metrics.monitor import (
     monitor_loader,
     resolve_layers,
 )
-from req_metrics.records import Records
+from req_metrics.records import Record, Records, _upgrade
 from req_metrics.view_construction import ViewSpec
 
 _Base: Any
@@ -37,6 +39,13 @@ try:
     _Base = pl.Callback
 except ImportError:  # pragma: no cover
     _Base = object
+
+
+def _default_batch_input(batch: Any) -> Any:
+    """Element 0 of a tuple or list batch, else the batch itself; dict batches need batch_input."""
+    if isinstance(batch, Mapping):
+        raise TypeError("the batch is a dict; pass batch_input= to select the model input")
+    return batch[0] if isinstance(batch, (tuple, list)) else batch
 
 
 class _Inputs:
@@ -94,8 +103,12 @@ class LayerMonitorCallback(_Base):
             decoding and see the same inputs, also when the dataset's __getitem__ draws a random
             crop; the q view passes still read the live loader, so each view draws its own crop.
             A loader that is a one-shot iterator is always materialized, and its views share it.
-        sinks: Extra callables receiving (records, epoch): csv_sink, json_sink, tensorboard_sink,
-            wandb_sink or your own.
+        sinks: Extra callables receiving (records, global step): csv_sink, json_sink,
+            tensorboard_sink, wandb_sink or your own.
+        callback_metrics: Also write the per-layer scalars (the keys of layer_scalars) to
+            trainer.callback_metrics on every rank, so ModelCheckpoint(monitor=
+            "layer_metrics/<metric>_layer_<l>") and EarlyStopping select by them as by a validation
+            loss. Between sweeps the last value stands, so align their cadence with the sweep schedule.
         log: Log per-layer scalars through trainer.logger (TensorBoard, CSV, MLflow, W&B, ...);
             adds layer-profile plots when the logger is W&B.
         log_extras: Numeric extras logged next to the values, e.g. ("frechet_var",).
@@ -145,8 +158,15 @@ class LayerMonitorCallback(_Base):
         sweep_steps: Sequence[int] | None = None,
         cache_batches: bool = False,
         pool_kwargs: Mapping[str, Any] | None = None,
+        callback_metrics: bool = True,
     ):
         super().__init__()
+        if view_metrics and augment is None:
+            raise ValueError(
+                "view metrics need augment; pass an identity callable when the view loader draws the views"
+            )
+        self.callback_metrics = callback_metrics
+        self._pending_state: dict[str, Any] | None = None
         self.pool_kwargs = dict(pool_kwargs or {})
         self.every_n_steps, self.sweep_steps, self.cache_batches = every_n_steps, set(sweep_steps or ()), cache_batches
         self._done_steps: set[int] = set()
@@ -158,7 +178,7 @@ class LayerMonitorCallback(_Base):
         self.metrics, self.layers, self.pool, self.level = list(metrics), layers, pool, level
         self.n_items, self.every_n_epochs, self.model_attr = n_items, every_n_epochs, model_attr
         self.n_tokens = n_tokens
-        self.batch_input = batch_input or (lambda b: b[0] if isinstance(b, (tuple, list)) else b)
+        self.batch_input = batch_input or _default_batch_input
         self._loader_fn = loader
         self._loader: Iterable[Any] | None = None
         self._live: Iterable[Any] | None = None
@@ -213,6 +233,7 @@ class LayerMonitorCallback(_Base):
                 seed=self.seed,
                 **self.labels,
             )
+            self._restore(self.monitor)
         if self._loader is None:
             if self._loader_fn is not None:
                 batches: Iterable[Any] = self._loader_fn(trainer, pl_module)
@@ -223,7 +244,10 @@ class LayerMonitorCallback(_Base):
                 dataset = getattr(src, "dataset", None)
                 if dataset is None:
                     raise ValueError("cannot find the training dataset; pass loader=")
-                batches = monitor_loader(dataset, self.n_items, self.batch_size, self.seed)
+                try:
+                    batches = monitor_loader(dataset, self.n_items, self.batch_size, self.seed)
+                except TypeError:
+                    raise ValueError("the training dataset has no length; pass loader= with a fixed subset") from None
             one_shot = iter(batches) is batches
             self._live = None if one_shot else batches
             if self.cache_batches or one_shot:  # a one-shot iterator is kept for later sweeps
@@ -248,7 +272,7 @@ class LayerMonitorCallback(_Base):
             loggers = list(getattr(trainer, "loggers", None) or ([trainer.logger] if trainer.logger else []))
             if not loggers or not len(rec):
                 return
-            scalars = layer_scalars(rec, self.log_extras)
+            scalars = {**layer_scalars(rec, self.log_extras), "epoch": int(trainer.current_epoch)}
             for logger in loggers:
                 logger.log_metrics(scalars, step=trainer.global_step)
                 exp = getattr(logger, "experiment", None)
@@ -282,37 +306,59 @@ class LayerMonitorCallback(_Base):
             r.extras["epoch"] = int(trainer.current_epoch)
             r.extras["global_step"] = int(trainer.global_step)
 
-    def _online_compute(self, trainer, step: int) -> None:
-        if self.online is not None:
+    def _publish(self, trainer, scalars: dict[str, float] | None) -> None:
+        """Write a sweep's scalars to trainer.callback_metrics on every rank, where ModelCheckpoint and
+        EarlyStopping read the quantity they monitor; rank zero's values are broadcast first."""
+        if not self.callback_metrics:
+            return
+        strategy = getattr(trainer, "strategy", None)
+        if strategy is not None and hasattr(strategy, "broadcast"):
+            scalars = strategy.broadcast(scalars, src=0)
+        metrics = getattr(trainer, "callback_metrics", None)
+        if scalars and metrics is not None:
+            import torch
+
+            device = getattr(strategy, "root_device", None)
+            metrics.update({k: torch.tensor(v, device=device) for k, v in scalars.items()})
+
+    def _online_compute(self, trainer) -> None:
+        if not self.online_enabled:
+            return
+        scalars = None
+        if self.online is not None and getattr(trainer, "is_global_zero", True):
+            step = int(trainer.global_step)
             rec = self.online.compute(self.online_metrics, step, (), params=self.params, seed=self.seed, **self.labels)
             self._stamp(trainer, rec)
             for sink in self._sinks(trainer):
                 sink(rec, step)
+            scalars = layer_scalars(rec, self.log_extras)
+        self._publish(trainer, scalars)
 
-    def _sweep(self, trainer, pl_module, epoch: int) -> None:
-        if not getattr(trainer, "is_global_zero", True):
-            return
-        self._ensure(trainer, pl_module)
-        assert self.monitor is not None and self._loader is not None
-        target = self._target(pl_module)  # the monitor switches only this module and the hooked layers
-        device = next(pl_module.parameters()).device
-        if device.type == "cuda":
-            import torch
+    def _sweep(self, trainer, pl_module) -> None:
+        scalars = None
+        if getattr(trainer, "is_global_zero", True):
+            self._ensure(trainer, pl_module)
+            assert self.monitor is not None and self._loader is not None
+            target = self._target(pl_module)  # the monitor switches only this module and the hooked layers
+            device = next(pl_module.parameters()).device
+            if device.type == "cuda":
+                import torch
 
-            torch.cuda.empty_cache()
-        forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
-        views = _Inputs(self._live, self.batch_input) if self._live is not None else None
-        rec = self.monitor.sweep(
-            forward, _Inputs(self._loader, self.batch_input), epoch, (), module=target, view_loader=views
-        )
-        self._stamp(trainer, rec)
-        for sink in self._sinks(trainer):
-            sink(rec, epoch)
+                torch.cuda.empty_cache()
+            forward = lambda x: target(x.to(device) if hasattr(x, "to") else x)  # noqa: E731
+            views = _Inputs(self._live, self.batch_input) if self._live is not None else None
+            step = int(trainer.global_step)
+            rec = self.monitor.sweep(
+                forward, _Inputs(self._loader, self.batch_input), step, (), module=target, view_loader=views
+            )
+            self._stamp(trainer, rec)
+            for sink in self._sinks(trainer):
+                sink(rec, step)
+            scalars = layer_scalars(rec, self.log_extras)
+        self._publish(trainer, scalars)
 
     def on_train_start(self, trainer, pl_module) -> None:
-        if not getattr(trainer, "is_global_zero", True):
-            return
-        if self.online_enabled and self.online is None:
+        if self.online_enabled and self.online is None and getattr(trainer, "is_global_zero", True):
             self._ensure(trainer, pl_module)
             assert self.monitor is not None
             self.online = OnlineBuffer(
@@ -324,13 +370,16 @@ class LayerMonitorCallback(_Base):
             )
             self.online.attach()
         if trainer.current_epoch == 0:
-            self._sweep(trainer, pl_module, 0)
+            self._done_steps.add(int(trainer.global_step))
+            self._sweep(trainer, pl_module)
 
     def on_train_epoch_end(self, trainer, pl_module) -> None:
         epoch = trainer.current_epoch + 1
-        if self.every_n_epochs and epoch % self.every_n_epochs == 0:
-            self._online_compute(trainer, epoch)
-            self._sweep(trainer, pl_module, epoch)
+        step = int(trainer.global_step)
+        if self.every_n_epochs and epoch % self.every_n_epochs == 0 and step not in self._done_steps:
+            self._done_steps.add(step)  # a step trigger on the same global step sweeps once
+            self._online_compute(trainer)
+            self._sweep(trainer, pl_module)
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
         step = int(trainer.global_step)
@@ -339,9 +388,42 @@ class LayerMonitorCallback(_Base):
         )
         if due and step not in self._done_steps:
             self._done_steps.add(step)
-            self._online_compute(trainer, step)
-            self._sweep(trainer, pl_module, step)
+            self._online_compute(trainer)
+            self._sweep(trainer, pl_module)
 
     def on_train_end(self, trainer, pl_module) -> None:
         if self.online is not None:
             self.online.detach()
+
+    @property
+    def state_key(self) -> str:
+        """Distinct per monitored module, so several callbacks can keep their state in one checkpoint."""
+        generate = getattr(self, "_generate_state_key", None)
+        return generate(model_attr=self.model_attr) if generate is not None else type(self).__name__
+
+    def state_dict(self) -> dict[str, Any]:
+        """The sweep history, the schedule bookkeeping and the drift reference, so a resumed run continues the
+        curves and keeps comparing with its first sweep. The reference is one float32 copy of the monitoring
+        set per hooked layer; the online buffer is not saved and refills."""
+        state: dict[str, Any] = {"done_steps": sorted(self._done_steps)}
+        if self.monitor is not None:
+            state["history"] = [(step, [r.to_dict() for r in rec]) for step, rec in self.monitor.history]
+            state["reference"] = self.monitor._reference
+            state["reference_step"] = self.monitor._reference_step
+        return state
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        self._done_steps = set(state_dict.get("done_steps", ()))
+        self._pending_state = state_dict
+        if self.monitor is not None:
+            self._restore(self.monitor)
+
+    def _restore(self, monitor: LayerMonitor) -> None:
+        state, self._pending_state = self._pending_state, None
+        if not state:
+            return
+        monitor.history = [
+            (step, Records(Record(**_upgrade(r)) for r in rows)) for step, rows in state.get("history", [])
+        ]
+        monitor._reference = state.get("reference")
+        monitor._reference_step = state.get("reference_step")

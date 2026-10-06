@@ -152,8 +152,8 @@ class RegistryTests(unittest.TestCase):
         names = rq.list_metrics()
         for n in (
             "effective_rank",
-            "anisotropy",
-            "cosine_anisotropy",
+            "anisotropy/spectral",
+            "anisotropy/cosine",
             "alpha_req",
             "gaussianity",
             "matrix_entropy",
@@ -162,7 +162,7 @@ class RegistryTests(unittest.TestCase):
             "sparsity",
         ):
             self.assertIn(n, names)
-        spec = rq.get_metric("anisotropy")
+        spec = rq.get_metric("anisotropy/spectral")
         self.assertEqual(spec.preprocess.describe(), "center+l2")
         self.assertIn("paper-canonical", spec.tags)
         self.assertAlmostEqual(spec.fn(gaussian(300, 8)).value, rq.anisotropy_spectral(gaussian(300, 8)).value)

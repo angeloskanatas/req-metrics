@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import functools
 import json
+import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -56,8 +58,13 @@ def resolve_layers(model: nn.Module, layers: str | Sequence[nn.Module] | None = 
         return list(layers)
     if isinstance(layers, str):
         node: Any = model
-        for part in layers.split("."):
-            node = getattr(node, part)
+        try:
+            for part in layers.split("."):
+                node = getattr(node, part)
+        except AttributeError:
+            raise ValueError(
+                f"no attribute path {layers!r} on {type(model).__name__}; the path starts at the module given"
+            ) from None
         return list(node.children()) if isinstance(node, nn.Module) else list(node)
     candidates = [
         (name, m)
@@ -71,6 +78,60 @@ def resolve_layers(model: nn.Module, layers: str | Sequence[nn.Module] | None = 
     if candidates:
         return list(candidates[0][1].children())
     raise ValueError("no block list found; pass layers explicitly")
+
+
+def _pool_cls(out: Tensor) -> Tensor:
+    return out[:, 0] if out.ndim == 3 else out
+
+
+def _pool_mean(out: Tensor) -> Tensor:
+    return out.mean(dim=1) if out.ndim == 3 else out
+
+
+def _pool_max(out: Tensor) -> Tensor:
+    return out.amax(dim=1) if out.ndim == 3 else out
+
+
+def _pool_last(out: Tensor) -> Tensor:
+    return out[:, -1] if out.ndim == 3 else out
+
+
+def _pool_tokens(out: Tensor, n_prefix: int = 0) -> Tensor:
+    return out[:, n_prefix:] if out.ndim == 3 else out
+
+
+class _GridPooler:
+    """A grid readout of make_pooler as a picklable callable; bins and block order as in layouts.grid_to_pooled."""
+
+    def __init__(
+        self, kind: str, grid: tuple[int, int], time_axis: int, n_prefix: int, freq_chunks: int, time_chunks: int
+    ):
+        self.kind, self.grid, self.time_axis, self.n_prefix = kind, grid, time_axis, n_prefix
+        self.freq_chunks, self.time_chunks = freq_chunks, time_chunks
+
+    def to_grid(self, out: Tensor) -> Tensor:  # (B, F, T, D)
+        f_count, t_count = self.grid
+        tokens = out[:, self.n_prefix :]
+        if tokens.shape[1] != f_count * t_count:
+            raise ValueError(
+                f"expected {f_count * t_count} grid tokens after {self.n_prefix} prefix tokens, got {tokens.shape[1]}"
+            )
+        if self.time_axis == 1:
+            return tokens.reshape(tokens.shape[0], f_count, t_count, -1)
+        return tokens.reshape(tokens.shape[0], t_count, f_count, -1).transpose(1, 2)
+
+    def __call__(self, out: Tensor) -> Tensor:
+        g = self.to_grid(out)
+        if self.kind == "gap":
+            return g.mean(dim=(1, 2))
+        if self.kind == "freq_concat_mean":
+            return g.mean(dim=2).flatten(1)
+        if self.kind == "freq_concat":
+            return g.transpose(1, 2).flatten(2)
+        if self.kind == "freq_mean":
+            return g.mean(dim=1)
+        blocks = torch.nn.functional.adaptive_avg_pool2d(g.permute(0, 3, 1, 2), (self.freq_chunks, self.time_chunks))
+        return blocks.permute(0, 2, 3, 1).flatten(1)  # (B, fc * tc * D)
 
 
 def make_pooler(
@@ -104,46 +165,15 @@ def make_pooler(
     """
     if callable(pool):
         return pool
-    if pool == "cls":
-        return lambda out: out[:, 0] if out.ndim == 3 else out
-    if pool == "mean":
-        return lambda out: out.mean(dim=1) if out.ndim == 3 else out
-    if pool == "max":
-        return lambda out: out.amax(dim=1) if out.ndim == 3 else out
-    if pool == "last":
-        return lambda out: out[:, -1] if out.ndim == 3 else out
+    simple: dict[str, Pooler] = {"cls": _pool_cls, "mean": _pool_mean, "max": _pool_max, "last": _pool_last}
+    if pool in simple:
+        return simple[pool]
     if pool == "tokens":
-        return lambda out: out[:, n_prefix:] if out.ndim == 3 else out
+        return functools.partial(_pool_tokens, n_prefix=n_prefix)
     if pool in ("gap", "freq_concat_mean", "partitioned", "freq_concat", "freq_mean"):
         if grid is None:
             raise ValueError(f"pooling {pool!r} needs grid=(F, T)")
-        f_count, t_count = grid
-
-        def to_grid(out: Tensor) -> Tensor:  # (B, F, T, D)
-            tokens = out[:, n_prefix:]
-            if tokens.shape[1] != f_count * t_count:
-                raise ValueError(
-                    f"expected {f_count * t_count} grid tokens after {n_prefix} prefix tokens, got {tokens.shape[1]}"
-                )
-            if time_axis == 1:
-                return tokens.reshape(tokens.shape[0], f_count, t_count, -1)
-            return tokens.reshape(tokens.shape[0], t_count, f_count, -1).transpose(1, 2)
-
-        if pool == "gap":
-            return lambda out: to_grid(out).mean(dim=(1, 2))
-        if pool == "freq_concat_mean":
-            return lambda out: to_grid(out).mean(dim=2).flatten(1)
-        if pool == "freq_concat":
-            return lambda out: to_grid(out).transpose(1, 2).flatten(2)
-        if pool == "freq_mean":
-            return lambda out: to_grid(out).mean(dim=1)
-
-        def partitioned(out: Tensor) -> Tensor:  # same bins and block order as layouts.grid_to_pooled
-            g = to_grid(out).permute(0, 3, 1, 2)  # (B, D, F, T)
-            blocks = torch.nn.functional.adaptive_avg_pool2d(g, (freq_chunks, time_chunks))
-            return blocks.permute(0, 2, 3, 1).flatten(1)  # (B, fc * tc * D)
-
-        return partitioned
+        return _GridPooler(pool, grid, time_axis, n_prefix, freq_chunks, time_chunks)
     raise ValueError(f"unknown pooling {pool!r}")
 
 
@@ -151,7 +181,10 @@ def monitor_loader(dataset, n_items: int, batch_size: int = 32, seed: int = 0):
     """A fixed, shuffle-free DataLoader over a seeded random subset of a dataset, for repeatable sweeps."""
     from torch.utils.data import DataLoader, Subset
 
-    n = len(dataset)
+    try:
+        n = len(dataset)
+    except TypeError:
+        raise TypeError("the dataset has no length; pass a fixed, re-iterable loader instead") from None
     idx = torch.randperm(n, generator=torch.Generator().manual_seed(seed))[: min(n_items, n)].sort().values
     return DataLoader(Subset(dataset, idx.tolist()), batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -402,7 +435,8 @@ def jacobian_products(
         return tuple(torch.stack([c[i] for c in cols], dim=1) for i in range(len(modules)))
 
     out: dict[int, Tensor] = {}
-    with _forward_mode_attention():
+    with _forward_mode_attention(), warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, message=".*torch.jit.script.*")  # inside torch
         linearized = vjp(readouts, x)  # (outputs, pullback); indexed, since vjp may also return aux
         outputs, pullback = linearized[0], linearized[1]
 
@@ -517,6 +551,10 @@ class LayerMonitor:
         self.params = {k: dict(v) for k, v in (params or {}).items()}
         self.labels: dict[str, Any] = {"model": model, "pooling": pooling, "corpus": corpus}
         self.view_metrics = list(view_metrics)
+        if self.view_metrics and augment is None:
+            raise ValueError(
+                "view metrics need augment; pass an identity callable when the view loader draws the views"
+            )
         self.augment = augment
         self.q = q
         self.view_spec = view_spec or (ViewSpec(source="objective", q=q, seed=seed) if augment is not None else None)
@@ -764,32 +802,19 @@ def _x_step(rec: Records, step: int) -> int:
     return int(rec[0].extras.get("global_step", step)) if len(rec) else step
 
 
-def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
-    """Append every sweep's rows to one CSV file (header written once)."""
-    path = Path(path)
+class _CsvSink:
+    _HEADER = ("step", "layer", "layer_b", "metric", "value", "level", "pooling", "n_items", "dim", "n_views", "params",
+               "views", "extras")  # fmt: skip
 
-    def sink(rec: Records, step: int) -> None:
-        new = not path.exists()
-        with path.open("a", newline="") as f:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    def __call__(self, rec: Records, step: int) -> None:
+        new = not self.path.exists()
+        with self.path.open("a", newline="") as f:
             w = csv.writer(f)
             if new:
-                w.writerow(
-                    [
-                        "step",
-                        "layer",
-                        "layer_b",
-                        "metric",
-                        "value",
-                        "level",
-                        "pooling",
-                        "n_items",
-                        "dim",
-                        "n_views",
-                        "params",
-                        "views",
-                        "extras",
-                    ]
-                )
+                w.writerow(self._HEADER)
             for r in rec:
                 w.writerow(
                     [
@@ -809,7 +834,27 @@ def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
                     ]
                 )
 
-    return sink
+
+def csv_sink(path: str | Path) -> Callable[[Records, int], None]:
+    """Append every sweep's rows to one CSV file (header written once)."""
+    return _CsvSink(path)
+
+
+class _JsonSink:
+    def __init__(self, directory: str | Path):
+        self.directory = Path(directory)
+
+    def __call__(self, rec: Records, step: int) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        ex = rec[0].extras if len(rec) else {}
+        prefix = "online_" if ex.get("source") == "training-batches" else ""
+        if len(rec) and rec[0].level not in (None, "sequence"):
+            prefix += f"{rec[0].level}_"
+        if "epoch" in ex and "global_step" in ex:
+            name = f"{prefix}epoch_{ex['epoch']}_step_{ex['global_step']}.json"
+        else:
+            name = f"{prefix}step_{step}.json"
+        rec.to_json(self.directory / name)
 
 
 def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
@@ -820,21 +865,27 @@ def json_sink(directory: str | Path) -> Callable[[Records, int], None]:
     share a file name; training-batch records get the prefix online_, and records at the
     sample or population level the level name.
     """
-    directory = Path(directory)
+    return _JsonSink(directory)
 
-    def sink(rec: Records, step: int) -> None:
-        directory.mkdir(parents=True, exist_ok=True)
-        ex = rec[0].extras if len(rec) else {}
-        prefix = "online_" if ex.get("source") == "training-batches" else ""
-        if len(rec) and rec[0].level not in (None, "sequence"):
-            prefix += f"{rec[0].level}_"
-        if "epoch" in ex and "global_step" in ex:
-            name = f"{prefix}epoch_{ex['epoch']}_step_{ex['global_step']}.json"
-        else:
-            name = f"{prefix}step_{step}.json"
-        rec.to_json(directory / name)
 
-    return sink
+class _TensorBoardSink:
+    def __init__(self, log_dir: str | Path, extras: Sequence[str]):
+        import torch.utils.tensorboard  # noqa: F401  fail early when tensorboard is missing
+
+        self.log_dir, self.extras = str(log_dir), tuple(extras)
+        self.writer: Any = None
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {**self.__dict__, "writer": None}  # the writer is reopened after unpickling
+
+    def __call__(self, rec: Records, step: int) -> None:
+        if self.writer is None:
+            from torch.utils.tensorboard import SummaryWriter
+
+            self.writer = SummaryWriter(self.log_dir)
+        for key, value in layer_scalars(rec, self.extras).items():
+            self.writer.add_scalar(key, value, _x_step(rec, step))
+        self.writer.flush()
 
 
 def tensorboard_sink(log_dir: str | Path, extras: Sequence[str] = ()) -> Callable[[Records, int], None]:
@@ -843,16 +894,7 @@ def tensorboard_sink(log_dir: str | Path, extras: Sequence[str] = ()) -> Callabl
     The x value is the global step when the records carry one, else the step argument.
     extras names numeric extras logged next to the values, e.g. ("frechet_var",).
     """
-    from torch.utils.tensorboard import SummaryWriter
-
-    writer = SummaryWriter(str(log_dir))
-
-    def sink(rec: Records, step: int) -> None:
-        for key, value in layer_scalars(rec, extras).items():
-            writer.add_scalar(key, value, _x_step(rec, step))
-        writer.flush()
-
-    return sink
+    return _TensorBoardSink(log_dir, extras)
 
 
 def _profile_series(
@@ -870,6 +912,44 @@ def _profile_series(
     ys.append([v for _, v in prof])
     keys.append(f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}")
     return xs, ys, keys
+
+
+class _WandbSink:
+    def __init__(self, run, line_series: bool, step_metric: str, history, extras: Sequence[str]):
+        self.run, self.line_series, self.step_metric, self.history, self.extras = (
+            run,
+            line_series,
+            step_metric,
+            history,
+            tuple(extras),
+        )
+        self.defined = False
+
+    def __call__(self, rec: Records, step: int) -> None:
+        import wandb
+
+        target = self.run if self.run is not None else wandb
+        if not self.defined:
+            target.define_metric(self.step_metric)
+            for family in (
+                "layer_metrics",
+                "profiles",
+                "online_metrics",
+                "online_profiles",
+                "drift_metrics",
+                "drift_profiles",
+            ):
+                target.define_metric(f"{family}/*", step_metric=self.step_metric)
+            self.defined = True
+        log: dict[str, Any] = {self.step_metric: _x_step(rec, step), **layer_scalars(rec, self.extras)}
+        if self.line_series and len(rec):
+            for metric in sorted({r.metric for r in rec if r.layer_b is None}):
+                first = rec.where(metric=metric)[0]
+                xs, ys, keys = _profile_series(rec, self.history, metric)
+                log[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
+                    xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
+                )
+        target.log(log)
 
 
 def wandb_sink(
@@ -893,32 +973,4 @@ def wandb_sink(
     far, one line per step, so the depth profile's evolution is read off one chart.
     extras names numeric extras logged next to the values, e.g. ("frechet_var",).
     """
-    state = {"defined": False}
-
-    def sink(rec: Records, step: int) -> None:
-        import wandb
-
-        target = run if run is not None else wandb
-        if not state["defined"]:
-            target.define_metric(step_metric)
-            for family in (
-                "layer_metrics",
-                "profiles",
-                "online_metrics",
-                "online_profiles",
-                "drift_metrics",
-                "drift_profiles",
-            ):
-                target.define_metric(f"{family}/*", step_metric=step_metric)
-            state["defined"] = True
-        log: dict[str, Any] = {step_metric: _x_step(rec, step), **layer_scalars(rec, extras)}
-        if line_series and len(rec):
-            for metric in sorted({r.metric for r in rec if r.layer_b is None}):
-                first = rec.where(metric=metric)[0]
-                xs, ys, keys = _profile_series(rec, history, metric)
-                log[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
-                    xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
-                )
-        target.log(log)
-
-    return sink
+    return _WandbSink(run, line_series, step_metric, history, extras)

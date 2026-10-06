@@ -6,7 +6,7 @@ Information imbalance from representation A to representation B.
 - Canonical preprocessing: `none`
 - Tags: none
 - Shared cache: none
-- Origin: https://arxiv.org/abs/2104.15079
+- arXiv: https://arxiv.org/abs/2104.15079
 - Cite: `glielmo2022imbalance` (Ranking the information content of distance measures (2022)); `cheng2025emergence` (Emergence of a High-Dimensional Abstraction Phase in Language Transformers (2025)); `acevedo2025semantic` (A quantitative analysis of semantic information in deep representations of text and images (2025)); `glielmo2022dadapy` (DADApy: Distance-based Analysis of DAta-manifolds in Python (2022))
 
 ## Definition, protocol and pitfalls

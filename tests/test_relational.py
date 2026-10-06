@@ -109,10 +109,10 @@ class ConvergenceTests(unittest.TestCase):
         self.assertEqual([r.n_items for r in c.rows], [400, 2000, 4000])
         self.assertTrue(c.rows[0].mean < c.rows[1].mean < c.rows[2].mean)  # entropic rank grows with N
         self.assertTrue(c.rows[0].rel_change != c.rows[0].rel_change)  # nan for the first row
-        a = rq.convergence(x, "anisotropy", fractions=(0.1, 1.0), repeats=3)
+        a = rq.convergence(x, "anisotropy/spectral", fractions=(0.1, 1.0), repeats=3)
         self.assertGreater(abs(a.rows[1].rel_change), 0.1)  # D/N = 0.32 at the small fraction: top eigenvalue inflated
         y = torch.randn(4000, 32) * torch.cat([torch.tensor([10.0]), torch.ones(31)])
-        b = rq.convergence(y, "anisotropy", fractions=(0.1, 1.0), repeats=3)
+        b = rq.convergence(y, "anisotropy/spectral", fractions=(0.1, 1.0), repeats=3)
         self.assertLess(abs(b.rows[1].rel_change), 0.02)  # N >> D and a dominant direction: flat
         self.assertIn("| fraction |", b.to_markdown())
 

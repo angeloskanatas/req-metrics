@@ -45,10 +45,10 @@ recorded through the `model` and `pooling` labels.
 import req_metrics as rq
 
 layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per sample (sequence level)
-rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy", "self_clustering"],
+rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy/spectral", "self_clustering"],
                  n_items=10000, seed=42, model="my-encoder", pooling="time-mean")
 rec.profile("effective_rank")                        # [(layer, value), ...]
-rec.to_csv("my-encoder.csv")                         # or to_json, to_pandas
+print(rec.to_markdown())                             # layers x metrics; to_csv, to_json, to_pandas for files
 
 tokens = {0: [t0_s0, t0_s1, ...], 1: [...]}         # (T_i, D) frames or patches per sample
 rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n_items=2000)  # per sample, averaged
@@ -86,7 +86,7 @@ training and on the schedule you give, and logs to the trainer's logger
 from req_metrics.integrations.lightning import LayerMonitorCallback
 
 trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
-    ["effective_rank", "intrinsic_dimension/mlid", "anisotropy"], layers="backbone.blocks", pool="cls",
+    ["effective_rank", "intrinsic_dimension/mlid", "anisotropy/spectral"], layers="backbone.blocks", pool="cls",
     n_items=5000, every_n_epochs=5, sweep_steps=(100, 300, 1000, 3000, 10000),
     model_attr="backbone",
     view_metrics=["lidar"], augment=my_augment, q=10,   # views: the objective's own positives
@@ -107,8 +107,20 @@ mon.profiles("cka")                                  # drift of every layer from
 ```
 
 Centered spectral and neighbor metrics cannot see representations collapsing onto one
-shared vector; `normalized_std` (Chen and He, 2021) and `cosine_anisotropy` can, so log
+shared vector; `normalized_std` (Chen and He, 2021) and `anisotropy/cosine` can, so log
 one of them beside the others.
+
+The per-layer scalars also enter `trainer.callback_metrics`, so Lightning's own selection
+callbacks read them like a validation loss:
+
+```python
+ModelCheckpoint(monitor="layer_metrics/effective_rank_layer_12", mode="max", save_top_k=1)
+EarlyStopping(monitor="layer_metrics/normalized_std_layer_12", mode="max", stopping_threshold=0.5)
+```
+
+Between sweeps the last value stands, so align the checkpoint cadence with the sweep
+schedule. A resumed run restores the sweep history and the drift reference from the
+checkpoint.
 
 Selection follows the published rules: `rq.rank_runs({name: records},
 "effective_rank", layer=12)` orders runs or checkpoints by a metric at the layer
@@ -128,23 +140,24 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 
 | Group | Metrics | Input |
 |---|---|---|
-| Spectral | `alpha_req`, `anisotropy`, `effective_rank`, `eigenvalue_early_enrichment`, `matrix_entropy`, `participation_ratio` | `(N, D)` points |
+| Spectral | `alpha_req`, `anisotropy/spectral`, `effective_rank`, `eigenvalue_early_enrichment`, `matrix_entropy`, `participation_ratio` | `(N, D)` points |
 | Intrinsic dimension | `intrinsic_dimension/twonn`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `intrinsic_dimension/mlid`, `intrinsic_dimension/mst` | `(N, D)` points |
 | Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
-| Relational | `cosine_anisotropy`, `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
+| Relational | `anisotropy/cosine`, `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
 | Clustering | `cluster_quality` | `(N, D)` points |
 | Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
-| Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views |
+| Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views; `dime` takes q = 2 |
 | Equivariance | `pte` | embeddings of pitch-shifted copies |
 | Representation pairs | `cka`, `cycle_knn`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
-| Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample |
+| Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample; `token_gram_drift` also takes a reference field and is called directly |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
 
-`rq.list_metrics()` and `rq.get_metric(name)` expose the registry: input contract,
-preprocessing, citation keys and item cap of every metric. Estimators of one quantity
-share a prefix and are named by their method (`intrinsic_dimension/twonn`,
-`intrinsic_dimension/gride`); none is a default. Settings of one computation, such as
+`rq.list_metrics()`, `rq.get_metric(name)` and `rq.describe(name)` expose the registry:
+input contract, preprocessing, citation keys and item cap of every metric, and its card.
+Estimators of one quantity share a prefix and are named by their method
+(`intrinsic_dimension/twonn`, `anisotropy/spectral`, `anisotropy/cosine`); none is a
+default. Settings of one computation, such as
 a bias correction or a spectrum convention, are arguments, and every alternative is in
 the extras of the record.
 
