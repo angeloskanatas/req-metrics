@@ -24,8 +24,6 @@ from req_metrics.monitor import (
     OnlineBuffer,
     Pooler,
     layer_scalars,
-    metric_key,
-    metric_key_prefix,
     monitor_loader,
     resolve_layers,
 )
@@ -285,7 +283,7 @@ class LayerMonitorCallback(_Base):
                 if type(logger).__name__ == "WandbLogger" and exp is not None:
                     import wandb
 
-                    from req_metrics.monitor import _profile_series, _spectrum_plots
+                    from req_metrics.monitor import _profile_plots, _spectrum_plots
 
                     source = (
                         self.online
@@ -294,12 +292,7 @@ class LayerMonitorCallback(_Base):
                     )
                     history = source.history if source is not None else None
                     plots: dict[str, Any] = {"trainer/global_step": trainer.global_step}
-                    for metric in sorted({r.metric for r in rec if r.layer_b is None}):
-                        first = rec.where(metric=metric)[0]
-                        xs, ys, keys = _profile_series(rec, history, metric)
-                        plots[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
-                            xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
-                        )
+                    plots.update(_profile_plots(rec, history, wandb))
                     if self.monitor is not None and source is self.monitor and rec[0].extras.get("source") is None:
                         plots.update(_spectrum_plots(self.monitor.spectra, rec, wandb))
                     exp.log(plots)

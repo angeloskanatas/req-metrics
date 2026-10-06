@@ -13,6 +13,13 @@ import req_metrics as rq
 from req_metrics.monitor import _log_spectrum, _profile_series
 
 
+def _lines(chart):
+    """xs, ys and keys of a stubbed plot_table chart, read back from its table rows."""
+    rows = chart["data_table"]["data"]
+    keys = list(dict.fromkeys(r[1] for r in rows))
+    return list(dict.fromkeys(r[0] for r in rows)), [[r[2] for r in rows if r[1] == k] for k in keys], keys
+
+
 class Toy(nn.Module):
     def __init__(self, d=12):
         super().__init__()
@@ -73,7 +80,8 @@ class ProfileHistoryTests(unittest.TestCase):
         logged = []
         fake = type("W", (), {"log": lambda self, d: logged.append(d), "define_metric": lambda self, *a, **k: None})()
         stub = types.ModuleType("wandb")
-        stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+        stub.plot = types.SimpleNamespace(plot_table=lambda **kw: kw)
+        stub.Table = lambda data, columns: {"data": data, "columns": columns}
         sys.modules["wandb"] = stub
         try:
             sink = rq.wandb_sink(fake, history=mon.history)
@@ -83,9 +91,13 @@ class ProfileHistoryTests(unittest.TestCase):
             mon.sweep(model, loader(), step=2, sinks=[sink])
         finally:
             del sys.modules["wandb"]
-        self.assertEqual(len(logged[0]["profiles/effective_rank"]["ys"]), 1)
-        self.assertEqual(len(logged[1]["profiles/effective_rank"]["ys"]), 2)
-        self.assertEqual(logged[1]["profiles/effective_rank"]["keys"], ["step 1", "step 2"])
+        self.assertEqual(len(_lines(logged[0]["profiles/effective_rank"])[1]), 1)
+        chart = logged[1]["profiles/effective_rank"]
+        self.assertEqual(len(_lines(chart)[1]), 2)
+        self.assertEqual(_lines(chart)[2], ["step 1", "step 2"])
+        self.assertEqual(chart["data_table"]["columns"], ["layer", "sweep", "effective_rank"])
+        self.assertEqual(chart["fields"], {"step": "layer", "lineKey": "sweep", "lineVal": "effective_rank"})
+        self.assertEqual(chart["string_fields"], {"title": "effective_rank profile", "xname": "layer"})
 
 
 class DashboardTests(unittest.TestCase):
@@ -130,7 +142,8 @@ class DashboardTests(unittest.TestCase):
         logged = []
         fake = type("W", (), {"log": lambda self, d: logged.append(d), "define_metric": lambda self, *a, **k: None})()
         stub = types.ModuleType("wandb")
-        stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+        stub.plot = types.SimpleNamespace(plot_table=lambda **kw: kw)
+        stub.Table = lambda data, columns: {"data": data, "columns": columns}
         sys.modules["wandb"] = stub
         try:
             sink = rq.wandb_sink(fake, history=mon.history, spectra=mon.spectra)
@@ -140,10 +153,10 @@ class DashboardTests(unittest.TestCase):
                 mon.sweep(model, loader(), step=step, sinks=[sink])
         finally:
             del sys.modules["wandb"]
-        keys = logged[-1]["profiles/effective_rank"]["keys"]
+        keys = _lines(logged[-1]["profiles/effective_rank"])[2]
         self.assertEqual(len(keys), 8)
         self.assertEqual((keys[0], keys[-1]), ("step 0", "step 19"))
-        self.assertEqual(logged[-1]["spectra/layer_0"]["keys"], keys)
+        self.assertEqual(_lines(logged[-1]["spectra/layer_0"])[2], keys)
 
     def test_spectra_store_and_wandb_chart(self):
         model = Toy()
@@ -151,7 +164,8 @@ class DashboardTests(unittest.TestCase):
         logged = []
         fake = type("W", (), {"log": lambda self, d: logged.append(d), "define_metric": lambda self, *a, **k: None})()
         stub = types.ModuleType("wandb")
-        stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+        stub.plot = types.SimpleNamespace(plot_table=lambda **kw: kw)
+        stub.Table = lambda data, columns: {"data": data, "columns": columns}
         sys.modules["wandb"] = stub
         try:
             sink = rq.wandb_sink(fake, history=mon.history, spectra=mon.spectra)
@@ -165,8 +179,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(float(spectra[0][0]), 0.0)  # log10 of the largest value over itself
         self.assertTrue(bool((spectra[0] <= 0).all()))
         chart = logged[-1]["spectra/layer_1"]
-        self.assertEqual(chart["xs"], list(range(1, spectra[1].numel() + 1)))
-        self.assertEqual(chart["keys"], ["step 1", "step 2"])
+        xs, ys, keys = _lines(chart)
+        self.assertEqual(xs, list(range(1, spectra[1].numel() + 1)))
+        self.assertEqual(keys, ["step 1", "step 2"])
+        self.assertEqual(ys[1], spectra[1].tolist())
+        self.assertEqual(chart["vega_spec_name"], "wandb/lineseries/v0")
+        self.assertEqual(
+            chart["data_table"]["columns"][::2], ["singular value index", "log10 singular value over largest"]
+        )
+        self.assertEqual(chart["string_fields"]["title"], "layer 1 spectrum")
 
 
 class StepScheduleTests(unittest.TestCase):

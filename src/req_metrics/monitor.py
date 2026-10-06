@@ -831,6 +831,45 @@ def _select_sweeps(labels: Sequence[Any], max_lines: int) -> list[int]:
     return sorted(picks)
 
 
+def _line_series(
+    wandb_module: Any, xs: Sequence, ys: Sequence[Sequence], keys: Sequence[str], *, title: str, xname: str, yname: str
+) -> Any:
+    """A line-series chart (preset wandb/lineseries/v0) from a table whose columns are named after the
+    axes and the legend (xname, "sweep", yname) rather than the preset's step, lineKey and lineVal."""
+    rows = [[x, key, y] for key, series in zip(keys, ys, strict=True) for x, y in zip(xs, series, strict=True)]
+    table = wandb_module.Table(data=rows, columns=[xname, "sweep", yname])
+    return wandb_module.plot.plot_table(
+        vega_spec_name="wandb/lineseries/v0",
+        data_table=table,
+        fields={"step": xname, "lineKey": "sweep", "lineVal": yname},
+        string_fields={"title": title, "xname": xname},
+    )
+
+
+def _profile_plots(
+    rec: Records, history: Sequence[tuple[int, Records]] | None, wandb_module: Any, max_lines: int = 8
+) -> dict[str, Any]:
+    """<profile prefix>/<metric> line series: metric against layer, one line per sweep (see _profile_series)."""
+    out: dict[str, Any] = {}
+    if not len(rec):
+        return out
+    source = rec[0].extras.get("source")
+    for metric in sorted({r.metric for r in rec if r.layer_b is None}):
+        first = rec.where(metric=metric)[0]
+        xs, ys, keys = _profile_series(rec, history, metric, max_lines)
+        if source == "drift":
+            ref = first.extras.get("reference_step")
+            title = f"{metric} vs reference" + (f" (step {ref})" if ref is not None else "")
+        elif source == "training-batches":
+            title = f"{metric} profile, training batches"
+        else:
+            title = f"{metric} profile"
+        out[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = _line_series(
+            wandb_module, xs, ys, keys, title=title, xname="layer", yname=metric
+        )
+    return out
+
+
 def _spectrum_plots(
     spectra: Sequence[tuple[int, dict[int, Tensor]]], rec: Records, wandb_module: Any, max_lines: int = 8
 ) -> dict[str, Any]:
@@ -852,12 +891,14 @@ def _spectrum_plots(
         if not series:
             continue
         n = min(v.numel() for _, v in series)
-        out[f"spectra/layer_{layer:0{width}d}"] = wandb_module.plot.line_series(
-            xs=list(range(1, n + 1)),
-            ys=[v[:n].tolist() for _, v in series],
-            keys=[f"step {s}" for s, _ in series],
-            title=f"log10 spectrum, layer {layer}",
+        out[f"spectra/layer_{layer:0{width}d}"] = _line_series(
+            wandb_module,
+            list(range(1, n + 1)),
+            [v[:n].tolist() for _, v in series],
+            [f"step {s}" for s, _ in series],
+            title=f"layer {layer} spectrum",
             xname="singular value index",
+            yname="log10 singular value over largest",
         )
     return out
 
@@ -1016,12 +1057,7 @@ class _WandbSink:
             self.defined = True
         log: dict[str, Any] = {self.step_metric: _x_step(rec, step), **layer_scalars(rec, self.extras)}
         if self.line_series and len(rec):
-            for metric in sorted({r.metric for r in rec if r.layer_b is None}):
-                first = rec.where(metric=metric)[0]
-                xs, ys, keys = _profile_series(rec, self.history, metric)
-                log[f"{metric_key_prefix(first)[1]}/{metric_key(first)}"] = wandb.plot.line_series(
-                    xs=xs, ys=ys, keys=keys, title=metric, xname="layer"
-                )
+            log.update(_profile_plots(rec, self.history, wandb))
             if self.spectra is not None and rec[0].extras.get("source") is None:
                 log.update(_spectrum_plots(self.spectra, rec, wandb))
         target.log(log)

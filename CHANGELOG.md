@@ -45,7 +45,8 @@ First release in preparation.
   epoch end; sinks receive the global step; the callback, the monitor and the sinks are picklable.
 - Dashboard: layer indices in logging keys zero-padded to the depth's width; depth-profile charts
   keep at most eight sweeps spread from first to latest; `spectra=` on the monitor and the callback
-  adds per-layer charts of the log singular spectrum on Weights & Biases.
+  adds per-layer charts of the log singular spectrum on Weights & Biases, on the same sweeps as the
+  profiles; chart tables name their axes and legend.
 - Degenerate inputs: a collapsed cloud centers to exactly zero (effective rank 0, errors for the
   undefined spectral estimators), neighbor tables and spectra refuse non-finite values, GRIDE, MLE
   and mLID report insufficient distinct points, the pair pipeline ranks ties as the imbalance

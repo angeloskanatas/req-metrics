@@ -102,7 +102,8 @@ class MonitorTests(unittest.TestCase):
             import types
 
             stub = types.ModuleType("wandb")
-            stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+            stub.plot = types.SimpleNamespace(plot_table=lambda **kw: kw)
+            stub.Table = lambda data, columns: {"data": data, "columns": columns}
             sys.modules["wandb"] = stub
             try:
                 mon.sweep(

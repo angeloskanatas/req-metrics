@@ -156,11 +156,12 @@ lexicographically. The depth profiles (`profiles/<metric>`) draw metric against 
 with one line per sweep, at most eight lines spread from the first sweep to the latest,
 so a long run stays readable and its first and current profiles are always on the
 chart. The spectra (`spectra/layer_<l>`, with `spectra > 0`) draw the log10 of each
-layer's singular values over the largest against their index, one line per sweep: the
-plateau-and-cliff of dimensional collapse, the shrinking spectrum of complete collapse
-and the slope that alpha-ReQ fits are read off directly, where the scalars only say
-that something moved. Spectra live in the monitor's side store, not in the records,
-since the records are the tabular data plane.
+layer's singular values over the largest against their index, one line per sweep, the
+sweeps the profiles chose: the plateau-and-cliff of dimensional collapse and the
+shrinking spectrum of complete collapse are read off directly, where the scalars only
+say that something moved. Both chart kinds are logged as tables whose columns name the
+axes and the legend. Spectra live in the monitor's side store, not in the records, since
+the records are the tabular data plane.
 
 ## 4b. Which layers, and when
 
