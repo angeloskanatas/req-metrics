@@ -136,7 +136,7 @@ picklable for spawn-based launchers.
 
 An EMA target or any other branch is monitored by pointing `model_attr` at it, one
 callback per branch. Every record carries the epoch and the global step, and the W&B
-profile plots draw all sweeps so far, one line per step, so the evolution of a depth
+profile plots draw the sweeps so far, one line per sweep, so the evolution of a depth
 profile is read off one chart.
 
 Logging: Weights & Biases rejects `step=` values below its internal counter, so no
@@ -149,19 +149,19 @@ sample and population records and selected extras as `<metric>_<extra>`;
 `tensorboard_sink` writes them through `torch.utils.tensorboard`. CSV and JSON sinks
 keep every field and extra, and any callable of `(records, step)` is accepted.
 
-Three views, each for a different reading. The per-layer scalars are native panels, one
-per layer and metric, which dashboards compare across runs; layer indices are
-zero-padded to the depth's width so the panels sort by depth rather than
-lexicographically. The depth profiles (`profiles/<metric>`) draw metric against layer
-with one line per sweep, at most eight lines spread from the first sweep to the latest,
-so a long run stays readable and its first and current profiles are always on the
-chart. The spectra (`spectra/layer_<l>`, with `spectra > 0`) draw the log10 of each
-layer's singular values over the largest against their index, one line per sweep, the
-sweeps the profiles chose: the plateau-and-cliff of dimensional collapse and the
-shrinking spectrum of complete collapse are read off directly, where the scalars only
-say that something moved. Both chart kinds are logged as tables whose columns name the
-axes and the legend. Spectra live in the monitor's side store, not in the records, since
-the records are the tabular data plane.
+The dashboard has three views, each for a different reading. The per-layer scalars are
+native panels, one per layer and metric, which dashboards compare across runs; layer
+indices are zero-padded to the depth's width so the panels sort by depth rather than
+lexicographically. The depth profiles (`profiles/<metric>`) draw metric against layer with
+one line per sweep, at most eight lines spread from the first sweep to the latest, so a
+long run stays readable and its first and current profiles are always on the chart. The
+spectra (`spectra/layer_<l>`, with `spectra > 0`) draw the log10 of each layer's singular
+values over the largest against their index, one line per sweep, the sweeps the profiles
+chose: the plateau-and-cliff of dimensional collapse and the shrinking spectrum of
+complete collapse are read off directly, where the scalars only say that something moved.
+Both chart kinds are logged as tables whose columns name the axes and the legend. Spectra
+live in the monitor's side store, not in the records, since the records are the tabular
+data plane.
 
 ## 4b. Which layers, and when
 

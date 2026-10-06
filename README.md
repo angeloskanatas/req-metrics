@@ -86,7 +86,7 @@ training and on the schedule you give, and logs to the trainer's logger. Each la
 metrics are scalars over training steps (`layer_metrics/<metric>_layer_<l>`, indices
 zero-padded so panels sort by depth); on Weights & Biases every metric also gets a
 depth-profile chart with one line per sweep, and with `spectra=256` every layer a chart of
-its log singular spectrum, the picture of dimensional collapse.
+its log singular spectrum.
 
 ```python
 from req_metrics.integrations.lightning import LayerMonitorCallback
