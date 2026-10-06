@@ -46,6 +46,8 @@ recorded through the `model` and `pooling` labels.
 import req_metrics as rq
 
 layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per sample (sequence level)
+# e.g. out = model(**batch, output_hidden_states=True); layers = {i: h[:, 0] for i, h in enumerate(out.hidden_states)}
+# (Hugging Face models of any modality; h.mean(1) for a mean pool) or sweep a checkpoint with LayerMonitor below
 rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy/spectral", "self_clustering"],
                  n_items=10000, seed=42, model="my-encoder", pooling="time-mean")
 rec.profile("effective_rank")                        # [(layer, value), ...]
