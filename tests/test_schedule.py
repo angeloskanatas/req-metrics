@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 import req_metrics as rq
-from req_metrics.monitor import _profile_series
+from req_metrics.monitor import _log_spectrum, _profile_series
 
 
 class Toy(nn.Module):
@@ -114,6 +114,36 @@ class DashboardTests(unittest.TestCase):
         xs, ys, keys = _profile_series(rec, mon.history, "effective_rank")
         self.assertEqual(len(ys), 8)
         self.assertEqual((keys[0], keys[-1]), ("step 0", "step 19"))
+
+    def test_log_spectrum_drops_the_rounding_floor_and_keeps_real_tails(self):
+        torch.manual_seed(0)
+        v = _log_spectrum(torch.randn(256, 768), 256)  # centered rank is at most 255
+        self.assertEqual(v.numel(), 255)
+        self.assertGreater(float(v.min()), -3.0)
+        v = _log_spectrum(torch.randn(256, 48) * torch.logspace(0, -6, 48), 48)
+        self.assertEqual(v.numel(), 48)
+        self.assertLess(float(v[-1]), -5.0)
+
+    def test_profile_and_spectrum_charts_pick_the_same_sweeps(self):
+        model = Toy()
+        mon = rq.LayerMonitor(model.blocks, pool=lambda out: out, metrics=["effective_rank"], n_items=64, spectra=4)
+        logged = []
+        fake = type("W", (), {"log": lambda self, d: logged.append(d), "define_metric": lambda self, *a, **k: None})()
+        stub = types.ModuleType("wandb")
+        stub.plot = types.SimpleNamespace(line_series=lambda **kw: kw)
+        sys.modules["wandb"] = stub
+        try:
+            sink = rq.wandb_sink(fake, history=mon.history, spectra=mon.spectra)
+            for step in range(20):
+                with torch.no_grad():
+                    model.blocks[0].weight.mul_(1.05)
+                mon.sweep(model, loader(), step=step, sinks=[sink])
+        finally:
+            del sys.modules["wandb"]
+        keys = logged[-1]["profiles/effective_rank"]["keys"]
+        self.assertEqual(len(keys), 8)
+        self.assertEqual((keys[0], keys[-1]), ("step 0", "step 19"))
+        self.assertEqual(logged[-1]["spectra/layer_0"]["keys"], keys)
 
     def test_spectra_store_and_wandb_chart(self):
         model = Toy()

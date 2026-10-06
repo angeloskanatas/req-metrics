@@ -811,9 +811,14 @@ class LayerMonitor:
 
 
 def _log_spectrum(x: Tensor, k: int) -> Tensor:
-    """log10 of the leading k singular values of the centered rows of x over the largest; empty if x collapsed."""
+    """log10 of the leading k singular values of the centered rows of x over the largest; empty if x collapsed.
+
+    Values below the rank tolerance of torch.linalg.matrix_rank (largest * max(N, D) * eps) are
+    dropped: centering N <= D rows leaves at most N - 1 nonzero values and the rest is rounding.
+    """
     s = Spectrum.from_points(x.double()).singular_values[:k]
-    s = s[s > 0]
+    if s.numel():
+        s = s[s > s[0] * max(x.shape) * torch.finfo(torch.float64).eps]
     return (s / s[0]).log10().float().cpu() if s.numel() else s.float().cpu()
 
 
@@ -962,21 +967,22 @@ def _profile_series(
 ) -> tuple[list, list, list]:
     """xs (layers), ys (one profile per sweep) and keys for a line-series plot.
 
-    history, when given, adds earlier sweeps: at most max_lines - 1 of them, spread evenly from the first
-    to the most recent, so a long run keeps a readable chart with its first and latest profiles.
+    history, when given, adds earlier sweeps: at most max_lines sweeps in all, spread evenly from the
+    first to the current one (the same choice the spectrum charts make), so a long run keeps a
+    readable chart with its first and latest profiles.
     """
     prof = rec.profile(metric)
     xs = [l for l, _ in prof]
-    past_ys, past_keys = [], []
+    ys, keys = [], []
     for step, past in history or []:
         p = dict(past.profile(metric))
         if p and all(l in p for l in xs) and p != dict(prof):
-            past_ys.append([p[l] for l in xs])
-            past_keys.append(f"step {past[0].extras.get('global_step', step)}")
-    chosen = _select_sweeps(past_keys, max_lines - 1)
-    ys = [past_ys[i] for i in chosen] + [[v for _, v in prof]]
-    keys = [past_keys[i] for i in chosen] + [f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}"]
-    return xs, ys, keys
+            ys.append([p[l] for l in xs])
+            keys.append(f"step {past[0].extras.get('global_step', step)}")
+    ys.append([v for _, v in prof])
+    keys.append(f"step {rec[0].extras.get('global_step', rec[0].extras.get('step', ''))}")
+    chosen = _select_sweeps(keys, max_lines)
+    return xs, [ys[i] for i in chosen], [keys[i] for i in chosen]
 
 
 class _WandbSink:
