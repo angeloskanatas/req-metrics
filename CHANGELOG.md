@@ -47,6 +47,8 @@ First release in preparation.
   keep at most eight sweeps spread from first to latest; `spectra=` on the monitor and the callback
   adds per-layer charts of the log singular spectrum on Weights & Biases, on the same sweeps as the
   profiles; chart tables name their axes and legend.
+- `LayerMonitor` warns once when a batch of N items yields a different number of rows at the first
+  hooked layer (clips or crops flattened into the batch, a layer run several times per batch).
 - Degenerate inputs: a collapsed cloud centers to exactly zero (effective rank 0, errors for the
   undefined spectral estimators), neighbor tables and spectra refuse non-finite values, GRIDE, MLE
   and mLID report insufficient distinct points, the pair pipeline ranks ties as the imbalance

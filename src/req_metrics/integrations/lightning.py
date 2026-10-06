@@ -75,7 +75,9 @@ class LayerMonitorCallback(_Base):
         batch_input: Extracts the model input from a batch; default takes element 0 of a
             tuple or list and passes a tensor through.
         loader: Optional callable (trainer, pl_module) -> iterable replacing the automatic
-            monitoring subset.
+            monitoring subset. One input per item: the monitor warns when a batch of N items yields a
+            multiple of N rows at the hooked layers, as when a video or world-model trainer flattens
+            the frames of a clip into the batch before the encoder.
         view_metrics, augment, q, view_spec, views_in_train_mode: View metrics computed from q
             augmented passes with augment(batch, generator); see LayerMonitor. Only the monitored
             module and its layers change mode during a sweep, so an augmentation module of the

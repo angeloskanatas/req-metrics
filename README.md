@@ -99,6 +99,12 @@ trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
     online=True)])                                      # also the training-batch buffer, as a collapse indicator
 ```
 
+The hooked layers must yield one row per item. When a batch of N items yields a multiple of
+N rows, as when a video or world-model trainer flattens the frames of a clip into the batch
+before the encoder, the first sweep warns: pass a loader with one input per item, pool the
+rows of one item into a (B, T, D) trajectory at `level="sample"`, or hook the module whose
+output is one vector per item.
+
 Without Lightning, `LayerMonitor` does the same with a forward callable and a loader.
 `drift_metrics` adds, at every sweep, a pair metric between each layer's current state
 and its state at the first sweep (or the previous one) on the same items, the layer-wise

@@ -47,6 +47,40 @@ def _first_tensor(out: Any) -> Tensor:
     raise TypeError(f"hooked module returned no tensor: {type(out).__name__}")
 
 
+def _batch_items(batch: Any) -> int | None:
+    """Items in a batch: the leading dimension of its first tensor (tensor, tuple, list or mapping), else None."""
+    if torch.is_tensor(batch):
+        return int(batch.shape[0]) if batch.ndim > 0 else None
+    if isinstance(batch, Mapping):
+        batch = list(batch.values())
+    if isinstance(batch, (tuple, list)):
+        for b in batch:
+            n = _batch_items(b)
+            if n is not None:
+                return n
+    return None
+
+
+def _check_layout(items: int | None, rows: int, calls: int) -> None:
+    """Warn when a batch of N items yields other than N rows at the first hooked layer."""
+    if items is None or rows == items:
+        return
+    if rows > items and rows % items == 0:
+        why = f"each item produced {rows // items} rows, as when clips or crops are flattened into the batch"
+        if calls > 1:
+            why += f" or the layer ran {calls} times"
+        hint = (
+            f"{why}. Rows of one item are not independent samples: pass a loader with one input per item, pool"
+            " the rows of one item into a (B, T, D) trajectory at level='sample', or hook the module whose output"
+            " is one vector per item."
+        )
+    else:
+        hint = "the monitor expects one row per item; check the hooked layers' output layout (batch first) and pool."
+    warnings.warn(
+        f"a batch of {items} items produced {rows} rows at the first hooked layer: {hint}", RuntimeWarning, stacklevel=3
+    )
+
+
 def resolve_layers(model: nn.Module, layers: str | Sequence[nn.Module] | None = None) -> list[nn.Module]:
     """The layer modules to hook: an explicit sequence, an attribute path, or the model's main block list.
 
@@ -586,6 +620,7 @@ class LayerMonitor:
         self.spectra: list[tuple[int, dict[int, Tensor]]] = []
         self.seed = seed
         self.history: list[tuple[int, Records]] = []
+        self._layout_checked = False
 
     @torch.no_grad()
     def collect(
@@ -616,8 +651,13 @@ class LayerMonitor:
                 x = batch[0] if isinstance(batch, (tuple, list)) else batch
                 if augment is not None:
                     x = augment(x, generator if generator is not None else torch.Generator().manual_seed(self.seed))
+                before = len(buffers[0])
                 forward(x)
-                seen += int(buffers[0][-1].shape[0]) if buffers[0] else 0
+                rows = sum(int(z.shape[0]) for z in buffers[0][before:])
+                if augment is None and not self._layout_checked:
+                    self._layout_checked = True
+                    _check_layout(_batch_items(x), rows, len(buffers[0]) - before)
+                seen += rows
                 if seen >= self.n_items:
                     break
         finally:
@@ -646,6 +686,8 @@ class LayerMonitor:
         Args:
             forward: Runs the model on one input batch so the hooked modules fire; its return value is ignored.
             loader: Iterable of batches (tensor, or tuple whose first element is the input), fixed order.
+                One input per item: a batch of N items must yield N rows at the hooked layers, or the first
+                sweep warns (clips or crops flattened into the batch, a layer run twice per batch).
             step: Training step or epoch written into every record's extras["step"].
             sinks: Callables receiving (records, step): csv_sink, json_sink, tensorboard_sink,
                 wandb_sink, or any callable of your own.

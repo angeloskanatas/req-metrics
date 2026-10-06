@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 import torch
@@ -23,6 +24,21 @@ class Toy(nn.Module):
         h = x.unsqueeze(1).repeat(1, self.t, 1) + 0.1 * torch.arange(self.t).view(1, -1, 1)
         for b in self.blocks:
             h = h + b(h)
+        return h
+
+
+class Clips(nn.Module):
+    """Blocks over frames: a (B, T, D) clip is flattened to B * T rows before the blocks, as video and
+    world-model trainers do."""
+
+    def __init__(self, d=16):
+        super().__init__()
+        self.blocks = nn.ModuleList([nn.Linear(d, d) for _ in range(2)])
+
+    def forward(self, x):  # (B, T, D) -> (B * T, D)
+        h = x.reshape(-1, x.shape[-1])
+        for b in self.blocks:
+            h = h + torch.tanh(b(h))
         return h
 
 
@@ -371,6 +387,35 @@ class MonitorTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "read the loader again"):
             mon.sweep(self.model, iter(loader()), step=0)
+
+    def test_warns_once_when_items_yield_several_rows(self):
+        model = Clips().eval()
+        clips = [(torch.randn(10, 4, 16), torch.zeros(10)) for _ in range(3)]
+        mon = rq.LayerMonitor(model.blocks, pool=lambda out: out, metrics=["effective_rank"], n_items=60)
+        with self.assertWarnsRegex(RuntimeWarning, "10 items produced 40 rows"):
+            mon.sweep(model, clips, step=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)  # once per monitor
+            mon.sweep(model, clips, step=1)
+        dicts = [{"pixels": c[0]} for c in clips]  # dict batches count their first tensor
+        mon = rq.LayerMonitor(model.blocks, pool=lambda out: out, metrics=["effective_rank"], n_items=60)
+        with self.assertWarnsRegex(RuntimeWarning, "each item produced 4 rows"):
+            mon.sweep(lambda b: model(b["pixels"]), dicts, step=0)
+
+    def test_warns_when_a_layer_runs_twice_per_batch(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks, pool=lambda out: out.mean(dim=1), metrics=["effective_rank"], n_items=100
+        )
+        with self.assertWarnsRegex(RuntimeWarning, "ran 2 times"):
+            mon.sweep(lambda x: (self.model(x), self.model(x)), loader(), step=0)
+
+    def test_no_layout_warning_for_one_row_per_item(self):
+        mon = rq.LayerMonitor(
+            self.model.blocks, pool=lambda out: out.mean(dim=1), metrics=["effective_rank"], n_items=100
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            mon.sweep(self.model, loader(), step=0)
 
     def test_compute_warns_when_an_estimator_fails(self):
         views = {0: torch.randn(3, 200, 8)}
