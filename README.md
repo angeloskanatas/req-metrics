@@ -137,10 +137,12 @@ with the sweep schedule. A resumed run restores the sweep history and the drift
 reference from the checkpoint.
 
 Selection follows the published rules: `rq.rank_runs({name: records},
-"effective_rank", layer=12)` orders runs or checkpoints by a metric at the layer
-read downstream, as RankMe and LiDAR do, and `rq.top_layers` ranks the layers of
-one run. The direction is an argument because a metric's sign depends on the
-task family and the training paradigm.
+"effective_rank", layer=12)` orders runs or checkpoints by a metric at one layer,
+the way RankMe and LiDAR order runs on one tensor (the projector output in those
+papers, encoder layers in the speech and audio ones); pick the layer you read
+downstream. `rq.top_layers` ranks the layers of one run. The direction is an
+argument because a metric's sign depends on the task family and the training
+paradigm.
 
 `pool` is `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`,
 `freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with
