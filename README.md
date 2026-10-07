@@ -128,7 +128,13 @@ most N nonzero eigenvalues and the value is capped by the sample count.
 
 Centered spectral and neighbor metrics cannot see representations collapsing onto one
 shared vector; `normalized_std` (Chen and He, 2021) and `anisotropy/cosine` can, so log
-one of them beside the others.
+one of them beside the others. In one of our own training runs the effective rank read 252
+while the uncentered cosine between samples read 0.99: 99% of the embedding was one shared
+vector, and the rank alone would have called the run healthy. Hook placement matters too:
+block outputs sit before the final LayerNorm, which can reshape the spectrum, so when the
+rank of the last block and of the normalized output diverge, that divergence is a finding,
+not noise. View metrics warn when two passes return identical views, since LiDAR then
+collapses to the covariance rank.
 
 The per-layer scalars also enter `trainer.callback_metrics`, so Lightning's own selection
 callbacks read them like a validation loss:

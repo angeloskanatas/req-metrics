@@ -426,6 +426,14 @@ def compute(
             raise ValueError(f"views.q is {views.q} but the stacks hold {int(first.shape[0])} views")
         idx = choose_indices(first.shape[1], n_items, seed, group_ids)
         caps = dict(limits or {})
+        if first.shape[0] > 1 and torch.equal(first[0], first[1]):
+            warnings.warn(
+                "the first two views of a layer are identical: view metrics then reduce to point statistics (LiDAR to "
+                "the covariance rank, InfoNCE to its floor); check that the augmentation or the sampling changes between "
+                "passes",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         for l in layer_ids:
             v = _to(_tensor(layers[l])[:, idx], dev)
             for spec in specs:

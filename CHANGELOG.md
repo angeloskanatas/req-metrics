@@ -50,6 +50,8 @@ First release in preparation.
 - Sweep records carry `delta_first` and `drawdown` extras (change since the first sweep, fall below
   the running peak), the trajectory summaries of De Melo Costa et al. (2026); logged through
   `log_extras`.
+- `compute` warns when the first two views of a layer are identical (view metrics then reduce to point
+  statistics).
 - Spectral metrics record `rank_cap` and `compute` warns once when a layer has fewer points than
   dimensions.
 - Docs: the regime of `rank_runs` (fixed scale; Zeng et al., 2025; Du et al., 2024), ties, the SIGReg

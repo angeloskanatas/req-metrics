@@ -2,6 +2,7 @@
 
 import math
 import unittest
+import warnings
 
 import torch
 
@@ -141,3 +142,14 @@ class ViewConstructionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdenticalViewsTests(unittest.TestCase):
+    def test_identical_views_warn_once(self):
+        x = torch.randn(200, 16)
+        stack = torch.stack([x, x, x], dim=0)  # q = 3 identical passes
+        with self.assertWarnsRegex(RuntimeWarning, "identical"):
+            rq.compute({0: stack}, ["lidar"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            rq.compute({0: torch.stack([x, x + 0.1 * torch.randn_like(x)], dim=0)}, ["lidar"])
