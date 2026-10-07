@@ -50,6 +50,8 @@ First release in preparation.
 - Sweep records carry `delta_first` and `drawdown` extras (change since the first sweep, fall below
   the running peak), the trajectory summaries of De Melo Costa et al. (2026); logged through
   `log_extras`.
+- README: the collapse-stop example uses `divergence_threshold`, which stops when `normalized_std` falls
+  below the value; the earlier `stopping_threshold` form would have stopped on a rise.
 - `compute` warns when the first two views of a layer are identical (view metrics then reduce to point
   statistics).
 - Spectral metrics record `rank_cap` and `compute` warns once when a layer has fewer points than

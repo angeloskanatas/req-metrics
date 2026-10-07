@@ -140,14 +140,16 @@ The per-layer scalars also enter `trainer.callback_metrics`, so Lightning's own 
 callbacks read them like a validation loss:
 
 ```python
-ModelCheckpoint(monitor="layer_metrics/effective_rank_layer_12", mode="max", save_top_k=1)
-EarlyStopping(monitor="layer_metrics/normalized_std_layer_12", mode="max", stopping_threshold=0.5)
+EarlyStopping(monitor="layer_metrics/normalized_std_layer_12", mode="max", divergence_threshold=0.2 / D**0.5)
+ModelCheckpoint(monitor="layer_metrics/effective_rank_layer_12", mode="max", save_top_k=1)  # only where rank tracks your probe
 ```
 
-Key names use the layer index zero-padded to the depth's width (`layer_07` in a
-12-block model). Between sweeps the last value stands, so align the checkpoint cadence
-with the sweep schedule. A resumed run restores the sweep history and the drift
-reference from the checkpoint.
+`divergence_threshold` stops when the quantity falls below the value under `mode="max"`
+(Lightning's `stopping_threshold` stops when it rises above it); 1 / sqrt(D) is the not-
+collapsed reference of `normalized_std`. Key names use the layer index zero-padded to the
+depth's width (`layer_07` in a 12-block model). Between sweeps the last value stands, so
+align the checkpoint cadence with the sweep schedule. A resumed run restores the sweep
+history and the drift reference from the checkpoint.
 
 Selection follows the published rules: `rq.rank_runs({name: records},
 "effective_rank", layer=12)` orders runs or checkpoints by a metric at one layer,
