@@ -53,6 +53,19 @@ def effective_rank(
     dominated by the mean direction, and there is no epsilon. RankMe uses 25,600 samples; N
     should be well above D.
 
+    Depth lowers the converged rank by design in joint-embedding predictive training: in a deep
+
+    linear JEPA every mode converges to rho_i^L, its across-view regression coefficient to the
+
+    power of the encoder depth (Littwin et al., 2024, Cor. 4.3), so a deeper encoder reads lower
+
+    without being collapsed, and in BYOL the predictor input keeps about a quarter of its modes
+
+    alive while accuracy rises (Tian et al., 2021, Fig. 2). Compare runs at one depth, and read a
+
+    low rank as necessary-but-not-sufficient evidence.
+
+
     Args:
         x: Points (N, D), or a Spectrum of preprocessed points.
         spectrum: "singular" or "variance".

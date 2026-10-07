@@ -152,7 +152,12 @@ argument because a metric's sign depends on the task family and the training
 paradigm. Label-free ranking is the zero-label tier: when a few hundred labelled
 examples exist, a probe trained on one early checkpoint predicts the final outcome
 more accurately (Whetten et al., 2025; Liu et al., 2026) and is the reference to
-check a label-free order against.
+check a label-free order against. The rule lives in the fixed-scale regime, where the
+training loss is uninformative for joint-embedding objectives and inverted for language
+models compared across recipe variants (Zeng et al., 2025); along one autoregressive
+recipe's scale and token trajectory the loss itself tracks prompted performance (Du et
+al., 2024). A returned order is only as sharp as the metric gaps behind it: report the
+gap, and treat near-equal values as ties.
 
 `pool` is `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`,
 `freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with

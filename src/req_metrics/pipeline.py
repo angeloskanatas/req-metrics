@@ -105,7 +105,8 @@ def _warn_failed(records: Records) -> Records:
 def _warn_rank_cap(records: Records) -> None:
     """Warn once when spectral metrics saw fewer points than dimensions: the covariance then has at most
     N nonzero eigenvalues, so effective rank and its relatives are capped by N and comparisons across
-    different N are confounded (the sample covariance acquires an atom at zero; Njaradi et al., 2026)."""
+    different N are confounded: the sample covariance acquires an atom at zero of mass 1 - min(rank(Sigma)/D, N/D)
+    (Green and Romanov, 2025, Eq. 13; applied by Njaradi et al., 2026)."""
     capped = [r for r in records if "rank_cap" in r.extras]
     if not capped:
         return

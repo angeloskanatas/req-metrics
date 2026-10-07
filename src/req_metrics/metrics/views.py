@@ -34,6 +34,15 @@ def lidar(
     order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
     epsilon is omitted.
 
+    Theory: in a deep linear JEPA the modes learned first are those with the largest across-view
+
+    regression coefficient, not the largest variance (Littwin et al., 2024, Thm. 4.5), and the
+
+    authors name LiDAR as the metric that "effectively counts the number of directions with a
+
+    large regression coefficient" (p. 10).
+
+
     Args:
         views: Augmented representations (q, N, D), q >= 2.
         delta: Ridge added to S_w; the paper gives no value, 1e-4 is that of Skean et al. (2025).

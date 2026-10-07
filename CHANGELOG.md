@@ -52,6 +52,9 @@ First release in preparation.
   `log_extras`.
 - Spectral metrics record `rank_cap` and `compute` warns once when a layer has fewer points than
   dimensions.
+- Docs: the regime of `rank_runs` (fixed scale; Zeng et al., 2025; Du et al., 2024), ties, the SIGReg
+  conventions of `gaussianity` (centering, grid, finite-N null, KerJEPA kernel), and depth caveats on
+  effective rank and LiDAR (Littwin et al., 2024; Tian et al., 2021).
 - `uniformity` adds the `excess` extra (0 uniform to 1 collapsed) and documents the D-dependence of
   the raw value; `gaussianity` documents that it measures distance to the isotropic Gaussian target,
   including scale.
