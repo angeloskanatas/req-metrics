@@ -64,9 +64,15 @@ def uniformity(x: Tensor, *, t: float = 2.0, center: bool = False, chunk: int = 
         center: Mean-center before normalizing.
         chunk: Rows per Gram block.
 
+    The value depends on D through the bound, so compare gap or excess across embedding
+    dimensions, not the raw value; the follow-up to SPHERE-JEPA (2026) derives the same
+    uniform baseline as the expected kernel under the uniform law and reads the Gaussian
+    potential as a kernel MMD to it.
+
     Returns:
         value: uniformity in nats.
-        extras: lower_bound for this D and t, its large-D limit -2t, gap = value - lower_bound.
+        extras: lower_bound for this D and t, its large-D limit -2t, gap = value - lower_bound,
+            excess = gap / -lower_bound in [0, 1]: 0 for a uniform cloud, 1 for a single point.
     """
     from scipy.special import hyp0f1
 
@@ -82,7 +88,9 @@ def uniformity(x: Tensor, *, t: float = 2.0, center: bool = False, chunk: int = 
         total = total + torch.exp(-t * sq)[mask].sum()
     value = float(torch.log(total / (n * (n - 1) / 2)))
     lower = -2.0 * t + math.log(float(hyp0f1(d / 2.0, t * t)))
-    return MetricResult(value, {"lower_bound": lower, "lower_bound_large_d": -2.0 * t, "gap": value - lower})
+    extras = {"lower_bound": lower, "lower_bound_large_d": -2.0 * t, "gap": value - lower}
+    extras["excess"] = min(1.0, max(0.0, (value - lower) / -lower)) if lower < 0 else 0.0
+    return MetricResult(value, extras)
 
 
 def normalized_std(x: Tensor) -> MetricResult:

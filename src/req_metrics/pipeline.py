@@ -102,6 +102,25 @@ def _warn_failed(records: Records) -> Records:
     return records
 
 
+def _warn_rank_cap(records: Records) -> None:
+    """Warn once when spectral metrics saw fewer points than dimensions: the covariance then has at most
+    N nonzero eigenvalues, so effective rank and its relatives are capped by N and comparisons across
+    different N are confounded (the sample covariance acquires an atom at zero; Njaradi et al., 2026)."""
+    capped = [r for r in records if "rank_cap" in r.extras]
+    if not capped:
+        return
+    names = sorted({r.metric for r in capped})
+    n = min(int(r.extras["rank_cap"]) for r in capped)
+    d = max(int(r.dim) for r in capped if r.dim is not None)
+    warnings.warn(
+        f"{', '.join(names)}: {n} points for {d} dimensions, so the spectrum has at most {n} nonzero eigenvalues and "
+        "the value is capped by the sample count (extras['rank_cap']); use more items than dimensions before "
+        "comparing layers or runs that differ in N",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence | None = None) -> np.ndarray:
     """Sorted row indices to keep: one row per group if group_ids is given, then at most max_items at random.
 
@@ -276,6 +295,8 @@ def _points_sweep(
             if key not in spectra:
                 spectra[key] = Spectrum.from_points(apply_preprocess(xs, pre), center=False)
             out[spec.name] = _run(spec, (spectra[key],), kw)
+            if n_used < xs.shape[1]:  # at most n_used nonzero eigenvalues: the spectrum is capped by the sample count
+                out[spec.name][1]["rank_cap"] = n_used
         elif spec.cache in ("neighbors", "neighbors_kw"):
             if n_used not in neighbors:
                 try:
@@ -462,6 +483,7 @@ def compute(
             x = _to(_tensor(layers[l])[idx], dev)
             for name, (value, extras) in _points_sweep(x, specs, params, seed, limits).items():
                 record(get_metric(name), l, value, extras, len(idx), int(x.shape[-1]))
+        _warn_rank_cap(records)
         return _warn_failed(records)
 
     for l in layer_ids:

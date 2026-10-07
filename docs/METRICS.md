@@ -275,12 +275,14 @@ and uninformative for supervised ones, with values near 0 or 1 for supervised Vi
 and rho = -0.999 with diffusion spectral entropy.
 
 ### uniformity and alignment (Wang and Isola, 2020)
-uniformity: log of the mean pairwise Gaussian potential exp(-t ||u - v||^2) over
-L2-normalized points, t = 2, computed from Gram blocks in float64. Corollary 1 range
-[-2t + log 0F1(; D/2; t^2), 0], the lower end only for a perfectly uniform encoder
-(extras: lower_bound, gap). alignment: mean over view pairs and samples of ||u_a -
-u_b||^alpha, alpha = 2, on L2-normalized views (input kind views). Both equal the
-two-line reference implementation.
+uniformity: log of the mean pairwise Gaussian potential exp(-t ||u - v||^2) over L2-normalized
+points, t = 2, computed from Gram blocks in float64. Corollary 1 range [-2t + log 0F1(; D/2; t^2),
+0], the lower end only for a perfectly uniform encoder (extras: lower_bound, gap, excess = gap /
+-lower_bound, 0 uniform to 1 collapsed). The bound moves with D, so compare gap or excess across
+embedding dimensions, not the raw value; the same baseline is the expected kernel under the uniform
+law in the calibrated MMD family of Expanding SPHERE-JEPA (2026).
+alignment: mean over view pairs and samples of ||u_a - u_b||^alpha, alpha = 2, on L2-normalized
+views (input kind views). Both equal the two-line reference implementation.
 
 ### normalized_std (Chen and He, 2021, Sec. 4.1)
 Mean over channels of the sample std of z / ||z||_2: 0 under complete collapse,

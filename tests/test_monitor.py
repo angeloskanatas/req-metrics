@@ -559,3 +559,26 @@ class GridPoolerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrajectoryExtrasTests(unittest.TestCase):
+    def test_delta_first_and_drawdown_follow_the_sweep_history(self):
+        torch.manual_seed(0)
+        model = Toy().eval()
+        mon = rq.LayerMonitor(model.blocks, pool="mean", metrics=["effective_rank"], n_items=80)
+        first = mon.sweep(model, loader(), step=0)
+        self.assertNotIn("drawdown", first[0].extras)
+        again = mon.sweep(model, loader(), step=1)
+        for r in again:
+            self.assertAlmostEqual(r.extras["delta_first"], 0.0, places=9)
+            self.assertEqual(r.extras["drawdown"], 0.0)
+        with torch.no_grad():  # make every block nearly rank one: the effective rank falls below its peak
+            u = torch.randn(16)
+            for b in model.blocks:
+                b[0].weight.copy_(50.0 * torch.outer(u, u) / u.square().sum())
+        low = mon.sweep(model, loader(), step=2)
+        for r in low:
+            self.assertLess(r.extras["delta_first"], 0.0)
+            self.assertGreater(r.extras["drawdown"], 0.0)
+            self.assertLessEqual(r.extras["drawdown"], 1.0)
+        self.assertIn("layer_metrics/effective_rank_drawdown_layer_0", rq.layer_scalars(low, extras=("drawdown",)))

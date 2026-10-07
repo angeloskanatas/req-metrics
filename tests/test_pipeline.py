@@ -5,6 +5,7 @@ import json
 import math
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
 import torch
@@ -319,3 +320,15 @@ class ProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RankCapTests(unittest.TestCase):
+    def test_spectral_metrics_warn_when_points_are_fewer_than_dimensions(self):
+        with self.assertWarnsRegex(RuntimeWarning, "capped by the sample count"):
+            rec = rq.compute({0: torch.randn(20, 64)}, ["effective_rank", "anisotropy/spectral"])
+        for r in rec:
+            self.assertEqual(r.extras["rank_cap"], 20)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            rec = rq.compute({0: torch.randn(200, 64)}, ["effective_rank"])
+        self.assertNotIn("rank_cap", rec[0].extras)

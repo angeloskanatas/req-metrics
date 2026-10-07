@@ -241,6 +241,38 @@ def metric_key(record: Record) -> str:
     return name if record.level in (None, "sequence") else f"{name}_{record.level}"
 
 
+def trajectory_extras(rec: Records, history: Sequence[tuple[int, Records]]) -> None:
+    """Attach to each single-layer record its change since the first sweep and its drawdown from the running peak.
+
+    extras["delta_first"] = value - value at the first sweep and extras["drawdown"] = max(0, (peak - value) /
+    |peak|) over the earlier sweeps, for the same metric, level and layer. Both are scale-free summaries of a
+    trajectory: De Melo Costa et al. (2026) compare the effective rank with its value at initialization and
+    report its largest drawdown after escape (none above 0.3% in their I-JEPA runs), and a drawdown threshold
+    replaces absolute collapse thresholds, which vary by dataset. Log them with log_extras=("drawdown",).
+    """
+    if not history:
+        return
+
+    def key(r: Record) -> tuple:
+        return (r.metric, r.level, r.layer)
+
+    first = {key(r): r.value for r in history[0][1] if r.layer_b is None and r.layer is not None}
+    peak: dict[tuple, float] = {}
+    for _, past in history:
+        for r in past:
+            if r.layer_b is None and r.layer is not None and r.value == r.value:
+                peak[key(r)] = max(peak.get(key(r), float("-inf")), r.value)
+    for r in rec:
+        if r.layer_b is not None or r.layer is None or r.value != r.value:
+            continue
+        k = key(r)
+        if k in first and first[k] == first[k]:
+            r.extras["delta_first"] = r.value - first[k]
+        if k in peak:
+            m = peak[k]
+            r.extras["drawdown"] = 0.0 if m == 0 else max(0.0, (m - r.value) / abs(m))
+
+
 def layer_scalars(rec: Records, extras: Sequence[str] = ()) -> dict[str, float]:
     """Logging scalars of the single-layer records: <prefix>/<metric>_layer_<l>, and
     <prefix>/<metric>_<extra>_layer_<l> for each named numeric extra. Layer indices are zero-padded to
@@ -380,6 +412,7 @@ class OnlineBuffer:
         for r in rec:
             r.extras["step"] = step
             r.extras["source"] = "training-batches"
+        trajectory_extras(rec, self.history)
         self.history.append((step, rec))
         for sink in sinks:
             sink(rec, step)
@@ -777,6 +810,7 @@ class LayerMonitor:
             rec.extend(self._jacobian(forward, loader))
         for r in rec:
             r.extras["step"] = step
+        trajectory_extras(rec, self.history)
         self.history.append((step, rec))
         for sink in sinks:
             sink(rec, step)

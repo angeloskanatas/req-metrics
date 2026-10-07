@@ -34,6 +34,16 @@ def gaussianity(
     argues the isotropic Gaussian is optimal for downstream risk (Sec. 3); its model selection
     (Sec. 6.2) uses the LeJEPA training loss, not this statistic on other encoders.
 
+    The value is a distance to that one target, not a quality score. "epps_pulley" and "ks"
+    compare the centered projections with N(0, 1) including their scale, so an L2-normalized
+    cloud, whose projections have variance about 1/D, scores far from zero; standardize first
+    or read "swd". A cloud spread uniformly on the sphere, the optimum for k-NN and kernel
+    readouts in SPHERE-JEPA (2026), is also flagged at small D, where its projections have
+    compact support; and under a structured readout metric H the LeJEPA argument prescribes
+    N(0, H^-1) rather than the identity (Beyond Isotropy in JEPAs, 2026). The sliced statistic
+    is a kernel MMD on 1-D projections whose expectation over directions has a closed form
+    (Expanding SPHERE-JEPA, 2026); the finite direction count adds estimator variance.
+
     Args:
         x: Points (N, D).
         method: "epps_pulley", "ks" or "swd".

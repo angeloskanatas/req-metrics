@@ -119,6 +119,13 @@ mon.profiles("effective_rank")                       # {step: [(layer, value), .
 mon.profiles("cka")                                  # drift of every layer from its first sweep
 ```
 
+Every single-layer record of a sweep also carries two trajectory extras, `delta_first`
+(change since the first sweep) and `drawdown` (fall below the running peak, as a fraction),
+which `log_extras=("drawdown",)` logs beside the value; a drawdown threshold replaces
+absolute collapse thresholds, which vary by dataset (De Melo Costa et al., 2026). Spectral
+metrics warn when a layer has fewer points than dimensions, since the spectrum then has at
+most N nonzero eigenvalues and the value is capped by the sample count.
+
 Centered spectral and neighbor metrics cannot see representations collapsing onto one
 shared vector; `normalized_std` (Chen and He, 2021) and `anisotropy/cosine` can, so log
 one of them beside the others.
@@ -142,7 +149,10 @@ the way RankMe and LiDAR order runs on one tensor (the projector output in those
 papers, encoder layers in the speech and audio ones); pick the layer you read
 downstream. `rq.top_layers` ranks the layers of one run. The direction is an
 argument because a metric's sign depends on the task family and the training
-paradigm.
+paradigm. Label-free ranking is the zero-label tier: when a few hundred labelled
+examples exist, a probe trained on one early checkpoint predicts the final outcome
+more accurately (Whetten et al., 2025; Liu et al., 2026) and is the reference to
+check a label-free order against.
 
 `pool` is `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`,
 `freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with

@@ -47,6 +47,14 @@ First release in preparation.
   keep at most eight sweeps spread from first to latest; `spectra=` on the monitor and the callback
   adds per-layer charts of the log singular spectrum on Weights & Biases, on the same sweeps as the
   profiles; chart tables name their axes and legend.
+- Sweep records carry `delta_first` and `drawdown` extras (change since the first sweep, fall below
+  the running peak), the trajectory summaries of De Melo Costa et al. (2026); logged through
+  `log_extras`.
+- Spectral metrics record `rank_cap` and `compute` warns once when a layer has fewer points than
+  dimensions.
+- `uniformity` adds the `excess` extra (0 uniform to 1 collapsed) and documents the D-dependence of
+  the raw value; `gaussianity` documents that it measures distance to the isotropic Gaussian target,
+  including scale.
 - `LayerMonitor` warns once when a batch of N items yields a different number of rows at the first
   hooked layer (clips or crops flattened into the batch, a layer run several times per batch).
 - Degenerate inputs: a collapsed cloud centers to exactly zero (effective rank 0, errors for the

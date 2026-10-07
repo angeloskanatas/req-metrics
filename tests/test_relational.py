@@ -40,6 +40,8 @@ class UniformityTests(unittest.TestCase):
         self.assertGreater(r.extras["lower_bound"], -4.0)
         self.assertLess(abs(r.value - r.extras["lower_bound"]), 0.02)  # uniform on the sphere is the minimizer
         self.assertAlmostEqual(rq.uniformity(torch.ones(50, 8)).value, 0.0, places=9)
+        self.assertLess(r.extras["excess"], 0.01)  # uniform: no excess over the bound
+        self.assertAlmostEqual(rq.uniformity(torch.ones(50, 8)).extras["excess"], 1.0, places=9)  # collapse
 
     def test_chunking_is_exact(self):
         x = torch.randn(700, 24)
