@@ -5,11 +5,12 @@
 [![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/pyproject.toml)
 [![arXiv](https://img.shields.io/badge/arXiv-2608.14819-b31b1b.svg)](https://arxiv.org/abs/2608.14819)
 
-req-metrics computes label-free metrics of learned representations: effective rank,
-intrinsic dimension, anisotropy, LiDAR, InfoNCE, pitch-transposition equivariance
-and thirty-two others, as functions on embedding tensors. It serves two uses: layer-wise
-analysis of trained models, and monitoring during training, where the same metrics
-flag collapse and compare runs and checkpoints without labels.
+req-metrics (REpresentation-Quality metrics) computes label-free metrics of learned
+representations: effective rank, intrinsic dimension, anisotropy, LiDAR, InfoNCE,
+pitch-transposition equivariance and thirty-two others, as functions on embedding
+tensors. It serves two uses: layer-wise analysis of trained models, and monitoring during
+training, where the same metrics flag collapse and compare runs and checkpoints without
+labels.
 
 Estimators are PyTorch functions on tensors. The pipeline adds shared spectra and
 neighbor tables, seeded subsampling, three levels (one vector per sample, the tokens
