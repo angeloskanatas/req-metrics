@@ -6,11 +6,13 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2608.14819-b31b1b.svg)](https://arxiv.org/abs/2608.14819)
 
 req-metrics (REpresentation-Quality metrics) computes label-free metrics of learned
-representations: effective rank, intrinsic dimension, anisotropy, LiDAR, InfoNCE,
-pitch-transposition equivariance and thirty-two others, as functions on embedding
-tensors. It serves two uses: layer-wise analysis of trained models, and monitoring during
-training, where the same metrics flag collapse and compare runs and checkpoints without
-labels.
+representations as functions on embedding tensors: spectral measures of the covariance
+(effective rank, power-law decay, anisotropy), intrinsic dimension and relational
+structure of the point cloud, invariance and discriminability over augmented views,
+equivariance under known transformations, and similarity between representations;
+thirty-eight estimators, each following its paper. It serves two uses: layer-wise
+analysis of trained models, and monitoring during training, where the same metrics flag
+collapse and compare runs and checkpoints without labels.
 
 Estimators are PyTorch functions on tensors. The pipeline adds shared spectra and
 neighbor tables, seeded subsampling, three levels (one vector per sample, the tokens
@@ -186,7 +188,7 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 | Clustering | `cluster_quality` | `(N, D)` points |
 | Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views; `dime` takes q = 2 |
-| Equivariance | `pte` | embeddings of pitch-shifted copies |
+| Equivariance | `pte` | embeddings of transformed copies (pitch shifts in the paper) |
 | Representation pairs | `cka`, `cycle_knn`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample; `token_gram_drift` also takes a reference field and is called directly |
