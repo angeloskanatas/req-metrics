@@ -70,3 +70,5 @@ First release in preparation.
   estimator does, and LiDAR ignores rounding-noise eigenvalues.
 - `pte` takes `center`: the training-split mean of the originals is subtracted from the originals
   and every shifted copy before probing; the `kanatas2026` protocol sets it.
+- `neighborhood_curvature` defaults to k = 10, the neighborhood size CurvSSL trains with (Sec. 4),
+  instead of 64.
