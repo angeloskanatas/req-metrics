@@ -69,7 +69,7 @@ rq.compute_pairs(audio_layers, text_layers, metrics=["neighborhood_overlap"],  #
                  params={"neighborhood_overlap": {"k": 10, "l2": True}}, model="audio", model_b="text")
 
 rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
-rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k layers ranked best by a metric
+rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k best layers; GRIDE's scale is a separate argument
 p = rq.protocols.get("kanatas2026")                 # metric variants and parameters of a published protocol
 rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n_items=p.n_items)
 ```

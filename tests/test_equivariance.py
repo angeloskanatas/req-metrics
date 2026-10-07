@@ -45,6 +45,9 @@ class PTETests(unittest.TestCase):
         c = rq.pte(z, shifted, epochs=15, batch_size=128, seed=3, score="cpsd")
         self.assertAlmostEqual(c.value, 1 - c.extras["cpsd_rmse"] / 2, places=12)
         m = rq.pte(z, shifted, epochs=10, batch_size=128, seed=3, probe="mlp", hidden_units=(32,))
+        cen = rq.pte(z, shifted, epochs=10, batch_size=128, seed=3, center=True)
+        self.assertTrue(0.0 <= cen.value <= 1.0)
+        self.assertNotEqual(cen.extras["n_train"], 0)
         self.assertTrue(0.0 <= m.value <= 1.0)
 
     def test_input_checks(self):

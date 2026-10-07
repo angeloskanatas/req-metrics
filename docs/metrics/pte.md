@@ -30,6 +30,9 @@ Args:
         reflection of the key bins conjugates the target phase and the probe absorbs it.
     probe: "linear" or "mlp".
     score: "phase" or "cpsd".
+    center: Subtract the training-split mean of the originals from the originals and every
+        shifted copy before probing; the function class is unchanged for a probe with a bias,
+        the optimisation is not.
     hidden_units: MLP widths.
     temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear one.
     epochs, lr, weight_decay, batch_size, patience: Training protocol.

@@ -97,6 +97,7 @@ def pte(
     *,
     probe: str = "linear",
     score: str = "phase",
+    center: bool = False,
     hidden_units: Sequence[int] = (512, 256),
     temperature: float | None = None,
     epochs: int = 200,
@@ -127,6 +128,9 @@ def pte(
             reflection of the key bins conjugates the target phase and the probe absorbs it.
         probe: "linear" or "mlp".
         score: "phase" or "cpsd".
+        center: Subtract the training-split mean of the originals from the originals and every
+            shifted copy before probing; the function class is unchanged for a probe with a bias,
+            the optimisation is not.
         hidden_units: MLP widths.
         temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear one.
         epochs, lr, weight_decay, batch_size, patience: Training protocol.
@@ -161,6 +165,10 @@ def pte(
     n_train = len(train_idx)
     if n_train < batch_size:
         raise ValueError(f"{n_train} training clips are fewer than the batch size {batch_size}")
+    if center:
+        mean = torch.as_tensor(z[train_idx], dtype=torch.float32).mean(dim=0, keepdim=True)
+        z = torch.as_tensor(z, dtype=torch.float32) - mean
+        shifted = {k: torch.as_tensor(v, dtype=torch.float32) - mean for k, v in shifted.items()}
 
     def take(idx):
         return torch.as_tensor(z[idx], dtype=torch.float32, device=dev)

@@ -68,3 +68,5 @@ First release in preparation.
   undefined spectral estimators), neighbor tables and spectra refuse non-finite values, GRIDE, MLE
   and mLID report insufficient distinct points, the pair pipeline ranks ties as the imbalance
   estimator does, and LiDAR ignores rounding-noise eigenvalues.
+- `pte` takes `center`: the training-split mean of the originals is subtracted from the originals
+  and every shifted copy before probing; the `kanatas2026` protocol sets it.

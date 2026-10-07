@@ -56,13 +56,14 @@ KANATAS2026 = Protocol(
         ("lidar", {"delta": 1e-6, "unbiased": False, "max_eigenvalues": 2048}),  # 10 views per clip
         ("infonce", {"temperature": 0.3, "center": True, "l2": True}),  # 2 views
     ),
-    shifted=(("pte", {"probe": "linear", "score": "phase"}),),  # 11 nonzero shifts
+    shifted=(("pte", {"probe": "linear", "score": "phase", "center": True}),),  # 11 nonzero shifts
     n_items=10000,
     notes=(
         "Section 3.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "
         "for encoders and the final token for autoregressive decoders; frame-level metrics use the full "
         "token sequences.",
-        "PTE: a linear probe per layer on 10,000 clips (70/15/15 split) with all 11 nonzero shifts.",
+        "PTE: a linear probe per layer on 10,000 clips (70/15/15 split) with all 11 nonzero shifts; "
+        "embeddings centred with the training-split mean of the originals.",
     ),
 )
 
