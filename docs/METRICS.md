@@ -61,8 +61,28 @@ applies across metrics.
 | Not in that taxonomy | clustering: cluster_quality (k-means); distribution: gaussianity, sparsity, embedding_norm; trajectory: trajectory_curvature (sample level); views: lidar, infonce, dime, alignment (augmented views); equivariance: pte (pitch shifts); compare: information_imbalance, neighborhood_overlap, cycle_knn, cka, svcca, rsa (representation pairs); tokens (token fields); functional: jacobian_effective_rank (the model and its inputs) | points, trajectories, views, shifts, pairs, tokens, Jacobian sketches |
 
 The spectral, relational and manifold families follow the taxonomy of Arputharaj,
-Jönsson and Eilertsen (2026, TMLR); the remaining families take inputs that one vector
-per sample cannot express.
+Jönsson and Eilertsen (2026, TMLR). Across all families, every metric is a functional of
+one of three kinds of input, which is also what the caller must have in hand.
+
+- The embedded cloud: the vectors of a sample set alone, one per sample or the tokens
+  of each sample, with or without time order (spectral, relational, manifold,
+  clustering, distribution, token fields, trajectory curvature). These depend on the
+  model only through its image of the data.
+- The map under a change of the input: the same items re-embedded after a
+  transformation and compared with the originals, at three scales of transformation.
+  The augmentations of the objective (views: lidar, infonce, dime, alignment); a
+  group action with a prescribed response (equivariance: pte under pitch shifts); an
+  infinitesimal random perturbation, which needs the model itself (functional:
+  jacobian_effective_rank).
+- Two representations of the same items (compare: cka, svcca, rsa,
+  neighborhood_overlap, cycle_knn, information_imbalance): two layers, checkpoints,
+  models or modalities.
+
+The three kinds are not reducible to one another. An isotropic cloud can have a
+rank-deficient Jacobian (Chung and Kim, 2026), two representations can be similar
+while a readout fails, and an equivariant layer can have a low rank. Trajectory
+curvature sits on the boundary: it follows the map along the data's own temporal path,
+but needs no re-embedding, so it is grouped with the cloud.
 
 ### Levels
 
