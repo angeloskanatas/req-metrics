@@ -11,12 +11,12 @@ Participation ratio (sum lambda)^2 / sum lambda^2 of the covariance eigenvalues.
 
 ## Definition, protocol and pitfalls
 
-Jha et al. (2026, Eq. 2); divided by D, the G.PR of Chung and Kim (2026). The plug-in
+Jha et al. (2026, Eq. 2); divided by D, it is the G.PR of Chung and Kim (2026). The plug-in
 estimate is biased low by about PR/N. Chun, Canatar, Chung and Lee (2026, ICLR,
-arXiv:2509.26560, Sec. 4) give unbiased estimators: "row" corrects the sample size (all
-units observed), "col" the unit subsampling, "both" the two. All four come from one
-closed-form pass over the (N, D) matrix; correction chooses the value. A Spectrum, or
-center=False, gives the plug-in estimate only.
+arXiv:2509.26560, Sec. 4) give unbiased estimators: "row" corrects for the sample size (all
+units observed), "col" for the unit subsampling and "both" for the two. One closed-form pass
+over the (N, D) matrix gives the plug-in and every corrected estimate; correction chooses the
+value. A Spectrum, or center=False, gives the plug-in estimate only.
 
 Args:
     x: Points (N, D), or a Spectrum of preprocessed points (plug-in only).

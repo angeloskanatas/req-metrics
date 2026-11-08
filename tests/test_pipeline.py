@@ -29,7 +29,6 @@ class PooledTests(unittest.TestCase):
             "participation_ratio",
             "intrinsic_dimension/mlid",
             "intrinsic_dimension/gride",
-            "neighborhood_curvature",
             "gaussianity",
             "sparsity",
         ]
@@ -56,11 +55,6 @@ class PooledTests(unittest.TestCase):
         self.assertAlmostEqual(
             rec.where(metric="intrinsic_dimension/gride", layer=0)[0].value,
             rq.gride(layers[0], scale=4).value,
-            places=9,
-        )
-        self.assertAlmostEqual(
-            rec.where(metric="neighborhood_curvature", layer=0)[0].value,
-            rq.neighborhood_curvature(layers[0]).value,
             places=9,
         )
         self.assertEqual([l for l, _ in rec.profile("effective_rank")], [0, 1, 2])

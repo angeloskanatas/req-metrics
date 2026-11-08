@@ -10,10 +10,10 @@ Cosine anisotropy: mean cosine similarity between distinct samples.
 
 ## Definition, protocol and pitfalls
 
-Ethayarajh (2019, EMNLP); Godey et al. (2024, EACL). Uncentered, it reflects the shared mean
-direction, which the spectral anisotropy of the centered matrix removes; Timkey and van
-Schijndel (2021, EMNLP) show it is often driven by a few rogue dimensions. Exact in O(N D)
-from the sum of the unit vectors.
+Ethayarajh (2019, EMNLP); Godey et al. (2024, EACL). Without centering it reflects the shared
+mean direction, which the spectral anisotropy of the centered matrix removes. Timkey and van
+Schijndel (2021, EMNLP) show that it is often driven by a few rogue dimensions. The value is
+exact and costs O(N D), from the sum of the unit vectors.
 
 Args:
     x: Points (N, D).

@@ -11,8 +11,9 @@ Mean cosine similarity between distinct tokens of one sample.
 
 ## Definition, protocol and pitfalls
 
-Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. Exact on
-up to n_tokens tokens sampled without replacement.
+Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. When T
+exceeds n_tokens, the mean is computed exactly over n_tokens tokens sampled without
+replacement.
 
 Args:
     tokens: One sample's tokens (T, D), class tokens removed.

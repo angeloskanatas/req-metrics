@@ -45,6 +45,9 @@ class MetricSpec:
         per_sample: The definition pairs tokens within one sample (a class token with its
             patches, token pairs of one sample), so the estimator runs per sample at the
             population level too, instead of on the population token cloud.
+        grouped: The definition needs the sample of every token (clusters within one sample,
+            one token per sample), so the estimator takes a groups= keyword; the pipeline
+            passes each token's sample at the population level, and the other levels fail.
     """
 
     name: str
@@ -58,6 +61,7 @@ class MetricSpec:
     cache: str | None = None
     max_items: int | None = None
     per_sample: bool = False
+    grouped: bool = False
 
 
 _REGISTRY: dict[str, MetricSpec] = {}
@@ -75,6 +79,7 @@ def register_metric(
     cache: str | None = None,
     max_items: int | None = None,
     per_sample: bool = False,
+    grouped: bool = False,
 ) -> Callable[[Estimator], Estimator]:
     """Register an estimator under name. Re-registering a name is an error."""
 
@@ -93,6 +98,7 @@ def register_metric(
             cache=cache,
             max_items=max_items,
             per_sample=per_sample,
+            grouped=grouped,
         )
         return fn
 

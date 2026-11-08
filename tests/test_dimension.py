@@ -1,6 +1,5 @@
 """Neighbor-based metrics on manifolds of known dimension."""
 
-import math
 import unittest
 
 import torch
@@ -58,27 +57,6 @@ class DimensionTests(unittest.TestCase):
         self.assertTrue(torch.all(nb.distances.diff(dim=1) >= 0))
 
 
-class LocalGeometryTests(unittest.TestCase):
-    def test_curvature_analytic_lattice_and_curve(self):
-        # square lattice: the 4 axis neighbors give mean pairwise cosine -1/3, the 8 nearest give -1/7
-        ij = torch.cartesian_prod(torch.arange(40.0), torch.arange(40.0))
-        self.assertAlmostEqual(rq.neighborhood_curvature(ij, k=4).value, -1.0 / 3.0, delta=0.05)
-        self.assertAlmostEqual(rq.neighborhood_curvature(ij, k=8).value, -1.0 / 7.0, delta=0.05)
-        t = torch.linspace(0, 2 * math.pi, 2000)[:-1]
-        circle = torch.stack([t.cos(), t.sin()], dim=1)
-        self.assertLess(rq.neighborhood_curvature(circle, k=2).value, -0.9)  # one neighbor each side
-        # a Gaussian cloud is not an isotropy null: outer points see neighbors biased toward the center
-        torch.manual_seed(0)
-        self.assertGreater(rq.neighborhood_curvature(torch.randn(3000, 8), k=32).value, 0.0)
-
-    def test_rectifiability_prefers_true_tangent_dimension(self):
-        x = ball(1500, 2, 10, seed=4)
-        on_plane = rq.local_rectifiability(x, n=2, n_anchors=64, n_scales=4)
-        off_plane = rq.local_rectifiability(x, n=1, n_anchors=64, n_scales=4)
-        self.assertLess(on_plane.value, 0.1 * off_plane.value)
-        self.assertIn("local_id_scale0", on_plane.extras)
-
-
 class RegistryTests(unittest.TestCase):
     def test_registered(self):
         for name in (
@@ -87,8 +65,6 @@ class RegistryTests(unittest.TestCase):
             "intrinsic_dimension/mle",
             "intrinsic_dimension/mlid",
             "intrinsic_dimension/mst",
-            "neighborhood_curvature",
-            "local_rectifiability",
         ):
             self.assertIn(name, rq.list_metrics())
         self.assertIn("paper-canonical", rq.get_metric("intrinsic_dimension/twonn").tags)

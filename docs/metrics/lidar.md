@@ -16,20 +16,11 @@ scatter of the samples' view means and S_w the scatter of the views around their
 delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
 S_w^{-1/2} S_b S_w^{-1/2}. The clean sample names the class and is not one of the q views. Use
 the training objective's own positives when monitoring one model (their Sec. 4.2) and one
-shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
-leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
-within-sample variance approaches delta. Directions without sample signal keep eigenvalues of
-order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
-epsilon is omitted.
-
-Theory: in a deep linear JEPA the modes learned first are those with the largest across-view
-
-regression coefficient, not the largest variance (Littwin et al., 2024, Thm. 4.5), and the
-
-authors name LiDAR as the metric that "effectively counts the number of directions with a
-
-large regression coefficient" (p. 10).
-
+shared augmentation chain when comparing models. The denominators rescale S_b and S_w by
+constants, which leaves the value unchanged at delta = 0; an absolute delta makes it
+scale-dependent when the within-sample variance approaches delta. Directions without sample
+signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the width
+(App. 11). The paper's epsilon is omitted.
 
 Args:
     views: Augmented representations (q, N, D), q >= 2.

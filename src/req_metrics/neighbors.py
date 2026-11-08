@@ -1,7 +1,6 @@
 """Sorted nearest-neighbor distances of a point cloud, computed once and shared.
 
-TwoNN, GRIDE, the Levina-Bickel MLE, mLID and the kNN curvature all read from
-this table. Column 0 is the point itself (distance 0), so column j is the
+TwoNN, GRIDE, the Levina-Bickel MLE and mLID all read from this table. Column 0 is the point itself (distance 0), so column j is the
 j-th nearest neighbor, matching the convention of dadapy and of the
 estimators' papers.
 """
@@ -40,10 +39,9 @@ class Neighbors:
         """Exact Euclidean k nearest neighbors, on the device of x.
 
         In float64 the matmul expansion of the distances is used (BLAS, about
-        three times faster) and agrees with the direct path to 1e-15 on the
-        nearest-neighbor distances. In float32 the direct path is kept: the
-        expansion loses the small distances that ratio estimators depend on,
-        and under TF32 they are wrong. Rows are processed in
+        three times faster). In float32 the direct path is used instead,
+        because the expansion loses the small distances that ratio estimators
+        depend on, and under TF32 they are wrong. Rows are processed in
         chunks so memory stays at chunk x N.
         """
         if x.ndim == 2 and not torch.isfinite(x).all():

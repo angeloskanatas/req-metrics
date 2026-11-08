@@ -14,9 +14,9 @@ Squared Frobenius drift of a sample's token cosine Gram matrix against a referen
 Drift of a sample's token cosine Gram matrix against a reference field.
 
 DINOv3's Gram anchoring term (Simeoni et al., 2025, arXiv:2508.10104, Sec. 4): ||X_S X_S^T -
-X_G X_G^T||_F^2 on L2-normalized tokens, divided by P^2 here so samples of different length
-compare. As a monitor, the reference is an earlier sweep of the same model. Called directly;
-compute() and compute_pairs() do not route it.
+X_G X_G^T||_F^2 on L2-normalized tokens, divided here by P^2, with P the number of tokens, so
+that samples of different length can be compared. For monitoring, the reference is an earlier
+sweep of the same model. Call it directly: compute() and compute_pairs() do not route it.
 
 Args:
     tokens: Current token field (T, D).

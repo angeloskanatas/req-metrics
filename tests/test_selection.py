@@ -53,6 +53,12 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(len(rq.top_layers(rec, "effective_rank", k=3)), 3)
         self.assertEqual(rq.top_layers(rec, "effective_rank", k=1, direction="min"), [min(prof, key=prof.get)])
 
+    def test_top_local_maxima(self):
+        self.assertEqual(rq.top_local_maxima([1, 3, 2, 5, 4, 0, 6]), [6, 3])  # Dai et al.'s window of +-2
+        self.assertEqual(rq.top_local_maxima([2, 2, 1, 0, 0, 1, 1], window=1), [0, 1, 5])  # ties are kept
+        self.assertEqual(rq.top_local_maxima([float("nan"), 1.0, float("nan")], window=1), [1])
+        self.assertEqual(rq.top_local_maxima([3, 1, 2], window=1, direction="min"), [1])
+
 
 if __name__ == "__main__":
     unittest.main()

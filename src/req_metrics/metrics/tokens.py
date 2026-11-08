@@ -23,10 +23,11 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
     """Fraction of high-norm tokens, and the channel concentration of the largest one.
 
     Darcet et al. (2024, ICLR, arXiv:2309.16588) set an absolute cutoff (150 for DINOv2) from the
-    norm histogram of the tokens of many images and note that it varies across models. A token here is an
-    outlier when its norm exceeds factor times the median of the tokens given: one sample at the sample
-    level, the population tokens at the population level. The extras describe the
-    largest token's channel energies, after Jiang et al. (2025) and Sun et al. (2024).
+    norm histogram of the tokens of many images and note that it varies across models. Here a token
+    is an outlier when its norm exceeds factor times the median norm of the tokens given: those of
+    one sample at the sample level, the population tokens at the population level. The extras
+    describe the channel energies of the largest token, after Jiang et al. (2025) and Sun et al.
+    (2024).
 
     Args:
         tokens: One sample's tokens (T, D), class tokens removed.
@@ -60,8 +61,9 @@ def token_norm_outliers(tokens: Tensor, *, factor: float = 3.0, cutoff: float | 
 def token_cosine(tokens: Tensor, *, n_tokens: int = 64, seed: int = 0) -> MetricResult:
     """Mean cosine similarity between distinct tokens of one sample.
 
-    Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. Exact on
-    up to n_tokens tokens sampled without replacement.
+    Marouani et al. (2026, ICLR, arXiv:2602.08626): near 1 for a collapsed token field. When T
+    exceeds n_tokens, the mean is computed exactly over n_tokens tokens sampled without
+    replacement.
 
     Args:
         tokens: One sample's tokens (T, D), class tokens removed.
@@ -108,9 +110,9 @@ def token_gram_drift(tokens: Tensor, reference: Tensor) -> MetricResult:
     """Drift of a sample's token cosine Gram matrix against a reference field.
 
     DINOv3's Gram anchoring term (Simeoni et al., 2025, arXiv:2508.10104, Sec. 4): ||X_S X_S^T -
-    X_G X_G^T||_F^2 on L2-normalized tokens, divided by P^2 here so samples of different length
-    compare. As a monitor, the reference is an earlier sweep of the same model. Called directly;
-    compute() and compute_pairs() do not route it.
+    X_G X_G^T||_F^2 on L2-normalized tokens, divided here by P^2, with P the number of tokens, so
+    that samples of different length can be compared. For monitoring, the reference is an earlier
+    sweep of the same model. Call it directly: compute() and compute_pairs() do not route it.
 
     Args:
         tokens: Current token field (T, D).

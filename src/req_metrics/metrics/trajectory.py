@@ -16,11 +16,12 @@ def trajectory_curvature(z: Tensor, *, k: int = 1, convention: str = "signed", n
 
     Henaff, Goris and Simoncelli (2019, Nature Neuroscience); Hosseini and Fedorenko (2023,
     NeurIPS). With v_t = z_{t+k} - z_t, c_t = arccos(v_t . v_{t+k} / |v_t| |v_{t+k}|) in [0, pi],
-    averaged over t: 0 for a straight trajectory, pi/2 for a random walk, 2pi/3 for independent
-    frames (k = 1). convention="abs" folds angles to [0, pi/2], as in the code of Skean et al. (2025); above
-    pi/2 the folded reading reverses the ranking, so the conventions are not comparable.
-    normalize="path_length" divides each angle by the two step lengths (RECURVE, Shin et al.,
-    2024, Def. 3.2) and is not scale-free. All readings are in the extras.
+    averaged over t. The mean is 0 for a straight trajectory, pi/2 for a random walk and 2pi/3 for
+    independent frames (k = 1). convention="abs" folds angles to [0, pi/2], as in the code of Skean
+    et al. (2025). An angle above pi/2 folds to pi minus itself, which reverses the order of such
+    angles, so values under the two conventions cannot be compared. normalize="path_length" divides
+    each angle by the sum of its two step lengths (RECURVE, Shin et al., 2024, Def. 3.2), so the
+    result depends on the scale of z. All readings are in the extras.
 
     Args:
         z: One sample's frames (T, D), time-ordered; T >= 2k + 1.

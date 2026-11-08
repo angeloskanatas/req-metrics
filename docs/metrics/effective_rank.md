@@ -15,22 +15,14 @@ Effective rank: exponential of the Shannon entropy of the normalized spectrum.
 Roy and Vetterli (2007, EUSIPCO); RankMe (Garrido et al., 2023, ICML, arXiv:2210.02885).
 p_k = s_k / sum(s) over the singular values, or s_k^2 / sum(s^2) with spectrum="variance"
 (Skean et al., 2025). RankMe takes the uncentered embeddings and adds a small epsilon to
-p_k; here the default centers, because on autoregressive decoders the uncentered spectrum is
+p_k. Here the default centers, because on autoregressive decoders the uncentered spectrum is
 dominated by the mean direction, and there is no epsilon. RankMe uses 25,600 samples; N
 should be well above D.
 
-Depth lowers the converged rank by design in joint-embedding predictive training: in a deep
-
-linear JEPA every mode converges to rho_i^L, its across-view regression coefficient to the
-
-power of the encoder depth (Littwin et al., 2024, Cor. 4.3), so a deeper encoder reads lower
-
-without being collapsed, and in BYOL the predictor input keeps about a quarter of its modes
-
-alive while accuracy rises (Tian et al., 2021, Fig. 2). Compare runs at one depth, and read a
-
-low rank as necessary-but-not-sufficient evidence.
-
+Depth lowers the converged rank in joint-embedding predictive training: in a deep linear
+JEPA every mode converges to rho_i^L, its across-view regression coefficient to the power of
+the encoder depth (Littwin et al., 2024, Cor. 4.3), so a deeper encoder reads lower without
+being collapsed. Compare runs at one depth, and do not read a low rank alone as collapse.
 
 Args:
     x: Points (N, D), or a Spectrum of preprocessed points.

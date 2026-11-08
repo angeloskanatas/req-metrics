@@ -23,7 +23,7 @@ def bib_title(key: str) -> str:
     body = m.group(1)
     t = re.search(r"title\s*=\s*[{\"](.*?)[}\"]\s*,?\s*\n", body, flags=re.S | re.I)
     y = re.search(r"year\s*=\s*[{\"]?(\d{4})", body)
-    title = re.sub(r"[{}]", "", t.group(1)).strip() if t else key
+    title = re.sub(r"[{}]", "", t.group(1)).replace("--", "-").strip() if t else key
     return f"{title} ({y.group(1)})" if y else title
 
 

@@ -6,10 +6,19 @@ and source citation. Levels (sequence, sample, population) and I/O belong to the
 pipeline, not to the estimators.
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 from req_metrics import protocols
 from req_metrics._types import InputKind, MetricResult, Preprocess
+from req_metrics.calibration import (
+    Calibrated,
+    CalibratedGrid,
+    calibrate,
+    calibrate_grid,
+    calibrate_layers,
+    group_permutation,
+    jackknife,
+)
 from req_metrics.layouts import (
     frame_tokens_to_pooled,
     grid_to_pooled,
@@ -18,13 +27,21 @@ from req_metrics.layouts import (
     stack_samples,
     strip_prefix_tokens,
 )
-from req_metrics.metrics.clustering import cluster_quality
-from req_metrics.metrics.compare import cka, cycle_knn, information_imbalance, neighborhood_overlap, rsa, svcca
+from req_metrics.metrics.clustering import cluster_quality, dense_structure, recombine_dense_structure
+from req_metrics.metrics.compare import (
+    cka,
+    cycle_knn,
+    information_imbalance,
+    neighborhood_overlap,
+    procrustes,
+    ridge_predictivity,
+    rsa,
+    svcca,
+)
 from req_metrics.metrics.dimension import gride, mle, mlid, mst_dimension, twonn
 from req_metrics.metrics.distribution import embedding_norm, gaussianity, sparsity
 from req_metrics.metrics.equivariance import pte
 from req_metrics.metrics.functional import jacobian_effective_rank
-from req_metrics.metrics.local_geometry import local_rectifiability, neighborhood_curvature
 from req_metrics.metrics.relational import anisotropy_cosine, normalized_std, self_clustering, uniformity
 from req_metrics.metrics.spectral import (
     alpha_req,
@@ -57,7 +74,7 @@ from req_metrics.pipeline import choose_indices, compute, compute_pairs
 from req_metrics.preprocess import apply_preprocess, center, l2_normalize, standardize
 from req_metrics.records import Record, Records
 from req_metrics.registry import MetricSpec, describe, get_metric, list_metrics, register_metric
-from req_metrics.selection import rank_runs, top_layers, value_at
+from req_metrics.selection import rank_runs, top_layers, top_local_maxima, value_at
 from req_metrics.spectrum import Spectrum
 from req_metrics.stability import Convergence, convergence
 from req_metrics.view_construction import ShiftSpec, ViewSpec, make_shifted, make_views, stack_views
@@ -91,8 +108,6 @@ __all__ = [
     "mle",
     "mlid",
     "mst_dimension",
-    "neighborhood_curvature",
-    "local_rectifiability",
     "information_imbalance",
     "trajectory_curvature",
     "lidar",
@@ -139,15 +154,27 @@ __all__ = [
     "uniformity",
     "convergence",
     "Convergence",
+    "calibrate",
+    "calibrate_grid",
+    "calibrate_layers",
+    "CalibratedGrid",
+    "Calibrated",
+    "group_permutation",
+    "jackknife",
     "neighborhood_overlap",
     "cka",
     "cycle_knn",
+    "procrustes",
+    "ridge_predictivity",
     "rsa",
     "svcca",
     "cluster_quality",
+    "dense_structure",
+    "recombine_dense_structure",
     "jacobian_effective_rank",
     "jacobian_products",
     "rank_runs",
     "top_layers",
+    "top_local_maxima",
     "value_at",
 ]

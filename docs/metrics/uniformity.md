@@ -13,18 +13,15 @@ Uniformity: log mean pairwise Gaussian potential on the unit sphere.
 
 Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.2): log mean_{i<j} exp(-t ||u_i -
 u_j||^2) over L2-normalized rows, t = 2; lower is more uniform. Corollary 1 bounds it below
-by -2t + log 0F1(; D/2; t^2). Computed from Gram blocks in float64, O(N^2 D).
+by -2t + log 0F1(; D/2; t^2). It is computed from Gram blocks in float64, in O(N^2 D). The
+value depends on D through the bound, so across embedding dimensions compare gap or excess
+rather than the raw value.
 
 Args:
     x: Points (N, D).
     t: Kernel scale.
     center: Mean-center before normalizing.
     chunk: Rows per Gram block.
-
-The value depends on D through the bound, so compare gap or excess across embedding
-dimensions, not the raw value; the follow-up to SPHERE-JEPA (2026) derives the same
-uniform baseline as the expected kernel under the uniform law and reads the Gaussian
-potential as a kernel MMD to it.
 
 Returns:
     value: uniformity in nats.

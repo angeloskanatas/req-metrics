@@ -12,8 +12,9 @@ Top-heaviness of the covariance spectrum over the ambient dimension (EEE).
 ## Definition, protocol and pitfalls
 
 Jha et al. (2026, arXiv:2603.06922, Eq. 3): EEE = (2/D) sum_k (S_k - k/D), with S_k the
-cumulative variance fraction of the k largest eigenvalues over all D directions. 0 for a flat
-spectrum, approaching 1 when one direction carries all the variance; scale-invariant.
+cumulative variance fraction of the k largest eigenvalues over all D directions. It is 0 for a
+flat spectrum, approaches 1 when one direction carries all the variance, and does not change
+with the scale of the data.
 
 Args:
     x: Points (N, D), or a Spectrum of preprocessed points.

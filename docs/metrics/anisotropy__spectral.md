@@ -15,10 +15,10 @@ Spectral anisotropy of the centered, row-normalized matrix.
 Spectral anisotropy: the share of variance on the leading direction.
 
 Razzhigaev et al. (2024, EACL Findings, arXiv:2311.05928): s_1^2 / sum s_k^2 of the centered
-matrix, 1/D for an isotropic cloud and 1 for a single axis. Rows are L2-normalized after
-centering by default, so the score ignores norms; the paper does not normalize rows, which
-l2=False reproduces. With l2=False, 1 - value is the isotropy score of Chung and Kim (2026) and
-1 / value is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered matrix.
+matrix, 1/D for an isotropic cloud and 1 for a single axis. By default rows are L2-normalized
+after centering, so the score ignores norms. The paper does not normalize rows; l2=False gives
+its value. With l2=False, 1 - value is the isotropy score of Chung and Kim (2026), and 1 / value
+is NESum (He and Ozay, 2022, Def. 4.1), the stable rank of the centered matrix.
 
 Args:
     x: Points (N, D), or a Spectrum of preprocessed points.

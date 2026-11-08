@@ -43,7 +43,6 @@ _NEIGHBOR_ARGS: dict[str, tuple[str | None, str | None]] = {
     "intrinsic_dimension/gride": ("range_max", "scale"),
     "intrinsic_dimension/mle": ("k_range", "k_range"),
     "intrinsic_dimension/mlid": ("k", "k"),
-    "neighborhood_curvature": ("k", "k"),
 }
 
 
@@ -105,8 +104,9 @@ def _warn_failed(records: Records) -> Records:
 def _warn_rank_cap(records: Records) -> None:
     """Warn once when spectral metrics saw fewer points than dimensions: the covariance then has at most
     N nonzero eigenvalues, so effective rank and its relatives are capped by N and comparisons across
-    different N are confounded: the sample covariance acquires an atom at zero of mass 1 - min(rank(Sigma)/D, N/D)
-    (Green and Romanov, 2025, Eq. 13; applied by Njaradi et al., 2026)."""
+    different N are confounded: the sample covariance acquires an atom at zero of mass
+    1 - min(rank(Sigma)/D, N/D) (Green and Romanov, 2025, arXiv:2405.11676, Eq. 13; applied by Njaradi et al.,
+    2026, arXiv:2605.20105)."""
     capped = [r for r in records if "rank_cap" in r.extras]
     if not capped:
         return
@@ -126,7 +126,7 @@ def choose_indices(n: int, max_items: int | None, seed: int, group_ids: Sequence
     """Sorted row indices to keep: one row per group if group_ids is given, then at most max_items at random.
 
     One-per-group picks a random member of each group (one clip per
-    track in Kanatas et al., 2026); the same indices must be applied to every layer, which compute does.
+    track in Kanatas et al., 2026, arXiv:2608.14819); the same indices must be applied to every layer, which compute does.
     """
     rng = np.random.default_rng(seed)
     idx = np.arange(n)
@@ -321,6 +321,8 @@ def _points_sweep(
                 k_value = _neighbor_count(spec, kw, 1)
                 out[spec.name][1]["same_sample_fraction"] = _same_group_fraction(nb.indices, gu, k_value)
         else:
+            if spec.grouped:  # each token's sample; None outside the population level
+                kw = {**kw, "groups": gs}
             out[spec.name] = _run(spec, (xs,), kw)
         if n_used < x.shape[0]:
             out[spec.name][1]["n_items_used"] = n_used
@@ -550,10 +552,12 @@ def compute(
 
 
 def _rank_table_rows(x_b: Tensor, rows: Tensor) -> Tensor:
-    """Ranks (1 = nearest) of every item for the given query rows in space B; ties take the lower rank."""
+    """Ranks (1 = nearest) of every item for the given query rows in space B, tied distances sharing their average."""
+    from req_metrics.metrics.compare import _row_ranks
+
     d = torch.cdist(x_b[rows], x_b, compute_mode=_cdist_mode(x_b.dtype))
     d[torch.arange(len(rows)), rows] = float("inf")
-    return torch.searchsorted(d.sort(dim=1).values, d) + 1  # (c, N): one plus the strictly closer items
+    return _row_ranks(d)  # (c, N), as information_imbalance ranks
 
 
 _PAIR_NEIGHBOR_METRICS = ("information_imbalance", "neighborhood_overlap", "cycle_knn")
@@ -605,7 +609,9 @@ def compute_pairs(
         params: Metric name -> estimator keyword arguments, as in compute(): k, l2 and chunk for the
             imbalance, k, l2 and jaccard for the overlap, k and l2 for cycle_knn, debiased for CKA,
             threshold for SVCCA, distance, method and chunk for RSA. l2=True ranks cosine neighbors
-            (unit-norm rows), as Huh et al. (2024) do, and is recorded as preprocessing.
+            (unit-norm rows), as Huh et al. (2024, ICML, arXiv:2405.07987) do, and is recorded as preprocessing.
+            confound (and confound_b for B), (N, D_0) rows of the same items, gives the deconfounded CKA or
+            RSA of cka and rsa (deconfounded CKA on at most 4,000 items); recorded as deconfounded=True.
         device: Device the estimators run on, as in compute().
 
     Returns:
@@ -644,41 +650,49 @@ def compute_pairs(
             k = int(p.get("k", _default_arg(spec.fn, "k")))
             l2 = bool(p.get("l2", False))
             k_max[l2] = max(k_max.get(l2, 0), min(k, n - 1))
-    tables: dict[bool, tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]] = {}
+    tables: dict[bool, tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Neighbors], dict[int, Neighbors]]] = {}
 
-    def neighbor_tables(l2: bool) -> tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Tensor], dict[int, Tensor]]:
+    def neighbor_tables(
+        l2: bool,
+    ) -> tuple[dict[int, Tensor], dict[int, Tensor], dict[int, Neighbors], dict[int, Neighbors]]:
         if l2 not in tables:
             prep = l2_normalize if l2 else (lambda t: t)
             xa = {l: prep(_to(_tensor(layers_a[l])[idx], dev).double()) for l in ids_a}
             xb = xa if same else {l: prep(_to(_tensor(b_map[l])[idx], dev).double()) for l in ids_b}
-            nn_a = {l: Neighbors.from_points(xa[l], k_max[l2]).indices[:, 1:] for l in ids_a}
-            nn_b = nn_a if same else {l: Neighbors.from_points(xb[l], k_max[l2]).indices[:, 1:] for l in ids_b}
-            tables[l2] = (xa, xb, nn_a, nn_b)
+            # one neighbor more than the largest k, so the imbalance sees a tie at its k-th neighbor
+            nb_a = {l: Neighbors.from_points(xa[l], k_max[l2] + 1) for l in ids_a}
+            nb_b = nb_a if same else {l: Neighbors.from_points(xb[l], k_max[l2] + 1) for l in ids_b}
+            tables[l2] = (xa, xb, nb_a, nb_b)
         return tables[l2]
 
     out = Records()
     for spec in specs:
-        p = params.get(spec.name, {})
+        p = dict(params.get(spec.name, {}))
+        confounds = {key: p.pop(key) for key in ("confound", "confound_b") if p.get(key) is not None}
         values: dict[tuple[int, int], tuple[float, dict[str, Any]]]
-        recorded: dict[str, Any] = dict(p)
+        recorded: dict[str, Any] = dict(p, deconfounded=True) if confounds else dict(p)
         n_used = n
         try:
+            if confounds and spec.name not in ("cka", "rsa"):
+                raise ValueError(f"confound applies to cka and rsa, not {spec.name!r}")
             if spec.name in _PAIR_NEIGHBOR_METRICS:
                 l2 = bool(p.get("l2", False))
                 k = int(p.get("k", _default_arg(spec.fn, "k")))
                 if k < 1 or k > n - 1:
                     raise ValueError(f"k must be in [1, N - 1], got {k} for N = {n}")
-                xa, xb, nn_a, nn_b = neighbor_tables(l2)
-                values = _neighbor_pairs(spec.name, xa, xb, nn_a, nn_b, same, k, p)
+                xa, xb, nb_a, nb_b = neighbor_tables(l2)
+                values = _neighbor_pairs(spec.name, xa, xb, nb_a, nb_b, same, k, p)
                 recorded = {"k": k, "l2": l2}
                 if spec.name == "neighborhood_overlap":
                     recorded["jaccard"] = bool(p.get("jaccard", False))
             else:
-                rows = _cap_index(n, spec.max_items, seed)
+                cap = _DECONFOUNDED_CKA_MAX_ITEMS if confounds and spec.name == "cka" else spec.max_items
+                rows = _cap_index(n, cap, seed)
                 sel = idx if rows is None else idx[rows]
                 xa = {l: _to(_tensor(layers_a[l])[sel], dev) for l in ids_a}
                 xb = xa if same else {l: _to(_tensor(b_map[l])[sel], dev) for l in ids_b}
-                values = _closed_form_pairs(spec.name, xa, xb, same, p)
+                conf = {key: _to(_tensor(v)[sel], dev) for key, v in confounds.items()}
+                values = _closed_form_pairs(spec.name, xa, xb, same, p, conf)
                 n_used = len(sel)
         except Exception as e:  # the pipeline records failures instead of aborting a sweep
             message = f"{type(e).__name__}: {e}"
@@ -714,26 +728,36 @@ def _neighbor_pairs(
     metric: str,
     xa: Mapping[int, Tensor],
     xb: Mapping[int, Tensor],
-    nn_a: Mapping[int, Tensor],
-    nn_b: Mapping[int, Tensor],
+    tables_a: Mapping[int, Neighbors],
+    tables_b: Mapping[int, Neighbors],
     same: bool,
     k: int,
     params: Mapping[str, Any],
 ) -> dict[tuple[int, int], tuple[float, dict[str, Any]]]:
-    """Overlap, cycle consistency or imbalance for every layer pair from shared (N, >= k) neighbor tables."""
-    from req_metrics.metrics.compare import _cycle_fraction, _overlap_chance, _shared_neighbor_fraction
+    """Overlap, cycle consistency or imbalance for every layer pair from shared neighbor tables (>= k + 1 neighbors,
+    the extra one detecting a tie at the k-th)."""
+    from req_metrics.metrics.compare import (
+        _boundary_ties,
+        _cycle_fraction,
+        _overlap_chance,
+        _rank_sums,
+        _shared_neighbor_fraction,
+    )
 
     ids_a, ids_b = sorted(xa), sorted(xb)
     n = int(next(iter(xa.values())).shape[0])
-    na = {l: t[:, :k] for l, t in nn_a.items()}
-    nb = na if same else {l: t[:, :k] for l, t in nn_b.items()}
+    na = {l: t.indices[:, 1 : k + 1] for l, t in tables_a.items()}
+    nb = na if same else {l: t.indices[:, 1 : k + 1] for l, t in tables_b.items()}
     out: dict[tuple[int, int], tuple[float, dict[str, Any]]] = {}
+    if metric != "cycle_knn":  # ties as in information_imbalance and neighborhood_overlap
+        ties_a = {l: _boundary_ties(xa[l], tables_a[l], k) for l in ids_a}
+        ties_b = ties_a if same else {l: _boundary_ties(xb[l], tables_b[l], k) for l in ids_b}
     if metric == "neighborhood_overlap":
         jaccard = bool(params.get("jaccard", False))
         chance = _overlap_chance(n, k, jaccard)
         for la in ids_a:
             for lb in ids_b:
-                frac = _shared_neighbor_fraction(na[la], nb[lb], jaccard)
+                frac = _shared_neighbor_fraction(na[la], nb[lb], jaccard, ties_a[la], ties_b[lb])
                 out[(la, lb)] = (float(frac.mean()), {"std": float(frac.std()), "chance": chance})
         return out
     if metric == "cycle_knn":
@@ -746,38 +770,57 @@ def _neighbor_pairs(
                     {"reverse": reverse, "chance_bound": bound},
                 )
         return out
-    # imbalance: mean rank in target space T of the k source-neighbors, accumulated over row chunks of T's rank table
+    # imbalance: mean rank in target space T of the k source-neighbors, accumulated over row chunks of T's rank table;
+    # ties as in information_imbalance (average target ranks, a tied k-th source neighbor averaged over the tied items)
     chunk = int(params.get("chunk", 512))
     sums_ab = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
     sums_ba = {(la, lb): 0.0 for la in ids_a for lb in ids_b}
 
-    def accumulate(target_layers, target_x, source_layers, source_nn, sums, key):
+    def accumulate(target_layers, target_x, source_layers, source_nn, source_ties, sums, key):
         for lt in target_layers:
             for start in range(0, n, chunk):
                 rows = torch.arange(start, min(start + chunk, n))
                 ranks = _rank_table_rows(target_x[lt], rows)  # (c, N)
                 for ls in source_layers:
-                    gathered = torch.gather(ranks, 1, source_nn[ls][rows])  # (c, k)
-                    sums[key(ls, lt)] += float(gathered.double().sum())
+                    sums[key(ls, lt)] += float(_rank_sums(ranks, source_nn[ls][rows], source_ties[ls], rows).sum())
 
-    accumulate(ids_b, xb, ids_a, na, sums_ab, lambda ls, lt: (ls, lt))  # ranks in B of A's neighbors
+    accumulate(ids_b, xb, ids_a, na, ties_a, sums_ab, lambda ls, lt: (ls, lt))  # ranks in B of A's neighbors
     if same:  # Delta(B_lb -> A_la) is Delta(lb -> la), already accumulated
         sums_ba = {(la, lb): sums_ab[(lb, la)] for la in ids_a for lb in ids_b}
     else:
-        accumulate(ids_a, xa, ids_b, nb, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
+        accumulate(ids_a, xa, ids_b, nb, ties_b, sums_ba, lambda ls, lt: (lt, ls))  # ranks in A of B's neighbors
     scale = (n * k) * (n / 2.0)
     for la in ids_a:
         for lb in ids_b:
-            out[(la, lb)] = (sums_ab[(la, lb)] / scale, {"reverse": sums_ba[(la, lb)] / scale})
+            forward, reverse = sums_ab[(la, lb)] / scale, sums_ba[(la, lb)] / scale
+            out[(la, lb)] = (forward, {"reverse": reverse, "asymmetry": forward - reverse})
     return out
 
 
 def _closed_form_pairs(
-    metric: str, xa: Mapping[int, Tensor], xb: Mapping[int, Tensor], same: bool, params: Mapping[str, Any]
+    metric: str,
+    xa: Mapping[int, Tensor],
+    xb: Mapping[int, Tensor],
+    same: bool,
+    params: Mapping[str, Any],
+    confounds: Mapping[str, Tensor] | None = None,
 ) -> dict[tuple[int, int], tuple[float, dict[str, Any]]]:
-    """CKA, SVCCA or RSA for every layer pair, with per-layer summaries computed once."""
-    from req_metrics.metrics.compare import _cka_from_stats, _cka_stats, _rsa_vector, _svd_directions
+    """CKA, SVCCA or RSA for every layer pair, with per-layer summaries computed once; with confounds, the
+    deconfounded CKA or RSA."""
+    from req_metrics.metrics.compare import (
+        _cka_from_stats,
+        _cka_stats,
+        _folds,
+        _procrustes_factors,
+        _procrustes_from_factors,
+        _ridge_direction,
+        _ridge_fit,
+        _rsa_vector,
+        _svd_directions,
+    )
 
+    if confounds:
+        return _deconfounded_pairs(metric, xa, xb, same, params, confounds)
     ids_a, ids_b = sorted(xa), sorted(xb)
     n = int(next(iter(xa.values())).shape[0])
     if metric == "cka":
@@ -814,6 +857,44 @@ def _closed_form_pairs(
             rho = torch.linalg.svdvals(a[0].T @ b[0]).clamp(0.0, 1.0)
             return float(rho.mean()), {"r2": float(rho.square().mean()), "k_a": float(a[1]), "k_b": float(b[1])}
 
+    elif metric == "procrustes":
+        rank_tol = float(params.get("rank_tol", 1e-10))
+
+        def summary(x: Tensor) -> Any:
+            return _procrustes_factors(x, rank_tol)
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            value, nuclear = _procrustes_from_factors(a[0], b[0])
+            return value, {
+                "alignment": nuclear,
+                "distance": math.sqrt(value),
+                "rank_a": float(a[1]),
+                "rank_b": float(b[1]),
+            }
+
+    elif metric == "ridge_predictivity":
+        n_folds, seed = int(params.get("n_folds", 5)), int(params.get("seed", 0))
+        lo, hi, count = params.get("lambda_grid", (1e-8, 1e4, 25))
+        if not 2 <= n_folds <= n // 2:
+            raise ValueError(f"n_folds must be between 2 and N/2, got {n_folds} for N = {n}")
+        folds = _folds(n, n_folds, seed)
+        grid = torch.logspace(math.log10(lo), math.log10(hi), int(count), dtype=torch.float64)
+
+        def summary(x: Tensor) -> Any:
+            return x, [_ridge_fit(x[tr]) for tr, _ in folds]
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            forward, lambdas = _ridge_direction(a[1], a[0], b[0], folds, grid.to(a[0].device))
+            reverse, reverse_lambdas = _ridge_direction(b[1], b[0], a[0], folds, grid.to(a[0].device))
+            return float(forward.mean()), {
+                "median": float(forward.median()),
+                "reverse": float(reverse.mean()),
+                "reverse_median": float(reverse.median()),
+                "n_folds": float(len(folds)),
+                "log10_lambda_median": float(torch.log10(lambdas).median()),
+                "reverse_log10_lambda_median": float(torch.log10(reverse_lambdas).median()),
+            }
+
     else:
         raise ValueError(f"unknown pair metric {metric!r}")
     sa = {l: summary(xa[l]) for l in ids_a}
@@ -825,7 +906,88 @@ def _closed_form_pairs(
                 value, extras = out[(lb, la)]
                 if metric == "svcca":
                     extras = {**extras, "k_a": extras["k_b"], "k_b": extras["k_a"]}
+                elif metric == "procrustes":
+                    extras = {**extras, "rank_a": extras["rank_b"], "rank_b": extras["rank_a"]}
+                elif metric == "ridge_predictivity":
+                    value, extras = (
+                        extras["reverse"],
+                        {
+                            **extras,
+                            "reverse": value,
+                            "median": extras["reverse_median"],
+                            "reverse_median": extras["median"],
+                            "log10_lambda_median": extras["reverse_log10_lambda_median"],
+                            "reverse_log10_lambda_median": extras["log10_lambda_median"],
+                        },
+                    )
                 out[(la, lb)] = (value, extras)
             else:
                 out[(la, lb)] = pair(sa[la], sb[lb])
     return out
+
+
+_DECONFOUNDED_CKA_MAX_ITEMS = 4000  # one N x N float64 kernel per layer and an eigendecomposition of each
+
+
+def _deconfounded_pairs(
+    metric: str,
+    xa: Mapping[int, Tensor],
+    xb: Mapping[int, Tensor],
+    same: bool,
+    params: Mapping[str, Any],
+    confounds: Mapping[str, Tensor],
+) -> dict[tuple[int, int], tuple[float, dict[str, Any]]]:
+    """Deconfounded CKA or RSA (Cui et al., 2022, NeurIPS, arXiv:2202.00095) for every layer pair, as cka and rsa
+    compute them with confound and confound_b: one N x N kernel or one residual distance vector per layer."""
+    from req_metrics.metrics.compare import (
+        _cka_from_stats,
+        _cka_stats,
+        _deconfounded_kernel,
+        _drsa_vector,
+        _kernel_cka,
+        _rsa_vector,
+    )
+
+    if "confound" not in confounds:
+        raise ValueError("confound_b needs confound")
+    conf_a = confounds["confound"]
+    conf_b = confounds.get("confound_b", conf_a)
+    if same and "confound_b" in confounds:
+        raise ValueError("comparing the layers of one model takes a single confound")
+    ids_a, ids_b = sorted(xa), sorted(xb)
+    if metric == "cka":
+        if params.get("debiased", False):
+            raise ValueError("the deconfounded CKA uses the biased HSIC (Cui et al.); debiased is not defined for it")
+
+        def summary(x: Tensor, z: Tensor) -> Any:
+            return (_cka_stats(x), *_deconfounded_kernel(x, z))
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            biased, unbiased = _cka_from_stats(a[0], b[0])
+            extras: dict[str, Any] = {"biased": biased, "debiased": unbiased}
+            extras.update({f"{key}_a": v for key, v in a[2].items()})
+            extras.update({f"{key}_b": v for key, v in b[2].items()})
+            return _kernel_cka(a[1], b[1]), extras
+
+    elif metric == "rsa":
+        distance, method = str(params.get("distance", "cosine")), str(params.get("method", "spearman"))
+        if distance != "euclidean":
+            raise ValueError(
+                "the deconfounded RSA regresses squared Euclidean distances (Cui et al.); pass distance='euclidean'"
+            )
+        chunk = int(params.get("chunk", 1024))
+
+        def summary(x: Tensor, z: Tensor) -> Any:
+            vec, alpha = _drsa_vector(x, z, method, chunk)
+            return vec.float(), _rsa_vector(x, distance, method, chunk).float(), alpha
+
+        def pair(a: Any, b: Any) -> tuple[float, dict[str, Any]]:
+            plain = float(torch.dot(a[1].double(), b[1].double()))
+            extras = {"n_pairs": float(a[0].numel()), "rsa": plain, "alpha_a": a[2], "alpha_b": b[2]}
+            return float(torch.dot(a[0].double(), b[0].double())), extras
+
+    else:
+        raise ValueError(f"confound applies to cka and rsa, not {metric!r}")
+    sa = {l: summary(xa[l], conf_a) for l in ids_a}
+    sb = sa if same else {l: summary(xb[l], conf_b) for l in ids_b}
+    return {(la, lb): pair(sa[la], sb[lb]) for la in ids_a for lb in ids_b}

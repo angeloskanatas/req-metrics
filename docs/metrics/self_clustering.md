@@ -14,8 +14,9 @@ Self-clustering score: excess squared cosine over a uniform spherical cloud.
 Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562, Def. 3.5): with Q
 the sum of squared cosines over all pairs of L2-normalized rows,
 (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a uniform cloud and 1 for a single point.
-The paper writes Q as a Frobenius norm but states the expectation and maximum of its
-square, which is used here. Computed from the D x D second-moment matrix in O(N D^2).
+The paper writes Q as a Frobenius norm but gives the expectation and maximum of its square,
+which is the quantity used here. It is computed from the D x D second-moment matrix in
+O(N D^2).
 
 Args:
     x: Points (N, D).

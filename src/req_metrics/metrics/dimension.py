@@ -110,11 +110,12 @@ def gride(
 ) -> MetricResult:
     """GRIDE intrinsic dimension at doubling neighbor scales.
 
-    Denti et al. (2022, Scientific Reports, arXiv:2104.13832, Eq. 13): the maximum-likelihood
-    dimension from the ratio of the n2-th to the n1-th neighbor distance, at (n1, n2) = (k, 2k)
-    for k = 1, 2, 4, ... up to range_max. The value is the estimate at n2 = scale; scale 8 uses
-    the 8th and 4th neighbors. Bisection on the likelihood derivative and Fisher-information
-    errors follow DADApy.
+    Denti et al. (2022, Scientific Reports 12, 20005; the preprint arXiv:2104.13832 gives the
+    ratio's density as its Eq. 13): the maximum-likelihood dimension from the ratio of the n2-th
+    to the n1-th neighbor distance, at (n1, n2) = (k, 2k) for k = 1, 2, 4, ... up to range_max.
+    The value is the estimate at n2 = scale; scale 8 uses the 8th and 4th neighbors. The
+    bisection on the likelihood derivative and the Fisher-information errors are ported from
+    DADApy.
 
     Args:
         x: Points (N, D), duplicates removed first, or a Neighbors table with k >= range_max.

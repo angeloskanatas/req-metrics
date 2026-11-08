@@ -28,20 +28,11 @@ def lidar(
     delta I; LiDAR is the exponential of the entropy of the normalized eigenvalues of
     S_w^{-1/2} S_b S_w^{-1/2}. The clean sample names the class and is not one of the q views. Use
     the training objective's own positives when monitoring one model (their Sec. 4.2) and one
-    shared chain when comparing models. The denominators rescale S_b and S_w by constants, which
-    leaves the value unchanged at delta = 0; an absolute delta makes it scale-dependent when
-    within-sample variance approaches delta. Directions without sample signal keep eigenvalues of
-    order 1/q, so compare at equal q and width, with n above the width (App. 11). The paper's
-    epsilon is omitted.
-
-    Theory: in a deep linear JEPA the modes learned first are those with the largest across-view
-
-    regression coefficient, not the largest variance (Littwin et al., 2024, Thm. 4.5), and the
-
-    authors name LiDAR as the metric that "effectively counts the number of directions with a
-
-    large regression coefficient" (p. 10).
-
+    shared augmentation chain when comparing models. The denominators rescale S_b and S_w by
+    constants, which leaves the value unchanged at delta = 0; an absolute delta makes it
+    scale-dependent when the within-sample variance approaches delta. Directions without sample
+    signal keep eigenvalues of order 1/q, so compare at equal q and width, with n above the width
+    (App. 11). The paper's epsilon is omitted.
 
     Args:
         views: Augmented representations (q, N, D), q >= 2.
@@ -113,13 +104,15 @@ def infonce(
 
     van den Oord, Li and Vinyals (2018, arXiv:1807.03748, Eq. 4): the cross-entropy of
     identifying each sample's view b among all N samples' views b from its view a, with cosine
-    logits over the temperature (rows centered and L2-normalized, as in Skean et al., 2025).
-    Lower is more invariant to the augmentations. With q > 2 views the loss is averaged over
-    the pairs a < b, the full graph of Tian et al. (2020, Eq. 8), or over the pairs (anchor,
-    b), their core view (Eq. 7), for a non-exchangeable view such as a clean or global one.
-    symmetric=True adds the reverse direction of each pair (Tian et al., Eq. 4). log N - L, the bound of van den Oord et al., cannot exceed log N, and for unit vectors with nearly
-    orthogonal negatives it stays near 1 / temperature even for identical views. Compare values at equal N and
-    temperature, and read contrastive_accuracy, which has no such ceiling.
+    logits over the temperature. By default rows are centered and L2-normalized, as in the code of
+    Skean et al. (2025), whose paper does not state it. Lower is more invariant to the
+    augmentations. With q > 2 views the loss is averaged over the pairs a < b, the full graph of
+    Tian et al. (2020, Eq. 8), or over the pairs (anchor, b), their core view (Eq. 7), for a
+    non-exchangeable view such as a clean or global one. symmetric=True adds the reverse direction
+    of each pair (Tian et al., Eq. 4). The bound of van den Oord et al., log N - L, cannot exceed
+    log N; for unit vectors with nearly orthogonal negatives and identical views it approaches the
+    smaller of log N and 1 / temperature. Compare values at equal N and temperature, and read
+    contrastive_accuracy, which has no such ceiling.
 
     Args:
         views: Views (q, N, D), q >= 2.
@@ -193,9 +186,9 @@ def dime(
 
     Skean et al. (2023, arXiv:2301.08164, Sec. 2.2): with K_X and K_Y the normalized N x N Gram
     matrices of the two views, DiME is the mean joint entropy S_alpha(K_X o K_Y) under random
-    re-pairings minus the paired joint entropy; zero for unrelated views. The paper uses Gaussian
-    kernels and alpha = 1.01. The N x N definition is kept, since the Hadamard product does not
-    survive a swap to D x D covariances, so cost grows as N^3 per permutation.
+    re-pairings minus the paired joint entropy; it is zero for unrelated views. The paper uses
+    Gaussian kernels and alpha = 1.01. The Hadamard product has no D x D covariance form, so the
+    N x N matrices are needed and the cost grows as N^3 per permutation.
 
     Args:
         views: Two views (2, N, D).
@@ -204,7 +197,8 @@ def dime(
         kernel: "linear" (cosine Gram) or "rbf" (median bandwidth).
         seed: Permutation seed.
         normalization: "raw" or "max" (divide by log N).
-        center: Mean-center each view before the kernel, as Skean et al. (2025) do.
+        center: Mean-center each view before the kernel, as the code of Skean et al. (2025) does (their
+            paper does not state it).
 
     Returns:
         value: DiME.

@@ -76,11 +76,6 @@ class ExactNullTests(unittest.TestCase):
             rq.lidar(views, delta=1e-6).value, rq.effective_rank(z, spectrum="variance").value, places=4
         )
 
-    def test_local_rectifiability_of_an_exact_plane_is_zero(self):
-        torch.manual_seed(0)
-        plane = torch.randn(600, 2, dtype=torch.float64) @ torch.randn(2, 10, dtype=torch.float64)
-        self.assertLess(rq.local_rectifiability(plane, n=2, n_anchors=64, n_scales=4).value, 1e-6)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,8 +29,9 @@ def self_clustering(x: Tensor, *, center: bool = False) -> MetricResult:
     Tsitsulin, Munkhoeva and Perozzi (2023, TAG-ML at ICML, arXiv:2305.16562, Def. 3.5): with Q
     the sum of squared cosines over all pairs of L2-normalized rows,
     (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D), 0 for a uniform cloud and 1 for a single point.
-    The paper writes Q as a Frobenius norm but states the expectation and maximum of its
-    square, which is used here. Computed from the D x D second-moment matrix in O(N D^2).
+    The paper writes Q as a Frobenius norm but gives the expectation and maximum of its square,
+    which is the quantity used here. It is computed from the D x D second-moment matrix in
+    O(N D^2).
 
     Args:
         x: Points (N, D).
@@ -56,18 +57,15 @@ def uniformity(x: Tensor, *, t: float = 2.0, center: bool = False, chunk: int = 
 
     Wang and Isola (2020, ICML, arXiv:2005.10242, Sec. 4.1.2): log mean_{i<j} exp(-t ||u_i -
     u_j||^2) over L2-normalized rows, t = 2; lower is more uniform. Corollary 1 bounds it below
-    by -2t + log 0F1(; D/2; t^2). Computed from Gram blocks in float64, O(N^2 D).
+    by -2t + log 0F1(; D/2; t^2). It is computed from Gram blocks in float64, in O(N^2 D). The
+    value depends on D through the bound, so across embedding dimensions compare gap or excess
+    rather than the raw value.
 
     Args:
         x: Points (N, D).
         t: Kernel scale.
         center: Mean-center before normalizing.
         chunk: Rows per Gram block.
-
-    The value depends on D through the bound, so compare gap or excess across embedding
-    dimensions, not the raw value; the follow-up to SPHERE-JEPA (2026) derives the same
-    uniform baseline as the expected kernel under the uniform law and reads the Gaussian
-    potential as a kernel MMD to it.
 
     Returns:
         value: uniformity in nats.
@@ -115,10 +113,10 @@ def normalized_std(x: Tensor) -> MetricResult:
 def anisotropy_cosine(x: Tensor, *, center: bool = False) -> MetricResult:
     """Cosine anisotropy: mean cosine similarity between distinct samples.
 
-    Ethayarajh (2019, EMNLP); Godey et al. (2024, EACL). Uncentered, it reflects the shared mean
-    direction, which the spectral anisotropy of the centered matrix removes; Timkey and van
-    Schijndel (2021, EMNLP) show it is often driven by a few rogue dimensions. Exact in O(N D)
-    from the sum of the unit vectors.
+    Ethayarajh (2019, EMNLP); Godey et al. (2024, EACL). Without centering it reflects the shared
+    mean direction, which the spectral anisotropy of the centered matrix removes. Timkey and van
+    Schijndel (2021, EMNLP) show that it is often driven by a few rogue dimensions. The value is
+    exact and costs O(N D), from the sum of the unit vectors.
 
     Args:
         x: Points (N, D).

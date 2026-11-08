@@ -11,8 +11,9 @@ Mean Euclidean norm of the representations.
 
 ## Definition, protocol and pitfalls
 
-Draganov et al. (2025, arXiv:2502.09252): pre-normalization norms govern convergence and
-shrink on unexpected samples. Take the representation before any L2 normalization.
+Draganov et al. (2025, arXiv:2502.09252) find that the norms before normalization govern
+convergence and shrink on unexpected samples, so pass the representation before any L2
+normalization.
 
 Args:
     x: Representations (N, D).

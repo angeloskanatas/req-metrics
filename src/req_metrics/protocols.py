@@ -59,11 +59,11 @@ KANATAS2026 = Protocol(
     shifted=(("pte", {"probe": "linear", "score": "phase", "center": True}),),  # 11 nonzero shifts
     n_items=10000,
     notes=(
-        "Section 3.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "
+        "Section 2.2: 10,000 15-second clips, one per track, from MTG-Jamendo; pooled vectors are time means "
         "for encoders and the final token for autoregressive decoders; frame-level metrics use the full "
         "token sequences.",
         "PTE: a linear probe per layer on 10,000 clips (70/15/15 split) with all 11 nonzero shifts; "
-        "embeddings centred with the training-split mean of the originals.",
+        "embeddings centered with the training-split mean of the originals.",
     ),
 )
 

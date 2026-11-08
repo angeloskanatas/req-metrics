@@ -7,7 +7,6 @@ from req_metrics.metrics import (  # noqa: F401
     distribution,
     equivariance,
     functional,
-    local_geometry,
     relational,
     spectral,
     tokens,

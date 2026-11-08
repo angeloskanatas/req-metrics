@@ -12,16 +12,18 @@ Pitch-transposition equivariance, linear probe, phase distance (Kanatas et al., 
 
 ## Definition, protocol and pitfalls
 
-Pitch-transposition equivariance: PTE = 1 - d/2 on held-out clips; the paper reports -d, the same
-ranking.
+Pitch-transposition equivariance, PTE = 1 - d/2 on held-out clips.
 
 A probe maps each representation to a 12-bin softmax key profile, projected on the circle of
-fifths (DFT bin omega = 7). The probe is trained on (clip, k-semitone transposition) pairs so that the cross-power of the two
-projections has phase -2 pi omega k / 12. It is scored by d, the RMS chordal distance of the unit-normalized
-cross-power to that target (score="phase"), or of the raw cross-power (score="cpsd"). 1 means equivariant tonal content is linearly decodable,
-about 0.29 random phase. Clips are split before shifting. Read with mean_abs_cpsd: a probe
-whose cross-power stays near zero never left the uniform softmax. The MLP probe uses Xavier
-initialization, an asymmetric output bias and temperature 0.5 to leave that fixed point.
+fifths (DFT bin omega = 7). It is trained on (clip, k-semitone transposition) pairs so that the
+cross-power of the two projections has phase -2 pi omega k / 12, and scored by d, the RMS
+chordal distance of the unit-normalized cross-power to that target (score="phase") or of the
+raw cross-power (score="cpsd"). The paper reports -d, which gives the same ranking. A value of 1
+means equivariant tonal content is linearly decodable; random phase gives about 0.29. Clips are
+split into training, validation and test sets before shifting. Read the value with
+mean_abs_cpsd: a probe whose cross-power stays near zero never left the uniform softmax. The MLP
+probe uses Xavier initialization, an asymmetric output bias and temperature 0.5 to leave that
+fixed point.
 
 Args:
     z: Representations of the original clips (N, D).
@@ -32,7 +34,7 @@ Args:
     score: "phase" or "cpsd".
     center: Subtract the training-split mean of the originals from the originals and every
         shifted copy before probing; the function class is unchanged for a probe with a bias,
-        the optimisation is not.
+        the optimization is not.
     hidden_units: MLP widths.
     temperature: Softmax temperature; default 0.5 for the MLP probe, 1.0 for the linear one.
     epochs, lr, weight_decay, batch_size, patience: Training protocol.
