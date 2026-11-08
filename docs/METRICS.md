@@ -259,9 +259,10 @@ maximum under collapse, N^2: (Q - N - N(N-1)/D) / (N^2 - N - N(N-1)/D). The pape
 Frobenius norm of W W^T, but the expectation and the maximum it states are those of the squared
 norm. This implementation uses the squared norm, so that a single point gives exactly 1 and a
 uniform cloud gives 0. It is computed from the D x D second moment in O(N D^2). The TMLR study
-reports it as a reliable negative predictor for self-supervised vision models and as
-uninformative for supervised ones, with values near 0 or 1 for supervised ViTs, and finds
-rho = -0.999 with diffusion spectral entropy.
+reports it as a reliable negative predictor for self-supervised vision models. Under its linear
+probe it is uninformative for supervised models, and for ViTs it sits near 0 when they are
+self-supervised and near 1 when they are supervised. The study also finds rho = -0.999 with
+diffusion spectral entropy.
 
 ### uniformity and alignment (Wang and Isola, 2020)
 

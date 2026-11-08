@@ -148,7 +148,11 @@ drift reference from the checkpoint.
 
 - `rq.rank_runs({name: records}, "effective_rank", layer=12)` orders runs or checkpoints by a
   metric at one layer. This is the selection rule of RankMe and LiDAR. Use the layer you read
-  downstream.
+  downstream. `direction` says whether higher or lower is better, and for some metrics that
+  depends on the comparison. Higher intrinsic dimension went with better layers within a model
+  (Kanatas et al., 2026) but lower intrinsic dimension with better models at the final layer
+  (Arputharaj et al., 2026). Effective rank grows with the width of the representation, so
+  compare runs of the same width.
 - `rq.top_layers` ranks the layers of one model.
 - `rq.top_local_maxima(values, t=3, window=2)` keeps the best local maxima over checkpoints or
   layers, the rule Dai et al. (NeurIPS 2025) use with `dense_structure`.
