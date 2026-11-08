@@ -145,6 +145,7 @@ class _GridPooler:
         self.freq_chunks, self.time_chunks = freq_chunks, time_chunks
 
     def to_grid(self, out: Tensor) -> Tensor:  # (B, F, T, D)
+        """Patch tokens of a ViT output, prefix tokens dropped, as a (B, F, T, D) grid."""
         f_count, t_count = self.grid
         tokens = out[:, self.n_prefix :]
         if tokens.shape[1] != f_count * t_count:
@@ -477,10 +478,10 @@ def jacobian_products(
 
     b, size = x.shape[0], x[0].numel()
     k = min(num_probes, size)
-    gen = torch.Generator().manual_seed(seed)
+    gen = torch.Generator().manual_seed(seed)  # drawn on the CPU, so a seed gives the same directions on any device
     omega = torch.stack(
         [torch.linalg.qr(torch.randn(size, k, generator=gen, dtype=torch.float64))[0].T for _ in range(b)]
-    )
+    ).to(x.device)
 
     def readouts(inp: Tensor) -> tuple[Tensor, ...]:
         out: dict[int, Tensor] = {}

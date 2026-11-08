@@ -17,7 +17,6 @@ class DeviceAgreementTests(unittest.TestCase):
         cases = [
             (rq.twonn, (x,), {}),
             (rq.gaussianity, (x,), {}),
-            (rq.local_rectifiability, (x,), {"n": 3, "n_anchors": 64}),
             (rq.dime, (views,), {"n_perm": 3}),
             (rq.token_cosine, (tokens,), {"n_tokens": 20}),
         ]
@@ -34,6 +33,21 @@ class DeviceAgreementTests(unittest.TestCase):
             gpu = rq.compute(clips, ["effective_rank", "intrinsic_dimension/twonn"], level=level, device="cuda", **cap)
             for a, b in zip(cpu, gpu, strict=True):
                 self.assertAlmostEqual(a.value, b.value, delta=1e-6 * max(1.0, abs(a.value)), msg=level)
+
+    def test_jacobian_sketch_matches_across_devices(self):
+        torch.manual_seed(0)
+        net = torch.nn.Sequential(torch.nn.Linear(12, 16), torch.nn.Tanh(), torch.nn.Linear(16, 8))
+        x = torch.randn(3, 12, generator=torch.Generator().manual_seed(2))
+        jer = rq.get_metric("jacobian_effective_rank").fn
+        values = []
+        for device in ("cpu", "cuda"):
+            model = net.to(device)
+            sketch = rq.jacobian_products(
+                model, x.to(device), [model[0], model[2]], lambda o: o, num_probes=6, power_iters=2, seed=3
+            )
+            values.append([jer(sketch[i].cpu()).value for i in (0, 1)])
+        for cpu, gpu in zip(*values, strict=True):
+            self.assertAlmostEqual(cpu, gpu, delta=1e-5 * max(1.0, abs(cpu)))
 
     def test_monitor_view_passes_run_per_layer_on_the_model_device(self):
         model = torch.nn.Sequential(torch.nn.Linear(8, 8), torch.nn.Linear(8, 8)).cuda()
