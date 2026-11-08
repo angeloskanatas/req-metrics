@@ -19,7 +19,7 @@ readouts its sources used.
 
 | Family | Input the estimator sees | Readouts and precedent |
 |---|---|---|
-| spectral, relational, intrinsic dimension, local geometry | a point cloud `(N, D)` | one vector per sample (class token for ViTs and global average pooling for CNNs in Arputharaj et al. 2026; backbone output in RankMe and LiDAR; time mean in Kanatas et al. 2026; frequency-concatenated or partitioned means for 2D audio encoders), the tokens of one sample (Skean et al. 2025 prompt entropy) or of all samples (Razzhigaev et al. 2024), or the time steps of a trajectory layout |
+| spectral, relational, manifold (intrinsic dimension) | a point cloud `(N, D)` | one vector per sample (class token for ViTs and global average pooling for CNNs in Arputharaj et al. 2026; backbone output in RankMe and LiDAR; time mean in Kanatas et al. 2026; frequency-concatenated or partitioned means for 2D audio encoders), the tokens of one sample (Skean et al. 2025 prompt entropy) or of all samples (Razzhigaev et al. 2024), or the time steps of a trajectory layout |
 | trajectory curvature | a time-ordered `(T, D)` sequence per sample | frame encoders directly; 2D encoders through the frequency-concatenated or frequency-mean trajectory |
 | token fields | the patch tokens of one sample, class token kept for `cls_patch_cosine` | Darcet et al. 2024, Marouani et al. 2026, DINOv3 |
 | views and equivariance | one vector per sample and per view or shift | pooled embeddings in Thilak et al. 2024 and Wang and Isola 2020; for pitch, a frequency-preserving readout keeps the quantity the probe must find |
