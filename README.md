@@ -183,8 +183,10 @@ subset, the training-batch buffer, the sweep schedule and reading every layer.
 `rq.list_metrics()`, `rq.get_metric(name)` and `rq.describe(name)` show the input, preprocessing,
 citation and card of each metric. Different estimators of the same quantity share a prefix and are
 named after their method, for example `intrinsic_dimension/twonn` and `intrinsic_dimension/gride`.
-None of them is the default. Options such as a bias correction are arguments, and the record keeps
-the value under every option.
+None of them is the default. Options such as a bias correction are keyword arguments, and the
+returned value follows the option you chose. Some metrics also report the other options in `extras`.
+The participation ratio, for instance, keeps its uncorrected estimate and the three corrected ones,
+and curvature reports both the signed and the folded angle.
 
 ## Documentation
 
