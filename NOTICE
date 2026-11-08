@@ -13,7 +13,7 @@ _fisher_info_scaling) and id_estimation.py (_compute_id_2NN,
 return_id_scaling_gride). Changes: rewritten on torch tensors, neighbor
 distances taken from a shared precomputed table instead of recomputed per
 call, scales exposed by their outer neighbor rank, results returned as
-MetricResult. Numerical parity with DADApy is checked in tests/test_dadapy_parity.py.
+MetricResult.
 
 Method references for every metric are listed in docs/references.bib; the
 toolkit asks users to cite the original paper of each metric they report.
@@ -23,4 +23,4 @@ The bias-corrected participation-ratio formulas in req_metrics/metrics/spectral.
 Chun, Canatar, Chung and Lee (ICLR 2026) and their reference implementation
 https://github.com/badooki/dimensionality (MIT License, Copyright (c) 2026 Chan Woo
 Chun). The quartic index sums are computed here in closed form from the Gram matrix
-and column moments and are checked against that implementation.
+and column moments.

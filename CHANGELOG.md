@@ -3,72 +3,44 @@
 All notable changes to this project are documented here. The format follows
 Keep a Changelog; versions follow Semantic Versioning.
 
-## [Unreleased]
+## [0.1.0] - 2026-11-08
 
-First release in preparation.
+First public release.
 
 ### Added
 
-- 38 metrics in twelve groups, each registered with its input contract, canonical preprocessing and
+- 39 metrics in eleven groups, each registered with its input contract, canonical preprocessing and
   citation: spectral (effective rank, matrix-based entropy, alpha-ReQ, anisotropy, participation
   ratio with the corrections of Chun et al., eigenvalue early enrichment), intrinsic dimension
-  (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST), local geometry (kNN curvature, local
-  rectifiability), relational (cosine anisotropy, self-clustering, uniformity, normalized standard
-  deviation), clustering (k-means inertia, Davies-Bouldin index), distribution (Gaussianity,
-  sparsity, embedding norm), trajectory curvature, views (LiDAR, InfoNCE over any number of views,
-  DiME, alignment), pitch-transposition equivariance, representation pairs (information imbalance,
-  neighborhood overlap, cycle k-NN consistency, CKA, SVCCA, RSA), token fields and the Jacobian
-  effective rank.
+  (TwoNN, GRIDE, Levina-Bickel MLE, mLID, MST), relational (cosine anisotropy, self-clustering,
+  uniformity, normalized standard deviation), clustering (k-means inertia and Davies-Bouldin index,
+  dense representation structure), distribution (Gaussianity, sparsity, embedding norm), trajectory
+  curvature, views (LiDAR, InfoNCE over any number of views, DiME, alignment), pitch-transposition
+  equivariance, representation pairs (information imbalance, neighborhood overlap, cycle k-NN
+  consistency, CKA, SVCCA, RSA, orthogonal Procrustes distance, ridge predictivity), token fields
+  and the Jacobian effective rank.
 - `compute()` at three levels (one vector per sample; each sample's tokens, aggregated over samples;
   the tokens of all samples as one cloud), with shared spectra and neighbor tables, seeded
-  subsetting, per-metric item caps, a `device` argument and `Records` with JSON, CSV and pandas
-  export; `convergence()` sample-size curves; `rank_runs` and `top_layers`; parameter-free readouts
-  for token grids and token sequences; `protocols.get("kanatas2026")`.
+  subsampling, per-metric item caps and a `device` argument; `Records` with JSON, CSV, Markdown and
+  pandas export.
 - `compute_pairs()` between every layer of two representations of the same items (layers,
-  checkpoints, models or modalities): several pair metrics per call on one seeded subsample, one
-  rank or neighbor table per layer, cosine neighbors and the Jaccard normalization of the overlap on
-  request.
-- `LayerMonitor` on a fixed seeded subset in eval mode, with view passes from a live loader or in
-  train mode for masked objectives, the Jacobian effective rank of every layer's readout, the drift
-  of every layer against its first or previous sweep, `OnlineBuffer` over training batches, CSV,
-  JSON, TensorBoard and Weights & Biases sinks, and a PyTorch Lightning callback with epoch and step
-  schedules.
+  checkpoints, models or modalities), with one rank or neighbor table per layer; the deconfounded CKA
+  and RSA of Cui et al. (2022) through `confound=`.
+- `req_metrics.calibration`: permutation-null calibration of a score, of a maximum over layer pairs
+  and of every cell of a layer-pair grid (Gröger et al., 2026), with whole-group permutations for
+  the frames of one clip, and the half-sample error bars of Acevedo et al. (2026).
+- `convergence()` sample-size curves, `rank_runs()`, `top_layers()` and `top_local_maxima()` (Dai et
+  al., 2025), parameter-free readouts for token grids and sequences, and
+  `protocols.get("kanatas2026")`.
+- `LayerMonitor` on a fixed seeded subset in eval mode: augmented-view passes, the Jacobian effective
+  rank of every layer's readout, layer drift against the first or the previous sweep, `OnlineBuffer`
+  over training batches, and CSV, JSON, TensorBoard and Weights & Biases sinks.
+- A PyTorch Lightning callback with epoch and step schedules. Per-layer scalars are written to
+  `trainer.callback_metrics`, so `ModelCheckpoint` and `EarlyStopping` can select by them, and the
+  callback state is saved in checkpoints and restored on resume.
+- Weights & Biases depth profiles and per-layer singular-spectrum charts; `delta_first` and
+  `drawdown` sweep extras (De Melo Costa et al., 2026).
+- Input validation and failure records: invalid inputs are rejected before computing, a failed
+  estimator is recorded as nan with `extras["error"]`, and warnings flag identical views and layers
+  with fewer samples than dimensions.
 - Seeded draws come from CPU generators, so a seed gives the same value on CPU and GPU tensors.
-- Input validation and failure records: non-finite inputs, integer layer keys, `n_items >= 2`, the
-  `ViewSpec` view count and aligned pitch-shifted copies are checked up front; every estimator
-  failure is a nan record with `extras["error"]`, in `compute_pairs` as well, and sample-level
-  aggregates report skipped samples in `extras["first_error"]`. `describe(name)` prints a metric's
-  card; `Records` has a repr, slicing and `to_markdown`; JSON files write `null` for nan.
-- Lightning callback: per-layer scalars in `trainer.callback_metrics` on every rank, so
-  `ModelCheckpoint` and `EarlyStopping` select by them; callback state (history, schedule, drift
-  reference) saved in checkpoints and restored on resume; one sweep when a step trigger falls on an
-  epoch end; sinks receive the global step; the callback, the monitor and the sinks are picklable.
-- Dashboard: layer indices in logging keys zero-padded to the depth's width; depth-profile charts
-  keep at most eight sweeps spread from first to latest; `spectra=` on the monitor and the callback
-  adds per-layer charts of the log singular spectrum on Weights & Biases, on the same sweeps as the
-  profiles; chart tables name their axes and legend.
-- Sweep records carry `delta_first` and `drawdown` extras (change since the first sweep, fall below
-  the running peak), the trajectory summaries of De Melo Costa et al. (2026); logged through
-  `log_extras`.
-- README: the collapse-stop example uses `divergence_threshold`, which stops when `normalized_std` falls
-  below the value; the earlier `stopping_threshold` form would have stopped on a rise.
-- `compute` warns when the first two views of a layer are identical (view metrics then reduce to point
-  statistics).
-- Spectral metrics record `rank_cap` and `compute` warns once when a layer has fewer points than
-  dimensions.
-- Docs: the regime of `rank_runs` (fixed scale; Zeng et al., 2025; Du et al., 2024), ties, the SIGReg
-  conventions of `gaussianity` (centering, grid, finite-N null, KerJEPA kernel), and depth caveats on
-  effective rank and LiDAR (Littwin et al., 2024; Tian et al., 2021).
-- `uniformity` adds the `excess` extra (0 uniform to 1 collapsed) and documents the D-dependence of
-  the raw value; `gaussianity` documents that it measures distance to the isotropic Gaussian target,
-  including scale.
-- `LayerMonitor` warns once when a batch of N items yields a different number of rows at the first
-  hooked layer (clips or crops flattened into the batch, a layer run several times per batch).
-- Degenerate inputs: a collapsed cloud centers to exactly zero (effective rank 0, errors for the
-  undefined spectral estimators), neighbor tables and spectra refuse non-finite values, GRIDE, MLE
-  and mLID report insufficient distinct points, the pair pipeline ranks ties as the imbalance
-  estimator does, and LiDAR ignores rounding-noise eigenvalues.
-- `pte` takes `center`: the training-split mean of the originals is subtracted from the originals
-  and every shifted copy before probing; the `kanatas2026` protocol sets it.
-- `neighborhood_curvature` defaults to k = 10, the neighborhood size CurvSSL trains with (Sec. 4),
-  instead of 64.

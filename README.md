@@ -1,95 +1,97 @@
 # req-metrics
 
+Label-free metrics of representation quality, for analyzing the layers of trained models and for
+monitoring self-supervised training.
+
 [![tests](https://github.com/angeloskanatas/req-metrics/actions/workflows/ci.yml/badge.svg)](https://github.com/angeloskanatas/req-metrics/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/req-metrics.svg)](https://pypi.org/project/req-metrics/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/LICENSE)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://github.com/angeloskanatas/req-metrics/blob/main/pyproject.toml)
 [![arXiv](https://img.shields.io/badge/arXiv-2608.14819-b31b1b.svg)](https://arxiv.org/abs/2608.14819)
 
-req-metrics (REpresentation-Quality metrics) computes label-free metrics of learned
-representations as functions on embedding tensors: spectral measures of the covariance
-(effective rank, power-law decay, anisotropy), intrinsic dimension and relational
-structure of the point cloud, invariance and discriminability over augmented views,
-equivariance under known transformations, and similarity between representations;
-thirty-eight estimators, each following its paper. It serves two uses: layer-wise
-analysis of trained models, and monitoring during training, where the same metrics flag
-collapse and compare runs and checkpoints without labels.
+When you use a pretrained model as a frozen feature extractor, you have to decide which layer to
+read. When you train a self-supervised model, you want to know whether the run is healthy and which
+checkpoint to keep. Both questions are usually answered by training labeled probes. The metrics in
+this library answer them from the embeddings alone, with a few thousand unlabeled samples.
 
-Estimators are PyTorch functions on tensors. The pipeline adds shared spectra and
-neighbor tables, seeded subsampling, three levels (one vector per sample, the tokens
-of each sample, the tokens of all samples) and records that carry the estimator
-parameters, preprocessing, sample size and citation of every value. Each metric
-follows a published definition and is checked against its reference implementation.
-Inputs are embeddings of any modality; only `pte` is specific to music.
+req-metrics has 39 metrics. They cover the spectrum of the embeddings (effective rank or RankMe,
+α-ReQ, anisotropy), intrinsic dimension (TwoNN, GRIDE, MLE), neighborhoods and clusters, invariance
+and discriminability over augmented views (LiDAR, InfoNCE, DiME), pitch-transposition equivariance
+(PTE), and the similarity between two representations (CKA, SVCCA, information imbalance). Each one
+is a PyTorch function on tensors, so it works with embeddings from any model.
+
+On top of the metrics, `rq.compute` draws a seeded subsample, shares spectra and neighbor tables
+between metrics, and works at three levels: one vector per sample, the tokens of each sample, or the
+tokens of all samples. It returns records that keep the parameters, sample size and citation of every
+value.
+
+The library was written for the paper [What Makes a Good Layer?](https://arxiv.org/abs/2608.14819)
+(ISMIR 2026) and includes more metrics than the paper uses.
 
 ## Installation
 
-Python 3.10 or later and PyTorch 2.1 or later.
+Requires Python 3.10+ and PyTorch 2.1+.
+
+```bash
+pip install req-metrics
+pip install "req-metrics[lightning]"   # with the Lightning callback
+```
+
+The development version:
 
 ```bash
 pip install "req-metrics @ git+https://github.com/angeloskanatas/req-metrics.git"
-pip install "req-metrics[lightning] @ git+https://github.com/angeloskanatas/req-metrics.git"   # with the Lightning callback
-```
-
-For development, with the test, lint and Lightning dependencies:
-
-```bash
-git clone https://github.com/angeloskanatas/req-metrics.git && cd req-metrics
-pip install -e ".[dev]"
-pytest
 ```
 
 ## Quick start
 
-### Post-hoc analysis of a trained model
+### Analyzing a trained model
 
-Layers are plain tensors keyed by layer index; how they were extracted is
-recorded through the `model` and `pooling` labels.
+Pass the embeddings of each layer as a dictionary keyed by layer index. The `model` and `pooling`
+labels are stored in the record.
 
 ```python
 import req_metrics as rq
 
-layers = {0: z0, 1: z1, 2: z2}                      # (N, D) per layer, one vector per sample (sequence level)
-# e.g. out = model(**batch, output_hidden_states=True); layers = {i: h[:, 0] for i, h in enumerate(out.hidden_states)}
-# (Hugging Face models of any modality; h.mean(1) for a mean pool) or sweep a checkpoint with LayerMonitor below
+layers = {0: z0, 1: z1, 2: z2}                       # (N, D) per layer: one vector per sample
 rec = rq.compute(layers, ["effective_rank", "intrinsic_dimension/gride", "anisotropy/spectral", "self_clustering"],
                  n_items=10000, seed=42, model="my-encoder", pooling="time-mean")
-rec.profile("effective_rank")                        # [(layer, value), ...]
-print(rec.to_markdown())                             # layers x metrics; to_csv, to_json, to_pandas for files
+rec.profile("effective_rank")                         # [(layer, value), ...]
+print(rec.to_markdown())                              # layers x metrics; also to_csv, to_json, to_pandas
 
-tokens = {0: [t0_s0, t0_s1, ...], 1: [...]}         # (T_i, D) frames or patches per sample
-rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n_items=2000)  # per sample, averaged
-rq.compute(tokens, ["effective_rank"], level="population", n_tokens=10000)  # tokens of all samples as one cloud
+tokens = {0: [t0_s0, t0_s1, ...], 1: [...]}          # (T_i, D) frames or patches per sample
+rq.compute(tokens, ["trajectory_curvature", "effective_rank"], level="sample", n_items=2000)
+rq.compute(tokens, ["effective_rank"], level="population", n_tokens=10000)
 
-views = {0: v0, 1: v1}                               # (q, N, D) augmented views of the same samples
+views = {0: v0, 1: v1}                                # (q, N, D) augmented views of the same samples
 rq.compute(views, ["lidar", "infonce"], views=rq.ViewSpec(source="shared", augmentations=("PitchShift(-4..4)",), q=10))
 
 rq.compute(shifted_layers, ["pte"], shifts=rq.ShiftSpec("waveform pitch shift", semitones=tuple(range(1, 12))))
-rq.compute_pairs(layers, metrics=["information_imbalance", "cka"])  # all layer pairs; one local, one global measure
-rq.compute_pairs(audio_layers, text_layers, metrics=["neighborhood_overlap"],  # two models or modalities, paired items
+rq.compute_pairs(layers, metrics=["information_imbalance", "cka"])          # every pair of layers
+rq.compute_pairs(audio_layers, text_layers, metrics=["neighborhood_overlap"],  # two models or modalities
                  params={"neighborhood_overlap": {"k": 10, "l2": True}}, model="audio", model_b="text")
+rq.calibrate(rq.cka, a, b, groups=clip_ids)          # against permutations of whole clips (Gröger et al., arXiv:2602.14486)
+rq.jackknife(rq.information_imbalance, a, b)          # mean and spread over five half-samples (Acevedo et al., arXiv:2505.17101)
+rq.compute(tokens, ["dense_structure"], level="population")  # needs the sample of every token
 
-rq.convergence(z1, "effective_rank").to_markdown()  # does the value depend on N? subsample curve
-rq.top_layers(rec, "intrinsic_dimension/gride", k=3)  # the k best layers; GRIDE's scale is a separate argument
-p = rq.protocols.get("kanatas2026")                 # metric variants and parameters of a published protocol
+rq.convergence(z1, "effective_rank").to_markdown()   # the value against the sample size
+rq.top_layers(rec, "intrinsic_dimension/gride", k=3)
+p = rq.protocols.get("kanatas2026")                  # the metrics and parameters of a published analysis
 rq.compute(layers, p.names("sequence"), params=p.params("sequence"), n_items=p.n_items)
 ```
 
-Single estimators are plain functions returning `MetricResult(value, extras)`:
-`rq.effective_rank(x)`, `rq.lidar(views)`, `rq.pte(z, shifted)`. Spectrogram-patch
-grids and frame sequences are turned into points, trajectories or token clouds by
-the parameter-free readouts in `req_metrics.layouts`.
+Single metrics can also be called directly and return `MetricResult(value, extras)`, for example
+`rq.effective_rank(x)`, `rq.lidar(views)` or `rq.pte(z, shifted)`. The functions in
+`req_metrics.layouts` turn spectrogram-patch grids and frame sequences into points, trajectories or
+token sets.
 
-### Monitoring during training
+### Monitoring training
 
-During training the same records come from forward hooks, to watch collapse and
-geometry within a run and to compare runs or checkpoints without labels. With
-PyTorch Lightning it is one callback. It finds the blocks, draws a fixed
-monitoring subset of the training set, sweeps every layer at the start of
-training and on the schedule you give, and logs to the trainer's logger. Each layer's
-metrics are scalars over training steps (`layer_metrics/<metric>_layer_<l>`, indices
-zero-padded so panels sort by depth); on Weights & Biases every metric also gets a
-depth-profile chart with one line per sweep, and with `spectra=256` every layer a chart of
-its log singular spectrum.
+The Lightning callback hooks the blocks of the model and keeps a fixed subset of the training set
+for monitoring. At the start of training and then on a schedule, it computes every metric on every
+layer and logs one scalar per layer and metric (`layer_metrics/<metric>_layer_<l>`). On Weights &
+Biases it also plots the depth profile at each sweep, and with `spectra=256` the singular spectrum of
+every layer.
 
 ```python
 from req_metrics.integrations.lightning import LayerMonitorCallback
@@ -102,16 +104,9 @@ trainer = pl.Trainer(callbacks=[LayerMonitorCallback(
     online=True)])                                      # also the training-batch buffer, as a collapse indicator
 ```
 
-The hooked layers must yield one row per item. When a batch of N items yields a multiple of
-N rows, as when a video or world-model trainer flattens the frames of a clip into the batch
-before the encoder, the first sweep warns: pass a loader with one input per item, pool the
-rows of one item into a (B, T, D) trajectory at `level="sample"`, or hook the module whose
-output is one vector per item.
-
-Without Lightning, `LayerMonitor` does the same with a forward callable and a loader.
-`drift_metrics` adds, at every sweep, a pair metric between each layer's current state
-and its state at the first sweep (or the previous one) on the same items, the layer-wise
-training dynamics of Raghu et al. (2017):
+Without Lightning, `LayerMonitor` does the same with a forward function and a data loader. With
+`drift_metrics`, each layer is also compared with its state at the first (or the previous) sweep, as
+in SVCCA (Raghu et al., NeurIPS 2017):
 
 ```python
 mon = rq.LayerMonitor(model.blocks, pool="cls", metrics=["effective_rank", "intrinsic_dimension/mlid"],
@@ -121,61 +116,53 @@ mon.profiles("effective_rank")                       # {step: [(layer, value), .
 mon.profiles("cka")                                  # drift of every layer from its first sweep
 ```
 
-Every single-layer record of a sweep also carries two trajectory extras, `delta_first`
-(change since the first sweep) and `drawdown` (fall below the running peak, as a fraction),
-which `log_extras=("drawdown",)` logs beside the value; a drawdown threshold replaces
-absolute collapse thresholds, which vary by dataset (De Melo Costa et al., 2026). Spectral
-metrics warn when a layer has fewer points than dimensions, since the spectrum then has at
-most N nonzero eigenvalues and the value is capped by the sample count.
+A few things to keep in mind when monitoring:
 
-Centered spectral and neighbor metrics cannot see representations collapsing onto one
-shared vector; `normalized_std` (Chen and He, 2021) and `anisotropy/cosine` can, so log
-one of them beside the others. In one of our own training runs the effective rank read 252
-while the uncentered cosine between samples read 0.99: 99% of the embedding was one shared
-vector, and the rank alone would have called the run healthy. Hook placement matters too:
-block outputs sit before the final LayerNorm, which can reshape the spectrum, so when the
-rank of the last block and of the normalized output diverge, that divergence is a finding,
-not noise. View metrics warn when two passes return identical views, since LiDAR then
-collapses to the covariance rank.
+- Spectral and neighbor metrics that center the embeddings miss a collapse onto a single shared
+  vector. Log `normalized_std` (Chen and He, 2021) or `anisotropy/cosine` next to them.
+- Each record also holds `delta_first`, the change since the first sweep, and `drawdown`, the drop
+  below the best value so far. Absolute collapse thresholds vary by dataset (De Melo Costa et al.,
+  2026), so a threshold on the drawdown is easier to set. Log it with `log_extras=("drawdown",)`.
+- A hooked layer must return one row per item. If the trainer flattens the frames of a clip into
+  the batch, pool them back into a (B, T, D) trajectory and use `level="sample"`.
+- Block outputs are taken before the final normalization layer, which can change the spectrum.
+  Compare the last block with the normalized output.
+- Spectral metrics warn when a layer has fewer samples than dimensions, and view metrics warn when
+  two passes return identical views.
 
-The per-layer scalars also enter `trainer.callback_metrics`, so Lightning's own selection
-callbacks read them like a validation loss:
+The per-layer values are also written to `trainer.callback_metrics`, so `EarlyStopping` and
+`ModelCheckpoint` can use them:
 
 ```python
 EarlyStopping(monitor="layer_metrics/normalized_std_layer_12", mode="max", divergence_threshold=0.2 / D**0.5)
 ModelCheckpoint(monitor="layer_metrics/effective_rank_layer_12", mode="max", save_top_k=1)  # only where rank tracks your probe
 ```
 
-`divergence_threshold` stops when the quantity falls below the value under `mode="max"`
-(Lightning's `stopping_threshold` stops when it rises above it); 1 / sqrt(D) is the not-
-collapsed reference of `normalized_std`. Key names use the layer index zero-padded to the
-depth's width (`layer_07` in a 12-block model). Between sweeps the last value stands, so
-align the checkpoint cadence with the sweep schedule. A resumed run restores the sweep
-history and the drift reference from the checkpoint.
+With `mode="max"`, `divergence_threshold` stops training when the value falls below it. For
+`normalized_std`, 1/sqrt(D) is the value of an embedding that has not collapsed. Layer indices in the
+keys are zero-padded (`layer_07` in a 12-block model). Between sweeps the last value is kept, so
+match the checkpoint schedule to the sweep schedule. A resumed run restores the sweep history and the
+drift reference from the checkpoint.
 
-Selection follows the published rules: `rq.rank_runs({name: records},
-"effective_rank", layer=12)` orders runs or checkpoints by a metric at one layer,
-the way RankMe and LiDAR order runs on one tensor (the projector output in those
-papers, encoder layers in the speech and audio ones); pick the layer you read
-downstream. `rq.top_layers` ranks the layers of one run. The direction is an
-argument because a metric's sign depends on the task family and the training
-paradigm. Label-free ranking is the zero-label tier: when a few hundred labelled
-examples exist, a probe trained on one early checkpoint predicts the final outcome
-more accurately (Whetten et al., 2025; Liu et al., 2026) and is the reference to
-check a label-free order against. The rule lives in the fixed-scale regime, where the
-training loss is uninformative for joint-embedding objectives and inverted for language
-models compared across recipe variants (Zeng et al., 2025); along one autoregressive
-recipe's scale and token trajectory the loss itself tracks prompted performance (Du et
-al., 2024). A returned order is only as sharp as the metric gaps behind it: report the
-gap, and treat near-equal values as ties.
+### Ranking runs and layers
 
-`pool` is `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`,
-`freq_concat_mean`, `partitioned`, `freq_concat`, `freq_mean`, with
-`pool_kwargs={"grid": (F, T)}`) or any parameter-free callable; `augment` is any
-callable you supply. Sinks are `csv_sink`, `json_sink`, `tensorboard_sink`,
-`wandb_sink` or any callable of `(records, step)`. Monitoring records have the same
-schema as post-hoc records. The rationale for the fixed subset, the training-batch
-buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
+- `rq.rank_runs({name: records}, "effective_rank", layer=12)` orders runs or checkpoints by a
+  metric at one layer. This is the selection rule of RankMe and LiDAR. Use the layer you read
+  downstream.
+- `rq.top_layers` ranks the layers of one model.
+- `rq.top_local_maxima(values, t=3, window=2)` keeps the best local maxima over checkpoints or
+  layers, the rule Dai et al. (NeurIPS 2025) use with `dense_structure`.
+
+The direction is an argument, because whether higher is better depends on the task and on how the
+model was trained. If you have a few hundred labeled examples, check the ranking against a probe
+(`docs/DESIGN.md`, section 4b). Near-equal values should be read as ties.
+
+`pool` can be `cls`, `mean`, `max`, `last`, `tokens`, a grid readout (`gap`, `freq_concat_mean`,
+`partitioned`, `freq_concat`, `freq_mean`, with `pool_kwargs={"grid": (F, T)}`) or any function
+without parameters. `augment` is any function you supply. Results can go to `csv_sink`, `json_sink`,
+`tensorboard_sink`, `wandb_sink` or any function of `(records, step)`. Monitoring and post-hoc
+analysis produce records with the same schema. `docs/DESIGN.md` explains the choices behind the fixed
+subset, the training-batch buffer, the sweep schedule and reading every layer.
 
 ## Metrics
 
@@ -183,72 +170,68 @@ buffer, the sweep schedule and reading every layer is in `docs/DESIGN.md`.
 |---|---|---|
 | Spectral | `alpha_req`, `anisotropy/spectral`, `effective_rank`, `eigenvalue_early_enrichment`, `matrix_entropy`, `participation_ratio` | `(N, D)` points |
 | Intrinsic dimension | `intrinsic_dimension/twonn`, `intrinsic_dimension/gride`, `intrinsic_dimension/mle`, `intrinsic_dimension/mlid`, `intrinsic_dimension/mst` | `(N, D)` points |
-| Local geometry | `local_rectifiability`, `neighborhood_curvature` | `(N, D)` points |
 | Relational | `anisotropy/cosine`, `normalized_std`, `self_clustering`, `uniformity` | `(N, D)` points |
-| Clustering | `cluster_quality` | `(N, D)` points |
+| Clustering | `cluster_quality`, `dense_structure` | `(N, D)` points; `dense_structure` takes the token fields of many samples at the population level |
 | Trajectory | `trajectory_curvature` | `(T, D)` per sample, time-ordered |
 | Views | `alignment`, `dime`, `infonce`, `lidar` | `(q, N, D)` augmented views; `dime` takes q = 2 |
 | Equivariance | `pte` | embeddings of transformed copies (pitch shifts in the paper) |
-| Representation pairs | `cka`, `cycle_knn`, `information_imbalance`, `neighborhood_overlap`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
+| Representation pairs | `cka`, `cycle_knn`, `information_imbalance`, `neighborhood_overlap`, `procrustes`, `ridge_predictivity`, `rsa`, `svcca` | two representations of the same items: layers, checkpoints, models or modalities |
 | Functional | `jacobian_effective_rank` | the model and its inputs, during monitoring |
 | Token fields | `cls_patch_cosine`, `token_cosine`, `token_gram_drift`, `token_norm_outliers` | `(T, D)` token fields per sample; `token_gram_drift` also takes a reference field and is called directly |
 | Distribution | `embedding_norm`, `gaussianity`, `sparsity` | `(N, D)` points |
 
-`rq.list_metrics()`, `rq.get_metric(name)` and `rq.describe(name)` expose the registry:
-input contract, preprocessing, citation keys and item cap of every metric, and its card.
-Estimators of one quantity share a prefix and are named by their method
-(`intrinsic_dimension/twonn`, `anisotropy/spectral`, `anisotropy/cosine`); none is a
-default. Settings of one computation, such as
-a bias correction or a spectrum convention, are arguments, and every alternative is in
-the extras of the record.
+`rq.list_metrics()`, `rq.get_metric(name)` and `rq.describe(name)` show the input, preprocessing,
+citation and card of each metric. Different estimators of the same quantity share a prefix and are
+named after their method, for example `intrinsic_dimension/twonn` and `intrinsic_dimension/gride`.
+None of them is the default. Options such as a bias correction are arguments, and the record keeps
+the value under every option.
 
 ## Documentation
 
-- `docs/METRICS.md`: definition, canonical protocol and citation of every metric,
-  the verification against reference implementations, and what was considered and
-  not adopted.
+- `docs/METRICS.md`: the definition, protocol and citation of every metric.
 - `docs/metrics/`: one card per metric, generated from the registry.
-- `docs/VIEWS.md`: how augmented views and pitch-shifted copies enter.
-- `docs/DESIGN.md`: the decisions behind the library, cost classes, sample size.
-- `examples/`: per-layer memmaps to records, and correlation of layer profiles with
-  per-layer downstream scores (Spearman and depth-controlled partial Spearman).
+- `docs/VIEWS.md`: how augmented views and pitch-shifted copies are passed in.
+- `docs/DESIGN.md`: the design choices, the cost of each metric and the sample sizes.
+- `examples/`: from per-layer embedding files to records, and correlating layer profiles with
+  per-layer downstream scores.
 
-## Reproducing Kanatas et al. (2026)
+## Reproducing the paper
 
-`rq.protocols.get("kanatas2026")` pins the metric variants, parameters and sample
-sizes used in the paper. Its layer-wise results and raw per-layer records are on the
-companion site, https://angeloskanatas.github.io/music-fms-layer-eval/, and
-`Records.to_atlas_json` writes records in that format.
+`rq.protocols.get("kanatas2026")` fixes the metric variants, parameters and sample sizes used in
+the paper. The per-layer results of every model and task are on the
+[project page](https://angeloskanatas.github.io/music-fms-layer-eval/), and `Records.to_atlas_json`
+writes records in the same format.
 
 ## Related tools
 
 - [DADApy](https://github.com/sissa-data-science/DADApy) and
   [scikit-dimension](https://github.com/scikit-learn-contrib/scikit-dimension): intrinsic-dimension estimators.
-- [reptrix](https://github.com/BARL-SSL/reptrix): RankMe, alpha-ReQ and LiDAR for PyTorch models.
+- [reptrix](https://github.com/BARL-SSL/reptrix): RankMe, α-ReQ and LiDAR for PyTorch models.
 - [stable-pretraining](https://github.com/galilai-group/stable-pretraining): Lightning callbacks for RankMe
   and LiDAR on a queue of training batches.
 - [lightly](https://github.com/lightly-ai/lightly): a collapse indicator for self-supervised training.
-- [information_flow](https://github.com/OFSkean/information_flow) (Skean et al., ICML 2025,
-  arXiv:2502.02013): layer-wise entropy, curvature and InfoNCE for language models.
-- [synesis](https://github.com/chrispla/synesis) (Plachouras et al., IJCNN 2025, arXiv:2505.06224):
-  probe-based informativeness, equivariance, invariance and disentanglement.
+- [information_flow](https://github.com/OFSkean/information_flow) (Skean et al., ICML 2025): layer-wise
+  entropy, curvature and InfoNCE for language models.
+- [synesis](https://github.com/chrispla/synesis) (Plachouras et al., IJCNN 2025): probe-based
+  informativeness, equivariance, invariance and disentanglement.
 
 ## Development
 
 ```bash
+git clone https://github.com/angeloskanatas/req-metrics.git && cd req-metrics
 pip install -e ".[dev]"
 pre-commit install
-ruff check src tests examples scripts && ruff format --check .
+ruff check src tests examples scripts && ruff format --check src tests examples scripts
 pytest
 ```
 
-See `CONTRIBUTING.md` for how a metric is added.
+`CONTRIBUTING.md` explains how to add a metric.
 
 ## Citation
 
-If you use req-metrics, cite the toolkit (`CITATION.cff`), the paper below, and
-the original paper of every metric you report; each registry entry's citation
-keys point into `docs/references.bib`.
+If you use req-metrics, please cite the paper below and the original paper of each metric you
+report. Every metric's citation keys point into `docs/references.bib`, and `CITATION.cff` cites the
+software.
 
 ```bibtex
 @inproceedings{kanatas2026goodlayer,
@@ -262,4 +245,4 @@ keys point into `docs/references.bib`.
 
 ## License
 
-Apache License 2.0. Code ported from other projects is attributed in `NOTICE`.
+Apache License 2.0. Code adapted from other projects is credited in `NOTICE`.
